@@ -1,0 +1,26 @@
+services:
+  manipulator-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - ROS_DISTRO=${ROS_DISTRO}
+    image: movensys_vlm_image:latest
+    container_name: movensys_vlm_container
+    volumes:
+      # movensys-manipulator source (service type definitions)
+      - ${MOVENSYS_MANIPULATOR_PACKAGES}:/app/movensys_ws/src/movensys-manipulator:ro
+      # persist colcon build cache across restarts
+      - movensys_ws_build:/app/movensys_ws/build
+      - movensys_ws_install:/app/movensys_ws/install
+    environment:
+      - ROS_DISTRO=${ROS_DISTRO}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID}
+      - RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION}
+      - MOVENSYS_MANIPULATOR_PACKAGES=${MOVENSYS_MANIPULATOR_PACKAGES}
+    restart: unless-stopped
+    network_mode: host
+
+volumes:
+  movensys_ws_build:
+  movensys_ws_install:

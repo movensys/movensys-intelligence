@@ -1,0 +1,235 @@
+import asyncio
+import json
+from typing import List
+
+import std_srvs.srv
+from movensys_manipulator_moveit_config.srv import GetEefPose, MovePose, MoveJoints
+
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
+
+import ros2_node as rn
+
+router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Models
+# ---------------------------------------------------------------------------
+
+class MovePoseRequest(BaseModel):
+    pos: List[float]   # [x, y, z]
+    ori: List[float]   # [roll, pitch, yaw]
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "pos": [0.4, 0.0, 0.3],
+                "ori": [0.0, 1.57, 0.0],
+            }
+        }
+    }
+
+class MoveJointsRequest(BaseModel):
+    joint_names: List[str]
+    joint_values: List[float]
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "joint_names": ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"],
+                "joint_values": [0.0, -0.785, 1.571, 0.0, 0.785, 0.0],
+            }
+        }
+    }
+
+class GripperRequest(BaseModel):
+    data: bool
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {"data": True}
+        }
+    }
+
+class ScalesRequest(BaseModel):
+    vel_scale: float
+    acc_scale: float
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {"vel_scale": 0.5, "acc_scale": 0.5}
+        }
+    }
+
+
+# ---------------------------------------------------------------------------
+# Topics — WebSocket stream
+# ---------------------------------------------------------------------------
+
+async def _ws_stream(websocket: WebSocket, attr: str, interval: float = 0.1):
+    await websocket.accept()
+    try:
+        while True:
+            data = getattr(rn.ros_node, attr, None) if rn.ros_node else None
+            await websocket.send_text(json.dumps({"data": data, "error": None if data is not None else "No data"}))
+            await asyncio.sleep(interval)
+    except WebSocketDisconnect:
+        pass
+
+@router.websocket("/api/stream/eef_pose")
+async def ws_eef_pose(websocket: WebSocket):
+    await _ws_stream(websocket, "latest_eef_pose")
+
+@router.websocket("/api/stream/eef_rpy")
+async def ws_eef_rpy(websocket: WebSocket):
+    await _ws_stream(websocket, "latest_eef_rpy")
+
+@router.websocket("/api/stream/joint_states")
+async def ws_joint_states(websocket: WebSocket):
+    await _ws_stream(websocket, "latest_joint_states")
+
+@router.websocket("/api/stream/tf_static")
+async def ws_tf_static(websocket: WebSocket):
+    await _ws_stream(websocket, "latest_tf_static", interval=1.0)
+
+@router.websocket("/api/stream/image_top/camera_info")
+async def ws_camera_info(websocket: WebSocket):
+    await _ws_stream(websocket, "latest_camera_info")
+
+@router.websocket("/api/stream/image_top/depth")
+async def ws_depth(websocket: WebSocket):
+    await _ws_stream(websocket, "latest_depth_image", interval=0.1)
+
+@router.websocket("/api/stream/image_top/rgb")
+async def ws_rgb(websocket: WebSocket):
+    await _ws_stream(websocket, "latest_rgb_image", interval=0.1)
+
+
+# ---------------------------------------------------------------------------
+# Image top — REST snapshots
+# ---------------------------------------------------------------------------
+
+@router.get("/api/topics/tf_static")
+def get_tf_static():
+    if rn.ros_node is None:
+        raise HTTPException(503, detail="ROS node not running")
+    data = rn.ros_node.latest_tf_static
+    if data is None:
+        raise HTTPException(503, detail="No tf_static received yet")
+    return data
+
+@router.get("/api/topics/image_top/camera_info")
+def get_camera_info():
+    if rn.ros_node is None:
+        raise HTTPException(503, detail="ROS node not running")
+    data = rn.ros_node.latest_camera_info
+    if data is None:
+        raise HTTPException(503, detail="No camera_info received yet")
+    return data
+
+@router.get("/api/topics/image_top/depth")
+def get_depth_image():
+    if rn.ros_node is None:
+        raise HTTPException(503, detail="ROS node not running")
+    data = rn.ros_node.latest_depth_image
+    if data is None:
+        raise HTTPException(503, detail="No depth image received yet")
+    return data
+
+@router.get("/api/topics/image_top/rgb")
+def get_rgb_image():
+    if rn.ros_node is None:
+        raise HTTPException(503, detail="ROS node not running")
+    data = rn.ros_node.latest_rgb_image
+    if data is None:
+        raise HTTPException(503, detail="No RGB image received yet")
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Services
+# ---------------------------------------------------------------------------
+
+@router.get("/api/services/get_eef_pose")
+def svc_get_eef_pose():
+    resp = rn.call_service(rn.ros_node.cli_get_eef_pose, GetEefPose.Request())
+    return {"success": resp.success, "message": resp.message, "pos": list(resp.pos), "rpy": list(resp.rpy)}
+
+@router.post("/api/services/gripper")
+def svc_gripper(body: GripperRequest):
+    resp = rn.call_service(rn.ros_node.cli_gripper, std_srvs.srv.SetBool.Request(data=body.data))
+    return {"success": resp.success, "message": resp.message}
+
+
+# ---------------------------------------------------------------------------
+# Movement
+# ---------------------------------------------------------------------------
+
+def _move_pose(client, body: MovePoseRequest, timeout: int = 60) -> dict:
+    if len(body.pos) != 3 or len(body.ori) != 3:
+        raise HTTPException(400, detail="pos and ori must each have exactly 3 elements")
+    req = MovePose.Request()
+    req.pos = body.pos
+    req.ori = body.ori
+    resp = rn.call_service(client, req, timeout=timeout)
+    return {"success": resp.success, "message": resp.message}
+
+def _move_joints(client, body: MoveJointsRequest, timeout: int = 60) -> dict:
+    if len(body.joint_names) != len(body.joint_values):
+        raise HTTPException(400, detail="joint_names and joint_values must have the same length")
+    req = MoveJoints.Request()
+    req.joint_names = body.joint_names
+    req.joint_values = body.joint_values
+    resp = rn.call_service(client, req, timeout=timeout)
+    return {"success": resp.success, "message": resp.message}
+
+@router.post("/api/move/absolute_cartesian_base")
+def absolute_cartesian_base(body: MovePoseRequest):
+    return _move_pose(rn.ros_node.cli_abs_base_cart, body)
+
+@router.post("/api/move/relative_cartesian_base")
+def relative_cartesian_base(body: MovePoseRequest):
+    return _move_pose(rn.ros_node.cli_rel_base_cart, body)
+
+@router.post("/api/move/relative_cartesian_tool")
+def relative_cartesian_tool(body: MovePoseRequest):
+    return _move_pose(rn.ros_node.cli_rel_tool_cart, body)
+
+@router.post("/api/move/absolute_joint_pose")
+def absolute_joint_pose(body: MovePoseRequest):
+    return _move_pose(rn.ros_node.cli_abs_base_joint, body)
+
+@router.post("/api/move/joint_absolute")
+def joint_absolute(body: MoveJointsRequest):
+    return _move_joints(rn.ros_node.cli_joint_abs, body)
+
+@router.post("/api/move/joint_relative")
+def joint_relative(body: MoveJointsRequest):
+    return _move_joints(rn.ros_node.cli_joint_rel, body)
+
+
+# ---------------------------------------------------------------------------
+# Scales (vel / acc)
+# ---------------------------------------------------------------------------
+
+@router.get("/api/config/scales")
+def get_scales():
+    return rn.get_scales()
+
+@router.post("/api/config/scales")
+def set_scales(body: ScalesRequest):
+    if not (0.0 < body.vel_scale <= 1.0):
+        raise HTTPException(400, detail="vel_scale must be in (0, 1]")
+    if not (0.0 < body.acc_scale <= 1.0):
+        raise HTTPException(400, detail="acc_scale must be in (0, 1]")
+    return rn.set_scales(body.vel_scale, body.acc_scale)
+
+
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
+
+@router.get("/api/health")
+def health():
+    return {"status": "ok", "ros_node": rn.ros_node is not None}
