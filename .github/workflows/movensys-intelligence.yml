@@ -1,0 +1,51 @@
+name: CI - movensys_vlm
+
+on:
+  pull_request:
+    branches: [main, devel]
+    paths:
+      - 'movensys_vlm/**'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ros_distro: [jazzy, humble]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: network=host
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./movensys_vlm
+          file: ./movensys_vlm/docker/Dockerfile
+          build-args: |
+            ROS_DISTRO=${{ matrix.ros_distro }}
+          tags: movensys-intelligence:ci-${{ matrix.ros_distro }}
+          load: true
+          cache-from: type=gha,scope=${{ matrix.ros_distro }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.ros_distro }}
+
+      - name: Test Python syntax
+        run: |
+          docker run --rm \
+            movensys-intelligence:ci-${{ matrix.ros_distro }} \
+            bash -lc "
+              set -e
+              echo '=== syntax check: main.py ==='
+              python3 -m py_compile /app/main.py
+              echo '=== syntax check: router.py ==='
+              python3 -m py_compile /app/router.py
+              echo '=== syntax check: ros2_node.py ==='
+              python3 -m py_compile /app/ros2_node.py
+              echo '=== All syntax checks passed ==='
+            "

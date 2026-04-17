@@ -4,7 +4,8 @@ ARG ROS_DISTRO
 
 USER root
 
-RUN apt-get clean && apt-get update
+RUN echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4 && \
+    apt-get clean && apt-get update
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
@@ -28,9 +29,9 @@ RUN if [ "${ROS_DISTRO}" = "jazzy" ]; then \
 
 WORKDIR /app
 
-COPY fullstack/*.py ./
-COPY fullstack/static/ ./static/
-COPY entrypoint.sh /entrypoint.sh
+COPY *.py ./
+COPY static/ ./static/
+COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 EXPOSE 8000
