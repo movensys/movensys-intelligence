@@ -4,8 +4,10 @@ ARG ROS_DISTRO
 
 USER root
 
-RUN echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4 && \
-    apt-get clean && apt-get update
+RUN rm -f /etc/apt/sources.list.d/yarn.list || true
+
+RUN sed -i -E 's|http://(archive\|security)\.ubuntu\.com/ubuntu/|https://\1.ubuntu.com/ubuntu/|g' \
+      /etc/apt/sources.list.d/ubuntu.sources
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
