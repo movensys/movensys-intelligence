@@ -95,15 +95,27 @@ async def ws_tf_static(websocket: WebSocket):
 
 @router.websocket("/api/stream/image_top/camera_info")
 async def ws_camera_info(websocket: WebSocket):
-    await _ws_stream(websocket, "latest_camera_info")
+    await _ws_stream(websocket, "latest_top_camera_info")
 
 @router.websocket("/api/stream/image_top/depth")
 async def ws_depth(websocket: WebSocket):
-    await _ws_stream(websocket, "latest_depth_image", interval=0.1)
+    await _ws_stream(websocket, "latest_top_depth_image", interval=0.1)
 
 @router.websocket("/api/stream/image_top/rgb")
 async def ws_rgb(websocket: WebSocket):
-    await _ws_stream(websocket, "latest_rgb_image", interval=0.1)
+    await _ws_stream(websocket, "latest_top_rgb_image", interval=0.1)
+
+@router.websocket("/api/stream/image_hand/camera_info")
+async def ws_hand_camera_info(websocket: WebSocket):
+    await _ws_stream(websocket, "latest_hand_camera_info")
+
+@router.websocket("/api/stream/image_hand/depth")
+async def ws_hand_depth(websocket: WebSocket):
+    await _ws_stream(websocket, "latest_hand_depth_image", interval=0.1)
+
+@router.websocket("/api/stream/image_hand/rgb")
+async def ws_hand_rgb(websocket: WebSocket):
+    await _ws_stream(websocket, "latest_hand_rgb_image", interval=0.1)
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +135,7 @@ def get_tf_static():
 def get_camera_info():
     if rn.ros_node is None:
         raise HTTPException(503, detail="ROS node not running")
-    data = rn.ros_node.latest_camera_info
+    data = rn.ros_node.latest_top_camera_info
     if data is None:
         raise HTTPException(503, detail="No camera_info received yet")
     return data
@@ -132,7 +144,7 @@ def get_camera_info():
 def get_depth_image():
     if rn.ros_node is None:
         raise HTTPException(503, detail="ROS node not running")
-    data = rn.ros_node.latest_depth_image
+    data = rn.ros_node.latest_top_depth_image
     if data is None:
         raise HTTPException(503, detail="No depth image received yet")
     return data
@@ -141,9 +153,36 @@ def get_depth_image():
 def get_rgb_image():
     if rn.ros_node is None:
         raise HTTPException(503, detail="ROS node not running")
-    data = rn.ros_node.latest_rgb_image
+    data = rn.ros_node.latest_top_rgb_image
     if data is None:
         raise HTTPException(503, detail="No RGB image received yet")
+    return data
+
+@router.get("/api/topics/image_hand/camera_info")
+def get_hand_camera_info():
+    if rn.ros_node is None:
+        raise HTTPException(503, detail="ROS node not running")
+    data = rn.ros_node.latest_hand_camera_info
+    if data is None:
+        raise HTTPException(503, detail="No hand camera_info received yet")
+    return data
+
+@router.get("/api/topics/image_hand/depth")
+def get_hand_depth_image():
+    if rn.ros_node is None:
+        raise HTTPException(503, detail="ROS node not running")
+    data = rn.ros_node.latest_hand_depth_image
+    if data is None:
+        raise HTTPException(503, detail="No hand depth image received yet")
+    return data
+
+@router.get("/api/topics/image_hand/rgb")
+def get_hand_rgb_image():
+    if rn.ros_node is None:
+        raise HTTPException(503, detail="ROS node not running")
+    data = rn.ros_node.latest_hand_rgb_image
+    if data is None:
+        raise HTTPException(503, detail="No hand RGB image received yet")
     return data
 
 
