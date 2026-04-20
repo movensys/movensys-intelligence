@@ -65,9 +65,12 @@ class ManipulatorNode(Node):
         self.latest_eef_pose: Optional[dict] = None
         self.latest_eef_rpy: Optional[dict] = None
         self.latest_joint_states: Optional[dict] = None
-        self.latest_camera_info: Optional[dict] = None
-        self.latest_depth_image: Optional[dict] = None
-        self.latest_rgb_image: Optional[dict] = None
+        self.latest_top_camera_info: Optional[dict] = None
+        self.latest_top_depth_image: Optional[dict] = None
+        self.latest_top_rgb_image: Optional[dict] = None
+        self.latest_hand_camera_info: Optional[dict] = None
+        self.latest_hand_depth_image: Optional[dict] = None
+        self.latest_hand_rgb_image: Optional[dict] = None
         self.latest_tf_static: Optional[dict] = None
 
         _transient_local = QoSProfile(
@@ -79,10 +82,13 @@ class ManipulatorNode(Node):
         self.create_subscription(geometry_msgs.msg.PoseStamped,   "/wmx/moveit2/eef_pose", self._cb_eef_pose,      10, callback_group=cb)
         self.create_subscription(geometry_msgs.msg.Vector3Stamped, "/wmx/moveit2/eef_rpy",  self._cb_eef_rpy,       10, callback_group=cb)
         self.create_subscription(sensor_msgs.msg.JointState,       "/joint_states",          self._cb_joint_states,  10, callback_group=cb)
-        self.create_subscription(sensor_msgs.msg.CameraInfo,       "/image_top/camera_info", self._cb_camera_info,   10, callback_group=cb)
-        self.create_subscription(sensor_msgs.msg.Image,            "/image_top/depth",       self._cb_depth,          1, callback_group=cb)
-        self.create_subscription(sensor_msgs.msg.Image,            "/image_top/rgb",          self._cb_rgb,            1, callback_group=cb)
-        self.create_subscription(tf2_msgs.msg.TFMessage,           "/tf_static",             self._cb_tf_static,      _transient_local, callback_group=cb)
+        self.create_subscription(sensor_msgs.msg.CameraInfo,       "/image_top/camera_info",  self._cb_camera_info,       10, callback_group=cb)
+        self.create_subscription(sensor_msgs.msg.Image,            "/image_top/depth",        self._cb_depth,              1, callback_group=cb)
+        self.create_subscription(sensor_msgs.msg.Image,            "/image_top/rgb",          self._cb_rgb,                1, callback_group=cb)
+        self.create_subscription(sensor_msgs.msg.CameraInfo,       "/image_hand/camera_info", self._cb_hand_camera_info,  10, callback_group=cb)
+        self.create_subscription(sensor_msgs.msg.Image,            "/image_hand/depth",       self._cb_hand_depth,         1, callback_group=cb)
+        self.create_subscription(sensor_msgs.msg.Image,            "/image_hand/rgb",         self._cb_hand_rgb,           1, callback_group=cb)
+        self.create_subscription(tf2_msgs.msg.TFMessage,           "/tf_static",              self._cb_tf_static,          _transient_local, callback_group=cb)
 
         self.cli_get_eef_pose   = self.create_client(GetEefPose,           "/wmx/moveit2/get_eef_pose",                     callback_group=cb)
         self.cli_gripper        = self.create_client(std_srvs.srv.SetBool, "/wmx/set_gripper",                              callback_group=cb)
@@ -115,7 +121,7 @@ class ManipulatorNode(Node):
         }
 
     def _cb_camera_info(self, msg: sensor_msgs.msg.CameraInfo):
-        self.latest_camera_info = {
+        self.latest_top_camera_info = {
             "width":             msg.width,
             "height":            msg.height,
             "distortion_model":  msg.distortion_model,
@@ -128,10 +134,29 @@ class ManipulatorNode(Node):
         }
 
     def _cb_depth(self, msg: sensor_msgs.msg.Image):
-        self.latest_depth_image = _encode_depth(msg)
+        self.latest_top_depth_image = _encode_depth(msg)
 
     def _cb_rgb(self, msg: sensor_msgs.msg.Image):
-        self.latest_rgb_image = _encode_rgb(msg)
+        self.latest_top_rgb_image = _encode_rgb(msg)
+
+    def _cb_hand_camera_info(self, msg: sensor_msgs.msg.CameraInfo):
+        self.latest_hand_camera_info = {
+            "width":             msg.width,
+            "height":            msg.height,
+            "distortion_model":  msg.distortion_model,
+            "k":                 list(msg.k),
+            "d":                 list(msg.d),
+            "r":                 list(msg.r),
+            "p":                 list(msg.p),
+            "binning_x":         msg.binning_x,
+            "binning_y":         msg.binning_y,
+        }
+
+    def _cb_hand_depth(self, msg: sensor_msgs.msg.Image):
+        self.latest_hand_depth_image = _encode_depth(msg)
+
+    def _cb_hand_rgb(self, msg: sensor_msgs.msg.Image):
+        self.latest_hand_rgb_image = _encode_rgb(msg)
 
     _TF_PARENT = "world_manipulator"
     _TF_CHILD  = "camera_top_color_optical_frame"
