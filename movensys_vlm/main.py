@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from fastapi.openapi.utils import get_openapi
 
 from ros2_node import start_ros_node
@@ -37,18 +38,33 @@ _WS_STREAMS = {
                        "Sends `{\"data\": [...transforms], \"error\": null}` at ~1 Hz.",
     },
     "/api/stream/image_top/camera_info": {
-        "summary": "WS — Camera Info",
-        "description": "WebSocket stream of the top camera info topic (sensor_msgs/CameraInfo). "
+        "summary": "WS — Top Camera Info",
+        "description": "WebSocket stream of `/image_top/camera_info` (sensor_msgs/CameraInfo). "
                        "Sends `{\"data\": {...}, \"error\": null}` at ~10 Hz.",
     },
     "/api/stream/image_top/depth": {
-        "summary": "WS — Depth Image",
-        "description": "WebSocket stream of the top camera depth image (sensor_msgs/Image). "
+        "summary": "WS — Top Depth Image",
+        "description": "WebSocket stream of `/image_top/depth` (sensor_msgs/Image, 32FC1 colorized). "
                        "Sends `{\"data\": {...}, \"error\": null}` at ~10 Hz.",
     },
     "/api/stream/image_top/rgb": {
-        "summary": "WS — RGB Image",
-        "description": "WebSocket stream of the top camera RGB image (sensor_msgs/Image). "
+        "summary": "WS — Top RGB Image",
+        "description": "WebSocket stream of `/image_top/rgb` (sensor_msgs/Image, RGB8). "
+                       "Sends `{\"data\": {...}, \"error\": null}` at ~10 Hz.",
+    },
+    "/api/stream/image_hand/camera_info": {
+        "summary": "WS — Hand Camera Info",
+        "description": "WebSocket stream of `/image_hand/camera_info` (sensor_msgs/CameraInfo). "
+                       "Sends `{\"data\": {...}, \"error\": null}` at ~10 Hz.",
+    },
+    "/api/stream/image_hand/depth": {
+        "summary": "WS — Hand Depth Image",
+        "description": "WebSocket stream of `/image_hand/depth` (sensor_msgs/Image, 32FC1 colorized). "
+                       "Sends `{\"data\": {...}, \"error\": null}` at ~10 Hz.",
+    },
+    "/api/stream/image_hand/rgb": {
+        "summary": "WS — Hand RGB Image",
+        "description": "WebSocket stream of `/image_hand/rgb` (sensor_msgs/Image, RGB8). "
                        "Sends `{\"data\": {...}, \"error\": null}` at ~10 Hz.",
     },
 }
@@ -82,6 +98,11 @@ app.add_middleware(
 )
 
 app.include_router(router)
+
+
+@app.get("/cameras", include_in_schema=False)
+def cameras_page():
+    return FileResponse("/app/static/cameras.html")
 
 
 @app.on_event("startup")

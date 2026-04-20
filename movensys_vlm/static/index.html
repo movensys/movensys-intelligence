@@ -297,6 +297,7 @@
   <h1>Movensys Manipulator Control</h1>
   <span class="badge">FastAPI Bridge</span>
   <div id="health-dot" title="Backend health"></div>
+  <a href="/cameras" style="font-size:0.78rem;color:#64748b;text-decoration:none;margin-left:12px;padding:4px 10px;border:1px solid #334155;border-radius:6px;">Cameras →</a>
 </header>
 
 <div class="layout">
@@ -379,6 +380,14 @@
 
   <!-- ============================================================ CONTROLS -->
   <main class="controls">
+
+    <div>
+      <div class="section-title">Quick Actions</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-outline" onclick="goToInitialPose()" id="btn-initial-pose">Go to Initial Pose</button>
+        <span style="font-size:0.75rem;color:#475569;font-family:'Courier New',monospace" id="initial-pose-status"></span>
+      </div>
+    </div>
 
     <div>
       <div class="section-title">Gripper</div>
@@ -925,6 +934,43 @@ async function moveJoints(endpoint, type) {
   }
   if (!names.length) { log('No joints specified', '', true); return; }
   await sendMove(`/api/move/${endpoint}`, {joint_names: names, joint_values: values}, endpoint);
+}
+
+// ---- Initial pose ----
+const INITIAL_POSE = {
+  joint_names:  ['joint1','joint2','joint3','joint4','joint5','joint6'],
+  joint_values: [3.14, -0.5928, 1.5576, 0.6173, -1.57, 0.0],
+};
+
+async function goToInitialPose() {
+  const btn    = document.getElementById('btn-initial-pose');
+  const status = document.getElementById('initial-pose-status');
+  btn.disabled = true;
+  status.textContent = 'Moving…';
+  status.style.color = '#94a3b8';
+  try {
+    log('→ initial pose', JSON.stringify(INITIAL_POSE));
+    const r = await fetch(`${API}/api/move/joint_absolute`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(INITIAL_POSE),
+    });
+    const data = await r.json();
+    if (r.ok && data.success) {
+      status.textContent = 'Reached';
+      status.style.color = '#22c55e';
+    } else {
+      status.textContent = data.message || 'Failed';
+      status.style.color = '#ef4444';
+    }
+    log('← initial pose', JSON.stringify(data), !data.success);
+  } catch(e) {
+    status.textContent = String(e);
+    status.style.color = '#ef4444';
+    log('initial pose error', String(e), true);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ---- Motion scaling ----
