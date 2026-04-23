@@ -714,7 +714,122 @@ movensys-monopoly/
 
 ---
 
-## 16. Open Questions
+## 16. Development Checklist
+
+§15 Milestones를 PR 단위로 쪼갠 실행 목록. 각 항목은 **독립 PR 1건 크기** 를 지향하고, 대응되는 PRD 섹션을 괄호로 링크.
+Definition of Done은 체크 + CI green + 해당 마일스톤의 §15 AC 충족.
+
+### 16.1 M0 — Skeleton + Docker + CI
+- [ ] `requirements.txt` (fastapi, uvicorn, httpx, pydantic, pytest, pytest-asyncio)
+- [ ] `docker/Dockerfile`, `docker/docker-compose.yml`, `docker/entrypoint.sh` (§12, §10.1)
+- [ ] `main.py` FastAPI entry — lifespan, CORS, router 등록
+- [ ] `router.py` skeleton — `GET /api/health` → `{"status":"ok"}` (§5.1)
+- [ ] `adapters/{stt,llm,robot}.py` — 빈 URL에서 stub 모드 기동, 로그 배너
+- [ ] `GET /api/robot/health` — `{mode: "live"|"stub", url?}` (§5.7)
+- [ ] `static/index.html` — 최소 플레이스홀더 + "AI:off / Robot:off" 배지 (§9)
+- [ ] `ros2_node.py` skeleton — 노드 기동만, 구독 없음 (§11.5)
+- [ ] Structured JSON logger with `event_id` (§11.4)
+- [ ] `MONOPOLY_DEBUG_ROUTES` 게이트 미들웨어 (§5.10, §10.1)
+- [ ] CI green: syntax + health + stub 불변식 (§14)
+
+### 16.2 M1 — Board 3 headless E2E
+- [ ] `game/state.py` — `GameState`, `PlayerState`, `FSM` enum (§4)
+- [ ] `game/boards.py` — `static/assets/boards/*.json` 로더
+- [ ] `game/rules.py` — `apply_move`, wrap 감지, Board 3 승리 판정 (§7.1, §6-A)
+- [ ] `POST /api/game/start` / `end_turn` / `config` (§5.1)
+- [ ] `POST /api/dice/request` / `submit` (manual + rng 소스) (§5.2)
+- [ ] `POST /api/move/apply` + `TILE_MISMATCH` 409 (§4.7, §5.2)
+- [ ] `GET /api/game/state` / `winner`
+- [ ] `WebSocket /api/stream/game` + WS envelope (§4.6)
+- [ ] FSM 전이 이벤트 발행 (§6)
+- [ ] `asyncio.Lock` 기반 FSM 직렬화 (§11.2)
+- [ ] `tests/e2e/test_board3_smoke.py` — 한 바퀴 → winner non-null
+- [ ] `static/index.html` — Board 3 SVG 오버레이 + 말 아이콘 슬라이드
+
+### 16.3 M2 — Board 1 full rules
+- [ ] `game/properties.py` — `PropertyCard`, `compute_rent(property)` (§4.4, §7.3.5)
+- [ ] `game/chance.py` / `community_chest.py` — 덱 로더 + shuffle + draw
+- [ ] `game/rules.py` `resolve_tile()` 라우팅 분기 (§7.4)
+- [ ] Buy / Build / Mortgage / Unmortgage / Sell-building 트랜잭션
+- [ ] Bankruptcy 시퀀스 (건물 매각 → 저당 → GAME_OVER) (§7.3.10)
+- [ ] `POST /api/properties/{id}/{decide,buy,build,mortgage,unmortgage,sell_building}` (§5.4)
+- [ ] `POST /api/effects/{move_to_tile,move_relative,collect,pay}` (§5.5)
+- [ ] `POST /api/money/transfer` (internal) + `/api/stream/money` (§5.3)
+- [ ] `/api/stream/board`, `/api/stream/properties`
+- [ ] UI: 상단 머니 위젯 (지폐 애니 600ms) (§9)
+- [ ] UI: 좌/우 property 사이드바 (색상 그룹 썸네일)
+- [ ] UI: property 도착 모달 (skip / buy / buy+build 버튼)
+- [ ] UI: 수동 컨트롤 패널 (모든 FSM 전이 버튼) (§9)
+- [ ] `tests/board1/` — buy, rent, build, chance, bankruptcy 시나리오
+
+### 16.4 M3 — Board 2 full rules
+- [ ] `compute_rent` railroad 분기 — $25 × 2^(n-1) (§7.3.2)
+- [ ] `compute_rent` utility 분기 — dice × 4/10 (§7.3.3)
+- [ ] `game/jail.py` FSM — in_jail, jail_turns_left, jail_free_card (§7.3.1)
+- [ ] `POST /api/jail/attempt_exit` (§5.6)
+- [ ] Double 검출 + triple-double → jail
+- [ ] Tax 타일 처리 (소득세 / 사치세) (§7.3.4)
+- [ ] Monopoly 보너스 × 2 (§7.3.5)
+- [ ] Even-build rule (±1 균등 건설 검증) (§7.3.5)
+- [ ] `POST /api/effects/{go_to_jail,grant_jail_free_card,pay_per_building,collect_from_each_player,move_to_nearest}` (§5.5)
+- [ ] `policies/greedy.py` — robot fallback policy (§7.3.11)
+- [ ] `decision_source` 태깅 WS payload (§7.3.11)
+- [ ] Config toggle `auctions_enabled` (기본 off) (§10.2)
+- [ ] `tests/board2/` — jail FSM, 역/유틸리티 임대료, 세금, 독점 배수, 균등 건설, CC "Get Out of Jail", 저당 사이클, greedy policy 결정
+
+### 16.5 M4 — Camera stream + Isaac topic
+- [ ] `ros2_node.py` 6개 카메라 토픽 구독 (rgb/depth/camera_info × top/hand) (§11.5)
+- [ ] WS 프록시 `/api/stream/image_top/*`, `/api/stream/image_hand/*`
+- [ ] `static/cameras.html` — `movensys_vlm`에서 이식
+- [ ] 메인 UI 우측 하단 카메라 썸네일, "No stream" 폴백 (§9)
+- [ ] `ros2_node.py` Isaac card-spawn publisher — `${MONOPOLY_ISAAC_TOPIC_CARD_SPAWN}` (§11.5)
+- [ ] 카드 draw 시 publish 훅 (§7.3.6)
+- [ ] Isaac 구독자 없을 때 publish 무시 동작 검증
+
+### 16.6 M5 — Robot adapter integration
+- [ ] `adapters/robot.py` httpx 클라이언트 — `/dice/roll`, `/horse/move`, `/base_position` (§8.3)
+- [ ] Fire-and-forget `/horse/move` — 게임 엔진 비차단 (§8.3)
+- [ ] `/api/robot/{base_position,roll_dice,move_piece}` 프록시 라우트 (§5.7)
+- [ ] `ROBOT_SERVICE_URL` live 모드 시 `/api/robot/health` → `{mode:"live"}`
+- [ ] `robot_error` WS 이벤트 발행 (로봇 실패 시)
+- [ ] `dice_source="robot"` 설정 시 `/dice/request`가 로봇 호출로 라우팅
+- [ ] 실제 로봇 서비스와 수동 통합 테스트
+
+### 16.7 M6 — Whisper STT integration
+- [ ] 브라우저 push-to-talk 버튼 (`MediaRecorder` WAV/Opus) (§8.1)
+- [ ] `adapters/stt.py` — multipart 업로드 클라이언트
+- [ ] `POST /api/stt` 어댑터 라우트
+- [ ] `POST /api/utterance/submit {text}` 내부 라우트
+- [ ] `POST /api/debug/inject_utterance` (§5.10)
+- [ ] UI: stub 모드에서 텍스트 입력창 fallback
+- [ ] 언어 hint 처리 (ko/en)
+
+### 16.8 M7 — Gemma 4 LLM integration
+- [ ] `adapters/llm.py` — `POST /infer` 클라이언트 (§8.2)
+- [ ] Intent dispatcher — 12개 intent → 엔드포인트 매핑 (§8.2)
+- [ ] Context builder (fsm, turn, pending_decision, balance, board_id)
+- [ ] `GET /api/board/snapshot` → `{image_b64, prompt_hint}` (§5.9)
+- [ ] VLM path: `image_b64` 포함 요청 (`board_query` intent)
+- [ ] `decision_source: "gemma"` WS 태깅
+- [ ] Low confidence (< 0.5) 시 greedy로 fallback
+- [ ] `POST /api/debug/simulate_llm_intent` (§5.10)
+
+### 16.9 M8 — (Optional) Chance art + Isaac
+- [ ] Chance/CC 카드 SVG 자체 제작 (텍스트 기반) (§9.1)
+- [ ] 카드 모달에 이미지 렌더 (현재는 텍스트만)
+- [ ] Isaac 카드 소환 payload 필드 최종 확정 (§16 Open Q. 4)
+- [ ] Isaac Sim 팀과 end-to-end 소환 테스트
+
+### 16.10 Cross-cutting (마일스톤 독립, 병행 가능)
+- [ ] `game/persistence.py` — `GameState` JSON save/load (5초 주기) (§11.3)
+- [ ] Prometheus `/metrics` — `fsm_transitions_total` 등 (§11.4)
+- [ ] README.md (개발자 온보딩) — 현재는 PRD가 유일 문서
+- [ ] Production Dockerfile — `MONOPOLY_DEBUG_ROUTES=false` 기본
+- [ ] UI 회귀 Playwright 워크플로 (별도 CI YAML) (§13)
+
+---
+
+## 17. Open Questions
 
 locked spec 이 아닌 결정 대기 항목. (§1.1에서 확정된 7건은 제거됨)
 
@@ -725,7 +840,7 @@ locked spec 이 아닌 결정 대기 항목. (§1.1에서 확정된 7건은 제�
 
 ---
 
-## 17. Appendix — Typical Turn Flow (reference)
+## 18. Appendix — Typical Turn Flow (reference)
 
 실제 턴이 어떻게 흘러가는지 **참고용 narrative**. 스펙은 §5-§7.
 

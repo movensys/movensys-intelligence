@@ -119,6 +119,12 @@ export ROBOT_SERVICE_URL=http://robot:8003
 
 ---
 
+## 개발 체크리스트
+
+PR 단위로 쪼갠 실행 목록은 **PRD.md §16 Development Checklist**. M0~M8 각각에 들어갈 구체적 작업 항목 + 교차 관심사(영속성·메트릭·README).
+
+---
+
 ## 확정 안 된 것 (컨펌 대기)
 
-PRD.md §16에 묶여 있음. 카드 아트 옵션, Board 1 타일 수, 플레이어 색상 등.
+PRD.md §17 Open Questions. 외부 FastAPI 스펙, 플레이어 색상 기본값, Isaac 토픽 페이로드 등.
