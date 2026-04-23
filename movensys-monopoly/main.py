@@ -13,9 +13,11 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from adapters import LLMAdapter, RobotAdapter, STTAdapter
 from ros2_node import Ros2Bridge
@@ -87,3 +89,11 @@ async def debug_routes_guard(request: Request, call_next):
 
 
 app.include_router(api_router)
+
+_static_dir = Path(__file__).parent / "static"
+if _static_dir.exists():
+    app.mount("/assets", StaticFiles(directory=_static_dir / "assets"), name="assets")
+
+    @app.get("/")
+    async def index() -> FileResponse:
+        return FileResponse(_static_dir / "index.html")
