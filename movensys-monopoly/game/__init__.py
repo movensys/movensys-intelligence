@@ -1,21 +1,75 @@
 from game.boards import Board, Tile, load_board
-from game.rules import MoveResult, RuleError, apply_move, end_turn, start_game, submit_dice
-from game.state import FSM, DiceSource, GameState, Player, PlayerState, RuntimeConfig
+from game.decks import Card, Deck, load_chance, load_community_chest
+from game.effects import EffectError, apply_effect
+from game.properties import (
+    compute_rent,
+    even_build_ok,
+    initial_properties,
+    is_monopoly,
+    property_id,
+    render_card,
+)
+from game.rules import (
+    MoveResult,
+    RuleError,
+    TileResolution,
+    apply_move,
+    build,
+    buy_property,
+    end_turn,
+    mortgage,
+    resolve_tile,
+    sell_building,
+    skip_purchase,
+    start_game,
+    submit_dice,
+    unmortgage,
+)
+from game.state import (
+    FSM,
+    DiceSource,
+    GameState,
+    Player,
+    PlayerState,
+    PropertyState,
+    RuntimeConfig,
+)
 
 __all__ = [
     "Board",
+    "Card",
+    "Deck",
     "DiceSource",
+    "EffectError",
     "FSM",
     "GameState",
     "MoveResult",
     "Player",
     "PlayerState",
+    "PropertyState",
     "RuleError",
     "RuntimeConfig",
     "Tile",
+    "TileResolution",
+    "apply_effect",
     "apply_move",
+    "build",
+    "buy_property",
+    "compute_rent",
     "end_turn",
+    "even_build_ok",
+    "initial_properties",
+    "is_monopoly",
     "load_board",
+    "load_chance",
+    "load_community_chest",
+    "mortgage",
+    "property_id",
+    "render_card",
+    "resolve_tile",
+    "sell_building",
+    "skip_purchase",
     "start_game",
     "submit_dice",
+    "unmortgage",
 ]
