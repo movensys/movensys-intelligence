@@ -1,0 +1,181 @@
+name: CI - movensys-monopoly
+
+on:
+  pull_request:
+    branches: [main, devel]
+    paths:
+      - 'movensys-monopoly/**'
+      - '.github/workflows/movensys-monopoly.yml'
+
+env:
+  # Milestone gating — see doc/PRD.md §12.4.
+  # Bump this as each milestone lands so SKIPs turn into FAILs on regression.
+  MONOPOLY_MILESTONE: M0
+
+jobs:
+  lint-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ros_distro: jazzy
+            os: ubuntu-24.04
+
+    runs-on: ${{ matrix.os }}
+
+    # Adapter stub mode: verify the game runs without any external FastAPI services.
+    # Leaving these unset means adapters boot in stub/no-op mode.
+    env:
+      STT_SERVICE_URL: ''
+      LLM_SERVICE_URL: ''
+      ROBOT_SERVICE_URL: ''
+
+    defaults:
+      run:
+        working-directory: movensys-monopoly
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup ROS ${{ matrix.ros_distro }}
+        uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: ${{ matrix.ros_distro }}
+
+      - name: Install Python dependencies
+        run: |
+          set -eu
+          if [ -f requirements.txt ]; then
+            pip3 install --no-cache-dir --break-system-packages -r requirements.txt
+          else
+            echo "SKIP: requirements.txt not present yet (expected from M0)"
+          fi
+          pip3 install --no-cache-dir --break-system-packages pytest httpx uvicorn fastapi
+
+      - name: Python syntax check (py_compile)
+        run: |
+          set -eu
+          mapfile -t files < <(find . -type f -name '*.py' \
+            -not -path './.venv/*' -not -path './build/*' -not -path './__pycache__/*')
+          if [ "${#files[@]}" -eq 0 ]; then
+            if [ "$MONOPOLY_MILESTONE" != "M0" ]; then
+              echo "FAIL: no .py files found but milestone is $MONOPOLY_MILESTONE"
+              exit 1
+            fi
+            echo "SKIP: no .py files yet (pre-M0 skeleton)"
+            exit 0
+          fi
+          for f in "${files[@]}"; do
+            echo "=== syntax check: $f ==="
+            python3 -m py_compile "$f"
+            echo "  OK"
+          done
+
+      - name: FastAPI health smoke test
+        run: |
+          set -eu
+          if [ ! -f main.py ]; then
+            # main.py is an M0 deliverable. During the very first skeleton PR we may
+            # still be creating it, so only fail once MONOPOLY_MILESTONE is past M0.
+            if [ "$MONOPOLY_MILESTONE" = "M0" ]; then
+              echo "SKIP: main.py not yet present (M0 skeleton in progress)"
+              exit 0
+            fi
+            echo "FAIL: main.py must exist from M0 onward"
+            exit 1
+          fi
+          python3 -m uvicorn main:app --host 127.0.0.1 --port 8000 &
+          pid=$!
+          trap 'kill $pid 2>/dev/null || true' EXIT
+          ok=0
+          for i in $(seq 1 20); do
+            if curl -sf http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
+              ok=1; break
+            fi
+            sleep 1
+          done
+          if [ "$ok" != "1" ]; then
+            echo "FAIL: /api/health did not respond within 20s"
+            exit 1
+          fi
+          body=$(curl -sf http://127.0.0.1:8000/api/health)
+          echo "health response: $body"
+          echo "$body" | grep -q '"status"' || { echo "FAIL: health response missing status field"; exit 1; }
+
+      - name: Adapter stub mode check
+        run: |
+          set -eu
+          if [ ! -f main.py ]; then
+            echo "SKIP: main.py not yet present"
+            exit 0
+          fi
+          python3 -m uvicorn main:app --host 127.0.0.1 --port 8001 &
+          pid=$!
+          trap 'kill $pid 2>/dev/null || true' EXIT
+          for i in $(seq 1 20); do
+            curl -sf http://127.0.0.1:8001/api/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+          # /api/robot/health should exist from M0 and report stub when ROBOT_SERVICE_URL is empty.
+          if ! curl -sf http://127.0.0.1:8001/api/robot/health >/dev/null 2>&1; then
+            if [ "$MONOPOLY_MILESTONE" != "M0" ]; then
+              echo "FAIL: /api/robot/health missing past M0"
+              exit 1
+            fi
+            echo "SKIP: /api/robot/health not yet present (pre-M0)"
+            exit 0
+          fi
+          robot_health=$(curl -sf http://127.0.0.1:8001/api/robot/health)
+          echo "robot health: $robot_health"
+          echo "$robot_health" | grep -q '"mode"[[:space:]]*:[[:space:]]*"stub"' \
+            || { echo "FAIL: adapter did not report stub mode with empty ROBOT_SERVICE_URL"; exit 1; }
+
+      - name: Game engine unit tests (pure Python, no ROS)
+        run: |
+          set -eu
+          if [ -d tests/game ]; then
+            python3 -m pytest -v tests/game/
+          else
+            # tests/game/ is expected from M1 (Board 3 rules start here).
+            case "$MONOPOLY_MILESTONE" in
+              M0) echo "SKIP: tests/game/ not expected until M1"; exit 0 ;;
+              *)  echo "FAIL: tests/game/ must exist from M1 onward"; exit 1 ;;
+            esac
+          fi
+
+      - name: Board 3 headless E2E
+        run: |
+          set -eu
+          if [ -f tests/e2e/test_board3_smoke.py ]; then
+            python3 -m pytest -v tests/e2e/test_board3_smoke.py
+          else
+            case "$MONOPOLY_MILESTONE" in
+              M0) echo "SKIP: Board 3 E2E not expected until M1"; exit 0 ;;
+              *)  echo "FAIL: tests/e2e/test_board3_smoke.py must exist from M1 onward"; exit 1 ;;
+            esac
+          fi
+
+      - name: Board 1 rules suite
+        run: |
+          set -eu
+          if [ -d tests/board1 ]; then
+            python3 -m pytest -v tests/board1/
+          else
+            case "$MONOPOLY_MILESTONE" in
+              M0|M1) echo "SKIP: tests/board1/ not expected until M2"; exit 0 ;;
+              *)     echo "FAIL: tests/board1/ must exist from M2 onward"; exit 1 ;;
+            esac
+          fi
+
+      - name: Board 2 rules suite
+        run: |
+          set -eu
+          if [ -d tests/board2 ]; then
+            python3 -m pytest -v tests/board2/
+          else
+            case "$MONOPOLY_MILESTONE" in
+              M0|M1|M2) echo "SKIP: tests/board2/ not expected until M3"; exit 0 ;;
+              *)        echo "FAIL: tests/board2/ must exist from M3 onward"; exit 1 ;;
+            esac
+          fi
