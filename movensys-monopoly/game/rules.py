@@ -264,21 +264,22 @@ def _resolve_once(
             return TileResolution("property_arrival_self_or_mortgaged", tile_index,
                                   payload={"property_id": pid})
         rent = props_mod.compute_rent(state, board, tile_index, state.last_dice_sum)
-        bankrupt = _pay_rent_or_bankrupt(state, board, player, p.owner, rent)
+        bankrupt, liq = _pay_rent_or_bankrupt(state, board, player, p.owner, rent)
         return TileResolution(
             "rent_paid" if not bankrupt else "rent_bankruptcy",
             tile_index,
-            payload={"property_id": pid, "amount": rent, "payee": p.owner},
+            payload={"property_id": pid, "amount": rent, "payee": p.owner,
+                     "liquidation": liq},
             bankrupt_player=player if bankrupt else None,
         )
 
     if tile.kind == "tax":
         amount = int(tile.amount or 0)
-        bankrupt = _pay_bank_or_bankrupt(state, board, player, amount)
+        bankrupt, liq = _pay_bank_or_bankrupt(state, board, player, amount)
         return TileResolution(
             "tax_paid" if not bankrupt else "tax_bankruptcy",
             tile_index,
-            payload={"amount": amount},
+            payload={"amount": amount, "liquidation": liq},
             bankrupt_player=player if bankrupt else None,
         )
 
@@ -456,16 +457,17 @@ def unmortgage(state: GameState, board: Board, player: Player, pid: str) -> dict
 
 def _pay_rent_or_bankrupt(
     state: GameState, board: Board, payer: Player, payee: Player, amount: int,
-) -> bool:
+) -> tuple[bool, list[dict[str, Any]]]:
     """Attempt to pay `amount` in rent. Auto-liquidates when short. Returns
-    True on bankruptcy (assets go to payee, fsm -> GAME_OVER)."""
+    (bankrupt, liquidation_steps). On bankruptcy assets transfer to payee
+    and fsm -> GAME_OVER."""
     if amount <= 0:
-        return False
-    _auto_liquidate(state, board, payer, amount)
+        return False, []
+    steps = _auto_liquidate(state, board, payer, amount)
     if state.players[payer].balance >= amount:
         state.players[payer].balance -= amount
         state.players[payee].balance += amount
-        return False
+        return False, steps
     # fully bankrupt — transfer everything remaining to payee
     state.players[payee].balance += state.players[payer].balance
     state.players[payer].balance = 0
@@ -475,18 +477,18 @@ def _pay_rent_or_bankrupt(
             # keep buildings/mortgage flags as-is
     state.winner = payee
     state.fsm = FSM.GAME_OVER
-    return True
+    return True, steps
 
 
 def _pay_bank_or_bankrupt(
     state: GameState, board: Board, payer: Player, amount: int,
-) -> bool:
+) -> tuple[bool, list[dict[str, Any]]]:
     if amount <= 0:
-        return False
-    _auto_liquidate(state, board, payer, amount)
+        return False, []
+    steps = _auto_liquidate(state, board, payer, amount)
     if state.players[payer].balance >= amount:
         state.players[payer].balance -= amount
-        return False
+        return False, steps
     # unpaid tax → bankrupt to bank → properties return to bank (no owner)
     state.players[payer].balance = 0
     for p in state.properties.values():
@@ -497,30 +499,41 @@ def _pay_bank_or_bankrupt(
             p.mortgaged = False
     state.winner = state.other(payer)
     state.fsm = FSM.GAME_OVER
-    return True
+    return True, steps
 
 
 def _auto_liquidate(
     state: GameState, board: Board, player: Player, target: int,
-) -> None:
+) -> list[dict[str, Any]]:
     """Sell buildings then mortgage properties until balance >= target or
-    nothing left to sell (PRD §7.3.10 order)."""
-    # 1. Sell buildings (highest-value first).
+    nothing left to sell. Smallest-value first to minimise overshoot
+    (PRD §7.3.10). Returns per-step dicts so the caller can emit events
+    and the UI can narrate the liquidation instead of only showing the
+    final rent-paid transaction.
+    """
+    steps: list[dict[str, Any]] = []
+
+    # 1. Sell buildings — cheapest house cost first.
     for p in sorted(
         state.properties.values(),
         key=lambda pp: board.tiles[pp.tile_index].price_building or 0,
-        reverse=True,
     ):
         if p.owner != player:
             continue
         while state.players[player].balance < target and (p.houses > 0 or p.has_hotel):
-            sell_building(state, board, player, p.id)
+            steps.append({"kind": "building_sold", **sell_building(state, board, player, p.id)})
         if state.players[player].balance >= target:
-            return
-    # 2. Mortgage remaining properties.
-    for p in list(state.properties.values()):
+            return steps
+
+    # 2. Mortgage remaining unencumbered properties — cheapest buy-price first.
+    for p in sorted(
+        state.properties.values(),
+        key=lambda pp: board.tiles[pp.tile_index].price_buy or 0,
+    ):
         if p.owner != player or p.mortgaged or p.houses > 0 or p.has_hotel:
             continue
         if state.players[player].balance >= target:
-            return
-        mortgage(state, board, player, p.id)
+            return steps
+        steps.append({"kind": "property_mortgaged", **mortgage(state, board, player, p.id)})
+
+    return steps

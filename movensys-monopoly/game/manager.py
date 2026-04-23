@@ -124,6 +124,10 @@ class GameManager:
                     chance_deck=self._chance, cc_deck=self._cc,
                 )
                 for r in tile_results:
+                    # Narrate auto-liquidation so the UI can render each sale
+                    # before the final rent/tax settlement.
+                    for step in r.payload.get("liquidation", []) or []:
+                        self.bus.publish_nowait(step.get("kind", "liquidation_step"), step)
                     self.bus.publish_nowait(f"tile_{r.kind}", {
                         "tile_index": r.tile_index,
                         "needs_decision": r.needs_decision,

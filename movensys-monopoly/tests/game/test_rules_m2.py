@@ -365,6 +365,38 @@ def test_no_bonus_when_not_wrapping() -> None:
     assert state.players["user"].balance == start_balance
 
 
+def test_auto_liquidation_sells_cheapest_first() -> None:
+    """Minimise overshoot by selling the cheapest building first.
+    Short $15 on a $25 rent, the cheapest brown house sale ($25 refund)
+    covers it with only $25 overshoot — selling a $200-hotel-house would
+    overshoot $100.
+    """
+    state = _fresh("2")
+    state.players["user"].balance = 10
+    for pid in ("board2:mediterranean_avenue", "board2:baltic_avenue"):
+        state.properties[pid].owner = "user"
+        state.properties[pid].houses = 1
+    for pid in ("board2:park_place", "board2:boardwalk"):
+        state.properties[pid].owner = "user"
+        state.properties[pid].houses = 1
+    state.properties["board2:reading_railroad"].owner = "robot"
+    state.turn = "user"
+    state.fsm = FSM.RESOLVE_TILE
+    state.positions["user"] = 5
+    state.last_dice_sum = 5
+    from game.rules import resolve_tile
+    resolve_tile(state, load_board("2"), "user")
+    # 10 + 25 (brown house sold) - 25 (rent) = $10 final. Dark-blue houses
+    # remain untouched; cheapest-first keeps overshoot at $0.
+    assert state.players["user"].balance == 10
+    brown_houses = sum(state.properties[p].houses for p in
+                       ("board2:mediterranean_avenue", "board2:baltic_avenue"))
+    dark_blue_houses = sum(state.properties[p].houses for p in
+                           ("board2:park_place", "board2:boardwalk"))
+    assert brown_houses == 1  # one sold to cover rent
+    assert dark_blue_houses == 2  # pricier houses preserved
+
+
 def test_tax_bankruptcy_goes_to_bank_not_opponent() -> None:
     state = _fresh("2")
     state.players["user"].balance = 1
