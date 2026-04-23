@@ -747,20 +747,20 @@ Definition of Done은 체크 + CI green + 해당 마일스톤의 §15 AC 충족.
 - [x] `static/index.html` — Board 3 SVG 오버레이 + 말 아이콘 슬라이드
 
 ### 16.3 M2 — Board 1 full rules
-- [ ] `game/properties.py` — `PropertyCard`, `compute_rent(property)` (§4.4, §7.3.5)
-- [ ] `game/chance.py` / `community_chest.py` — 덱 로더 + shuffle + draw
-- [ ] `game/rules.py` `resolve_tile()` 라우팅 분기 (§7.4)
-- [ ] Buy / Build / Mortgage / Unmortgage / Sell-building 트랜잭션
-- [ ] Bankruptcy 시퀀스 (건물 매각 → 저당 → GAME_OVER) (§7.3.10)
-- [ ] `POST /api/properties/{id}/{decide,buy,build,mortgage,unmortgage,sell_building}` (§5.4)
-- [ ] `POST /api/effects/{move_to_tile,move_relative,collect,pay}` (§5.5)
-- [ ] `POST /api/money/transfer` (internal) + `/api/stream/money` (§5.3)
-- [ ] `/api/stream/board`, `/api/stream/properties`
-- [ ] UI: 상단 머니 위젯 (지폐 애니 600ms) (§9)
-- [ ] UI: 좌/우 property 사이드바 (색상 그룹 썸네일)
-- [ ] UI: property 도착 모달 (skip / buy / buy+build 버튼)
-- [ ] UI: 수동 컨트롤 패널 (모든 FSM 전이 버튼) (§9)
-- [ ] `tests/board1/` — buy, rent, build, chance, bankruptcy 시나리오
+- [x] `game/properties.py` — `PropertyState` + `compute_rent` (property/railroad/utility) + 독점 배수 + 균등 건설 검증 (§4.4, §7.3.5)
+- [x] `game/decks.py` — Chance·CC 덱 로더 + shuffle/draw/return_to_bottom
+- [x] `game/rules.py` `resolve_tile()` 라우팅 분기 (§7.4) + 카드 효과 연쇄
+- [x] Buy / Build / Mortgage / Unmortgage / Sell-building 트랜잭션
+- [x] Bankruptcy 시퀀스 — 건물 매각 → 저당 → 자산 이전 → GAME_OVER (§7.3.10)
+- [x] `POST /api/properties/{id}/{decide,buy,build,mortgage,unmortgage,sell_building}` (§5.4)
+- [x] `POST /api/effects/{move_to_tile,move_relative,collect,pay,…}` (§5.5) — 10종
+- [x] `GET /api/money`, `/api/money/{player}` 스냅샷 (`/api/money/transfer`는 내부 전용 — rules.py가 호출)
+- [x] `/api/stream/{game,board,money,properties}` WS aliases
+- [x] UI: 상단 머니 위젯 (600ms flash-up/down 애니) (§9)
+- [x] UI: 좌/우 property 사이드바 (색상 그룹 썸네일, 저당·건물 표시)
+- [x] UI: property 도착 모달 (skip / buy / buy+build 버튼)
+- [x] UI: 수동 컨트롤 패널 (FSM 전이 버튼) (§9)
+- [x] `tests/board1/` — buy / rent / build / tax / chance / bankruptcy / mortgage 9개 시나리오
 
 ### 16.4 M3 — Board 2 full rules
 - [ ] `compute_rent` railroad 분기 — $25 × 2^(n-1) (§7.3.2)
