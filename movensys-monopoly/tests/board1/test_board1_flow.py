@@ -140,8 +140,10 @@ async def test_board1_start_wraps_past_go(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_board1_go_to_jail_tile_teleports(client: AsyncClient) -> None:
-    """Tile 12 is Go To Jail — landing should send user to Jail / Just Visiting."""
+async def test_board1_go_to_jail_teleports_without_jail_fsm(client: AsyncClient) -> None:
+    """Tile 12 is Go To Jail — on Board 1 the short game has no jail FSM,
+    so the player teleports to Jail / Just Visiting without getting the
+    in_jail flag (nothing would ever clear it otherwise)."""
     await _post(client, "/api/game/start", board="1")
     app.state.game.state.positions["user"] = 6
     await _post(client, "/api/dice/submit", value=6, source="manual")
@@ -149,7 +151,8 @@ async def test_board1_go_to_jail_tile_teleports(client: AsyncClient) -> None:
     state = (await client.get("/api/game/state")).json()
     # Jail visit is tile 4 on Board 1 (3-per-side layout)
     assert state["positions"]["user"] == 4
-    assert state["players"]["user"]["in_jail"] is True
+    assert state["players"]["user"]["in_jail"] is False
+    assert state["players"]["user"]["jail_turns_left"] == 0
 
 
 @pytest.mark.asyncio
