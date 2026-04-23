@@ -38,6 +38,21 @@ class PlayerState(BaseModel):
     color: str = "#888888"
 
 
+class PropertyState(BaseModel):
+    """Dynamic ownership state for a purchasable tile (PRD §4.4).
+
+    Paired with the static `Tile` from `game/boards.py` to form the full
+    property card view.
+    """
+
+    id: str                          # "board1:baltic_avenue"
+    tile_index: int
+    owner: Player | None = None
+    houses: int = 0                  # 0..4 (property only)
+    has_hotel: bool = False
+    mortgaged: bool = False
+
+
 class RuntimeConfig(BaseModel):
     dice_source: DiceSource = "rng"
     auctions_enabled: bool = False
@@ -54,6 +69,7 @@ class GameState(BaseModel):
     turn_number: int = 0
     positions: dict[Player, int] = Field(default_factory=dict)
     players: dict[Player, PlayerState] = Field(default_factory=dict)
+    properties: dict[str, PropertyState] = Field(default_factory=dict)
     last_dice: tuple[int, int] | None = None
     last_dice_sum: int | None = None
     pending_dice: int | None = None
