@@ -261,9 +261,14 @@ function renderState(state) {
   document.getElementById("st-turn").textContent = state.turn;
   document.getElementById("st-num").textContent = state.turn_number;
   document.getElementById("st-winner").textContent = state.winner || "—";
+  // Single-die manual input stores as (value, 0); only render the "+ d2"
+  // part when we actually rolled two dice (Board 2 doubles detection).
   const ld = state.last_dice;
-  document.getElementById("st-dice").textContent =
-    ld ? `${ld[0]} + ${ld[1]} = ${state.last_dice_sum}` : "—";
+  document.getElementById("st-dice").textContent = !ld
+    ? "—"
+    : ld[1] > 0
+      ? `${ld[0]} + ${ld[1]} = ${state.last_dice_sum}`
+      : String(ld[0]);
 
   for (const p of ["user", "robot"]) {
     const pos = state.positions[p];
