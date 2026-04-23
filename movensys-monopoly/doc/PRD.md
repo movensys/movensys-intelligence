@@ -733,18 +733,18 @@ Definition of Done은 체크 + CI green + 해당 마일스톤의 §15 AC 충족.
 - [ ] CI green: syntax + health + stub 불변식 (§14) — 로컬 `ci_local.sh` 통과 확인됨, GitHub Actions 결과 대기
 
 ### 16.2 M1 — Board 3 headless E2E
-- [ ] `game/state.py` — `GameState`, `PlayerState`, `FSM` enum (§4)
-- [ ] `game/boards.py` — `static/assets/boards/*.json` 로더
-- [ ] `game/rules.py` — `apply_move`, wrap 감지, Board 3 승리 판정 (§7.1, §6-A)
-- [ ] `POST /api/game/start` / `end_turn` / `config` (§5.1)
-- [ ] `POST /api/dice/request` / `submit` (manual + rng 소스) (§5.2)
-- [ ] `POST /api/move/apply` + `TILE_MISMATCH` 409 (§4.7, §5.2)
-- [ ] `GET /api/game/state` / `winner`
-- [ ] `WebSocket /api/stream/game` + WS envelope (§4.6)
-- [ ] FSM 전이 이벤트 발행 (§6)
-- [ ] `asyncio.Lock` 기반 FSM 직렬화 (§11.2)
-- [ ] `tests/e2e/test_board3_smoke.py` — 한 바퀴 → winner non-null
-- [ ] `static/index.html` — Board 3 SVG 오버레이 + 말 아이콘 슬라이드
+- [x] `game/state.py` — `GameState`, `PlayerState`, `FSM` enum (§4)
+- [x] `game/boards.py` — `static/assets/boards/*.json` 로더
+- [x] `game/rules.py` — `apply_move`, wrap 감지, Board 3 승리 판정 (§7.1, §6-A)
+- [x] `POST /api/game/start` / `end_turn` / `config` (§5.1)
+- [x] `POST /api/dice/request` / `submit` (manual + rng 소스) (§5.2)
+- [x] `POST /api/move/apply` + `TILE_MISMATCH` 409 (§4.7, §5.2)
+- [x] `GET /api/game/state` / `winner`
+- [x] `WebSocket /api/stream/game` + WS envelope (§4.6)
+- [x] FSM 전이 이벤트 발행 (§6)
+- [x] `asyncio.Lock` 기반 FSM 직렬화 (§11.2)
+- [x] `tests/e2e/test_board3_smoke.py` — 한 바퀴 → winner non-null
+- [x] `static/index.html` — Board 3 SVG 오버레이 + 말 아이콘 슬라이드
 
 ### 16.3 M2 — Board 1 full rules
 - [ ] `game/properties.py` — `PropertyCard`, `compute_rent(property)` (§4.4, §7.3.5)

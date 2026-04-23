@@ -4,105 +4,65 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>movensys-monopoly</title>
-  <style>
-    :root {
-      --bg: #1a1a1a;
-      --panel: #242424;
-      --fg: #e8e8e8;
-      --muted: #888;
-      --accent: #4caf50;
-      --off: #555;
-      --warn: #ff9800;
-    }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg);
-                 font: 14px/1.5 "Inter", system-ui, -apple-system, sans-serif; }
-    header { padding: 16px 24px; border-bottom: 1px solid #333;
-             display: flex; align-items: center; gap: 16px; }
-    header h1 { margin: 0; font-size: 18px; font-weight: 600; }
-    header .spacer { flex: 1; }
-    .badges { display: flex; gap: 8px; }
-    .badge {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 4px 10px; border-radius: 12px;
-      background: var(--panel); color: var(--muted);
-      font-size: 12px; font-family: "JetBrains Mono", monospace;
-    }
-    .badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--off); }
-    .badge.live .dot { background: var(--accent); }
-    .badge.stub .dot { background: var(--off); }
-    .badge.on   .dot { background: var(--accent); }
-    .badge.off  .dot { background: var(--off); }
-    main { padding: 32px 24px; max-width: 880px; margin: 0 auto; }
-    section { background: var(--panel); border-radius: 8px; padding: 20px;
-              margin-bottom: 16px; }
-    section h2 { margin-top: 0; font-size: 15px; color: var(--muted);
-                 text-transform: uppercase; letter-spacing: 0.04em; }
-    pre { margin: 0; padding: 12px; background: #111; border-radius: 4px;
-          overflow-x: auto; font-size: 12px; color: #d0d0d0; }
-    p.note { color: var(--muted); margin: 0; }
-    code { background: #111; padding: 1px 5px; border-radius: 3px;
-           font-size: 12px; }
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { text-decoration: underline; }
-  </style>
+  <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
   <header>
     <h1>movensys-monopoly</h1>
-    <span class="badge" id="milestone">M0 skeleton</span>
+    <span class="badge" id="milestone">M1 board 3</span>
     <div class="spacer"></div>
     <div class="badges" id="modes"></div>
   </header>
-  <main>
-    <section>
-      <h2>Status</h2>
-      <pre id="health">loading…</pre>
+  <main class="grid">
+    <section class="board-pane">
+      <div id="board-host" aria-label="Board"></div>
+      <svg id="pieces" viewBox="0 0 300 500">
+        <circle id="piece-user"  r="18" cx="250" cy="450" fill="var(--user)"  stroke="#000" stroke-width="1.5"/>
+        <circle id="piece-robot" r="18" cx="250" cy="450" fill="var(--robot)" stroke="#000" stroke-width="1.5" transform="translate(-30 0)"/>
+      </svg>
     </section>
-    <section>
-      <h2>What's here</h2>
-      <p class="note">
-        M0 is scaffolding only. Board UI, money widget, property sidebar and
-        manual controls land in M1 &ndash; M3 (see
-        <a href="/docs">OpenAPI</a>,
-        <code>doc/PRD.md §16 Development Checklist</code>).
-      </p>
+    <section class="sidebar">
+      <div class="card">
+        <h2>Game state</h2>
+        <dl>
+          <dt>FSM</dt>     <dd id="st-fsm">IDLE</dd>
+          <dt>Turn</dt>    <dd id="st-turn">—</dd>
+          <dt>Turn #</dt>  <dd id="st-num">0</dd>
+          <dt>Dice</dt>    <dd id="st-dice">—</dd>
+          <dt>Winner</dt>  <dd id="st-winner">—</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h2>Manual controls</h2>
+        <div class="row">
+          <label>Board
+            <select id="board-select">
+              <option value="3" selected>3 — blank (12)</option>
+              <option value="1">1 — short (20)</option>
+              <option value="2">2 — full (40)</option>
+            </select>
+          </label>
+          <button id="btn-start">Start</button>
+        </div>
+        <div class="row">
+          <label>Dice
+            <input id="dice-input" type="number" min="1" max="6" value="3">
+          </label>
+          <button id="btn-submit-dice">Submit dice</button>
+        </div>
+        <div class="row">
+          <button id="btn-apply-move" title="Applies the move the server is expecting">Apply move</button>
+          <button id="btn-end-turn">End turn</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Events</h2>
+        <ol id="event-log"></ol>
+      </div>
     </section>
   </main>
-  <script>
-    async function fetchJson(path) {
-      const r = await fetch(path);
-      if (!r.ok) throw new Error(`${path} -> ${r.status}`);
-      return r.json();
-    }
-
-    function modeBadge(label, health) {
-      const mode = health.mode || (health.enabled ? "on" : "off");
-      const cls = mode === "live" ? "live" : mode === "on" ? "on" : mode === "off" ? "off" : "stub";
-      return `<span class="badge ${cls}"><span class="dot"></span>${label}:${mode}</span>`;
-    }
-
-    async function refresh() {
-      try {
-        const [health, stt, llm, robot, ros2] = await Promise.all([
-          fetchJson("/api/health"),
-          fetchJson("/api/stt/health"),
-          fetchJson("/api/llm/health"),
-          fetchJson("/api/robot/health"),
-          fetchJson("/api/ros2/health"),
-        ]);
-        document.getElementById("modes").innerHTML =
-          modeBadge("STT", stt) + modeBadge("LLM", llm) +
-          modeBadge("Robot", robot) + modeBadge("ROS2", ros2);
-        document.getElementById("health").textContent =
-          JSON.stringify({ health, stt, llm, robot, ros2 }, null, 2);
-      } catch (err) {
-        document.getElementById("health").textContent = String(err);
-      }
-    }
-
-    refresh();
-    setInterval(refresh, 5000);
-  </script>
+  <script src="/static/app.js"></script>
 </body>
 </html>

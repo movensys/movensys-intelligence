@@ -123,6 +123,7 @@ app.include_router(api_router)
 _static_dir = Path(__file__).parent / "static"
 if _static_dir.exists():
     app.mount("/assets", StaticFiles(directory=_static_dir / "assets"), name="assets")
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
     @app.get("/")
     async def index() -> FileResponse:
