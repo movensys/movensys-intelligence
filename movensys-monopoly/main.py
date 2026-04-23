@@ -1,0 +1,84 @@
+"""FastAPI entry point for movensys-monopoly (PRD §3, §5, §10).
+
+Responsibilities at M0:
+- Configure JSON logger
+- Build adapters from env (stub when URL empty)
+- Expose /api/health and adapter health routes
+- Guard /api/debug/* with MONOPOLY_DEBUG_ROUTES
+- Per-request event_id middleware
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+
+from adapters import LLMAdapter, RobotAdapter, STTAdapter
+from router import api_router
+from utils import logging as jlog
+
+log = logging.getLogger("monopoly")
+
+
+def _debug_routes_enabled() -> bool:
+    return os.environ.get("MONOPOLY_DEBUG_ROUTES", "true").lower() not in ("false", "0", "no")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    jlog.configure()
+    app.state.stt_adapter = STTAdapter.from_env()
+    app.state.llm_adapter = LLMAdapter.from_env()
+    app.state.robot_adapter = RobotAdapter.from_env()
+    app.state.debug_routes_enabled = _debug_routes_enabled()
+    log.info(
+        "startup",
+        extra={
+            "stt_mode": app.state.stt_adapter.mode,
+            "llm_mode": app.state.llm_adapter.mode,
+            "robot_mode": app.state.robot_adapter.mode,
+            "debug_routes": app.state.debug_routes_enabled,
+        },
+    )
+    yield
+    log.info("shutdown")
+
+
+app = FastAPI(title="movensys-monopoly", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def event_id_middleware(request: Request, call_next):
+    jlog.new_event_id()
+    response = await call_next(request)
+    eid = jlog.current_event_id()
+    if eid:
+        response.headers["X-Event-Id"] = eid
+    return response
+
+
+@app.middleware("http")
+async def debug_routes_guard(request: Request, call_next):
+    if request.url.path.startswith("/api/debug"):
+        enabled = getattr(request.app.state, "debug_routes_enabled", _debug_routes_enabled())
+        if not enabled:
+            eid = jlog.current_event_id() or jlog.new_event_id()
+            return JSONResponse(
+                status_code=404,
+                headers={"X-Event-Id": eid},
+                content={
+                    "error": {
+                        "code": "NOT_FOUND",
+                        "message": "debug routes disabled",
+                        "event_id": eid,
+                    }
+                },
+            )
+    return await call_next(request)
+
+
+app.include_router(api_router)

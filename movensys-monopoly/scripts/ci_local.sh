@@ -18,8 +18,13 @@ step() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL:\033[0m %s\n' "$*"; exit 1; }
 
 step "Install Python dependencies"
-[ -f requirements.txt ] && pip3 install --no-cache-dir -r requirements.txt
-pip3 install --no-cache-dir pytest pytest-asyncio httpx uvicorn fastapi
+# Match CI: PEP 668 (Ubuntu 24.04) requires --break-system-packages when not in a venv.
+PIP_FLAGS=(--no-cache-dir)
+if [ -z "${VIRTUAL_ENV:-}" ] && python3 -c "import sys; sys.exit(0 if sys.base_prefix == sys.prefix else 1)"; then
+  PIP_FLAGS+=(--break-system-packages)
+fi
+[ -f requirements.txt ] && pip3 install "${PIP_FLAGS[@]}" -r requirements.txt
+pip3 install "${PIP_FLAGS[@]}" pytest pytest-asyncio httpx uvicorn fastapi
 
 step "Python syntax check"
 mapfile -t files < <(find . -type f -name '*.py' \
