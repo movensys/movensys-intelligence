@@ -6,11 +6,15 @@ the PRD §4.7 error envelope. Business logic lives in game/*.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+
+ws_log = logging.getLogger("monopoly.ws")
 
 from game import RuleError
 from utils.logging import current_event_id, new_event_id
@@ -176,6 +180,32 @@ async def move_apply(request: Request, body: MoveApplyRequest) -> dict[str, Any]
         return await request.app.state.game.apply_move(body.player, body.from_tile, body.to_tile)
     except RuleError as exc:
         raise HTTPException(**_http_kwargs(exc))
+
+
+# ---- WebSocket stream ------------------------------------------------------
+
+
+@api_router.websocket("/stream/game")
+async def stream_game(ws: WebSocket) -> None:
+    """Broadcast FSM/dice/move events to the connected client (PRD §4.6)."""
+    await ws.accept()
+    bus = ws.app.state.event_bus
+    queue = bus.subscribe()
+    # Push a hello event so the client can sync immediately.
+    from game.events import make_envelope
+    await ws.send_json(make_envelope("hello", {"snapshot": ws.app.state.game.state.model_dump()}))
+    try:
+        while True:
+            event = await queue.get()
+            await ws.send_json(event)
+    except WebSocketDisconnect:
+        ws_log.info("stream_game_disconnect")
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        ws_log.exception("stream_game_error")
+    finally:
+        bus.unsubscribe(queue)
 
 
 # ---- HTTPException helper --------------------------------------------------
