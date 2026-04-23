@@ -9,19 +9,40 @@
 <body>
   <header>
     <h1>movensys-monopoly</h1>
-    <span class="badge" id="milestone">M1 board 3</span>
+    <span class="badge" id="milestone">M2 board 1/2/3</span>
     <div class="spacer"></div>
+    <div class="money-bar">
+      <div class="money-player" id="money-user">
+        <span class="money-color" style="background:var(--user)"></span>
+        <span class="money-label">user</span>
+        <span class="money-value" id="money-user-value">$0</span>
+      </div>
+      <div class="money-player" id="money-robot">
+        <span class="money-color" style="background:var(--robot)"></span>
+        <span class="money-label">robot</span>
+        <span class="money-value" id="money-robot-value">$0</span>
+      </div>
+    </div>
     <div class="badges" id="modes"></div>
   </header>
+
   <main class="grid">
+    <aside class="sidebar sidebar-left">
+      <div class="card">
+        <h2>user properties</h2>
+        <div class="property-groups" id="props-user"></div>
+      </div>
+    </aside>
+
     <section class="board-pane">
-      <div id="board-host" aria-label="Board"></div>
-      <svg id="pieces" viewBox="0 0 300 500">
-        <circle id="piece-user"  r="18" cx="250" cy="450" fill="var(--user)"  stroke="#000" stroke-width="1.5"/>
-        <circle id="piece-robot" r="18" cx="250" cy="450" fill="var(--robot)" stroke="#000" stroke-width="1.5" transform="translate(-30 0)"/>
+      <div id="board-host"></div>
+      <svg id="pieces" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid meet">
+        <circle id="piece-user"  r="22" cx="950" cy="950" fill="var(--user)"  stroke="#000" stroke-width="1.5"/>
+        <circle id="piece-robot" r="22" cx="950" cy="950" fill="var(--robot)" stroke="#000" stroke-width="1.5" transform="translate(-36 0)"/>
       </svg>
     </section>
-    <section class="sidebar">
+
+    <aside class="sidebar sidebar-right">
       <div class="card">
         <h2>Game state</h2>
         <dl>
@@ -58,11 +79,30 @@
       </div>
 
       <div class="card">
+        <h2>robot properties</h2>
+        <div class="property-groups" id="props-robot"></div>
+      </div>
+
+      <div class="card">
         <h2>Events</h2>
         <ol id="event-log"></ol>
       </div>
-    </section>
+    </aside>
   </main>
+
+  <!-- Property arrival / decision modal -->
+  <div class="modal-backdrop hidden" id="decision-modal">
+    <div class="modal">
+      <h3 id="decision-title">Land on property</h3>
+      <div id="decision-card"></div>
+      <div class="modal-buttons">
+        <button id="btn-skip" class="btn-secondary">Skip</button>
+        <button id="btn-buy">Buy</button>
+        <button id="btn-buy-build">Buy + build 1</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/static/app.js"></script>
 </body>
 </html>

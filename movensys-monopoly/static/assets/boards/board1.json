@@ -4,6 +4,7 @@
   "seed_money": 1000,
   "start_bonus": 100,
   "monopoly_bonus_multiplier": 1,
+  "physical_image": "board1.png",
   "_note": "Short-game layout derived from Monopoly_short.png. Single color-group monopolies are not enforced (short game turns off monopoly bonus).",
   "tiles": [
     { "index": 0,  "kind": "start",           "name": "GO" },
