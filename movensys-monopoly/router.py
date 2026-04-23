@@ -105,6 +105,22 @@ class ConfigPatch(BaseModel):
     player_colors: dict[str, str] | None = None
 
 
+class DecideRequest(BaseModel):
+    action: Literal["skip", "buy", "build"]
+    house_count: int = Field(default=0, ge=0, le=5)
+
+
+class BuildRequest(BaseModel):
+    houses: int = Field(default=1, ge=0, le=4)
+    hotel: bool = False
+
+
+class EffectRequest(BaseModel):
+    player: Literal["user", "robot"]
+    # Any additional keys go through as effect args
+    model_config = {"extra": "allow"}
+
+
 # ---- game control ---------------------------------------------------------
 
 
@@ -182,30 +198,167 @@ async def move_apply(request: Request, body: MoveApplyRequest) -> dict[str, Any]
         raise HTTPException(**_http_kwargs(exc))
 
 
+# ---- property -------------------------------------------------------------
+
+
+@api_router.get("/properties")
+async def properties(request: Request) -> list[dict[str, Any]]:
+    return request.app.state.game.list_properties()
+
+
+@api_router.get("/properties/{pid}")
+async def property_detail(request: Request, pid: str) -> dict[str, Any]:
+    cards = {c["id"]: c for c in request.app.state.game.list_properties()}
+    if pid not in cards:
+        raise HTTPException(status_code=404,
+                            detail={"code": "NOT_FOUND", "message": f"unknown property {pid}"})
+    return cards[pid]
+
+
+@api_router.post("/properties/{pid}/decide")
+async def property_decide(request: Request, pid: str, body: DecideRequest) -> dict[str, Any]:
+    game = request.app.state.game
+    player = game.state.turn
+    try:
+        return await game.decide_property(player, pid, body.action, body.house_count)
+    except RuleError as exc:
+        raise HTTPException(**_http_kwargs(exc))
+
+
+@api_router.post("/properties/{pid}/buy")
+async def property_buy(request: Request, pid: str) -> dict[str, Any]:
+    game = request.app.state.game
+    try:
+        return await game.buy_property(game.state.turn, pid)
+    except RuleError as exc:
+        raise HTTPException(**_http_kwargs(exc))
+
+
+@api_router.post("/properties/{pid}/build")
+async def property_build(request: Request, pid: str, body: BuildRequest) -> dict[str, Any]:
+    game = request.app.state.game
+    try:
+        return await game.build(game.state.turn, pid, houses=body.houses, hotel=body.hotel)
+    except RuleError as exc:
+        raise HTTPException(**_http_kwargs(exc))
+
+
+@api_router.post("/properties/{pid}/mortgage")
+async def property_mortgage(request: Request, pid: str) -> dict[str, Any]:
+    game = request.app.state.game
+    try:
+        return await game.mortgage(game.state.turn, pid)
+    except RuleError as exc:
+        raise HTTPException(**_http_kwargs(exc))
+
+
+@api_router.post("/properties/{pid}/unmortgage")
+async def property_unmortgage(request: Request, pid: str) -> dict[str, Any]:
+    game = request.app.state.game
+    try:
+        return await game.unmortgage(game.state.turn, pid)
+    except RuleError as exc:
+        raise HTTPException(**_http_kwargs(exc))
+
+
+@api_router.post("/properties/{pid}/sell_building")
+async def property_sell_building(request: Request, pid: str) -> dict[str, Any]:
+    game = request.app.state.game
+    try:
+        return await game.sell_building(game.state.turn, pid)
+    except RuleError as exc:
+        raise HTTPException(**_http_kwargs(exc))
+
+
+# ---- money ---------------------------------------------------------------
+
+
+@api_router.get("/money")
+async def money_snapshot(request: Request) -> dict[str, int]:
+    return request.app.state.game.money_snapshot()
+
+
+@api_router.get("/money/{player}")
+async def money_player(request: Request, player: Literal["user", "robot"]) -> dict[str, Any]:
+    snap = request.app.state.game.money_snapshot()
+    if player not in snap:
+        raise HTTPException(status_code=404,
+                            detail={"code": "NOT_FOUND", "message": f"unknown player {player}"})
+    return {"player": player, "balance": snap[player]}
+
+
+# ---- effects (Chance/CC callable for debugging) --------------------------
+
+
+@api_router.post("/effects/{effect_type}")
+async def effects_apply(request: Request, effect_type: str, body: EffectRequest) -> dict[str, Any]:
+    game = request.app.state.game
+    payload = body.model_dump(exclude={"player"})
+    payload["type"] = effect_type
+    try:
+        return await game.apply_card_effect(body.player, payload)
+    except RuleError as exc:
+        raise HTTPException(**_http_kwargs(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400,
+                            detail={"code": "BAD_REQUEST", "message": str(exc)})
+
+
 # ---- WebSocket stream ------------------------------------------------------
+
+
+async def _stream_events(ws: WebSocket, name: str, type_filter: set[str] | None = None) -> None:
+    """Shared WS subscriber used by /stream/{game,board,money,properties}.
+    When `type_filter` is set the stream only forwards envelopes whose
+    `type` matches. /stream/game forwards everything (PRD §4.6)."""
+    await ws.accept()
+    bus = ws.app.state.event_bus
+    queue = bus.subscribe()
+    from game.events import make_envelope
+    await ws.send_json(make_envelope("hello", {
+        "stream": name,
+        "snapshot": ws.app.state.game.state.model_dump(),
+    }))
+    try:
+        while True:
+            event = await queue.get()
+            if type_filter is None or event["type"] in type_filter:
+                await ws.send_json(event)
+    except WebSocketDisconnect:
+        ws_log.info("stream_%s_disconnect", name)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        ws_log.exception("stream_%s_error", name)
+    finally:
+        bus.unsubscribe(queue)
 
 
 @api_router.websocket("/stream/game")
 async def stream_game(ws: WebSocket) -> None:
-    """Broadcast FSM/dice/move events to the connected client (PRD §4.6)."""
-    await ws.accept()
-    bus = ws.app.state.event_bus
-    queue = bus.subscribe()
-    # Push a hello event so the client can sync immediately.
-    from game.events import make_envelope
-    await ws.send_json(make_envelope("hello", {"snapshot": ws.app.state.game.state.model_dump()}))
-    try:
-        while True:
-            event = await queue.get()
-            await ws.send_json(event)
-    except WebSocketDisconnect:
-        ws_log.info("stream_game_disconnect")
-    except asyncio.CancelledError:
-        raise
-    except Exception:
-        ws_log.exception("stream_game_error")
-    finally:
-        bus.unsubscribe(queue)
+    await _stream_events(ws, "game")
+
+
+@api_router.websocket("/stream/board")
+async def stream_board(ws: WebSocket) -> None:
+    await _stream_events(ws, "board", {"move_applied", "lap_completed", "fsm_transition",
+                                        "game_started", "game_won"})
+
+
+@api_router.websocket("/stream/money")
+async def stream_money(ws: WebSocket) -> None:
+    await _stream_events(ws, "money", {"effect_applied", "property_bought",
+                                        "property_built", "property_mortgaged",
+                                        "property_unmortgaged", "building_sold",
+                                        "tile_rent_paid", "tile_tax_paid",
+                                        "tile_rent_bankruptcy", "tile_tax_bankruptcy"})
+
+
+@api_router.websocket("/stream/properties")
+async def stream_properties(ws: WebSocket) -> None:
+    await _stream_events(ws, "properties", {"property_bought", "property_built",
+                                             "property_mortgaged", "property_unmortgaged",
+                                             "building_sold"})
 
 
 # ---- HTTPException helper --------------------------------------------------
