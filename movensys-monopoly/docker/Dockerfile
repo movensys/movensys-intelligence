@@ -11,10 +11,14 @@ RUN if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then \
         /etc/apt/sources.list.d/ubuntu.sources; \
     fi
 
-# M0: only base Python tooling. ROS camera/imaging deps land in M4 when
-# ros2_node.py starts subscribing to /image_* topics.
+# M0: Python tooling + cyclonedds RMW (the rest of the movensys stack
+# uses RMW_IMPLEMENTATION=rmw_cyclonedds_cpp, so we ship it here too
+# to avoid rcl aborting the process when the shared lib is missing).
+# Camera/imaging deps land in M4 when ros2_node.py starts subscribing
+# to /image_* topics.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
+    ros-${ROS_DISTRO}-rmw-cyclonedds-cpp \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -26,7 +30,7 @@ RUN if [ "${ROS_DISTRO}" = "jazzy" ]; then \
         pip3 install --no-cache-dir -r requirements.txt; \
     fi
 
-COPY main.py router.py ./
+COPY *.py ./
 COPY adapters/ ./adapters/
 COPY utils/ ./utils/
 COPY game/ ./game/

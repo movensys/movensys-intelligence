@@ -13,12 +13,26 @@ Design notes:
 
 from __future__ import annotations
 
+import ctypes
 import logging
 import os
 import threading
 from typing import Any
 
 log = logging.getLogger("monopoly.ros2")
+
+
+def _rmw_loadable(rmw: str) -> bool:
+    """rcl aborts the process with exit(1) when RMW_IMPLEMENTATION is set
+    but the corresponding shared library is missing — try/except can't
+    catch that. Load the .so first so we can refuse to call rclpy.init()
+    cleanly instead."""
+    try:
+        ctypes.CDLL(f"lib{rmw}.so")
+        return True
+    except OSError as exc:
+        log.warning("RMW shared lib unavailable: lib%s.so (%s)", rmw, exc)
+        return False
 
 
 class Ros2Bridge:
@@ -38,6 +52,13 @@ class Ros2Bridge:
         return os.environ.get("MONOPOLY_ISAAC_TOPIC_CARD_SPAWN", "/isaac/card_spawn")
 
     def start(self) -> None:
+        rmw = os.environ.get("RMW_IMPLEMENTATION", "").strip()
+        if rmw and not _rmw_loadable(rmw):
+            log.warning(
+                "ROS 2 bridge disabled: RMW_IMPLEMENTATION=%r not installed", rmw
+            )
+            return
+
         try:
             import rclpy
             from rclpy.executors import SingleThreadedExecutor
