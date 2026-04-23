@@ -326,6 +326,45 @@ def test_rent_bankruptcy_transfers_assets_and_ends_game() -> None:
     assert state.players["user"].balance == 0
 
 
+def test_start_bonus_credited_on_wrap_board1() -> None:
+    """Board 1 start_bonus is $100. Wrapping past GO credits the player."""
+    state = _fresh("1")
+    state.positions["user"] = 14
+    state.turn = "user"
+    board_size = load_board("1").tile_count
+    # (14 + 3) mod 16 = 1 -> wrapped
+    start_balance = state.players["user"].balance
+    submit_dice(state, 3)
+    result = apply_move(state, "user", 14, 1)
+    assert result.wrapped is True
+    assert result.start_bonus_collected == 100
+    assert state.players["user"].balance == start_balance + 100
+
+
+def test_start_bonus_credited_on_wrap_board2() -> None:
+    state = _fresh("2")
+    state.positions["user"] = 38
+    state.turn = "user"
+    start_balance = state.players["user"].balance
+    submit_dice(state, 5)   # 38 + 5 = 43 mod 40 = 3 -> wrapped
+    result = apply_move(state, "user", 38, 3)
+    assert result.wrapped is True
+    assert result.start_bonus_collected == 200
+    assert state.players["user"].balance == start_balance + 200
+
+
+def test_no_bonus_when_not_wrapping() -> None:
+    state = _fresh("2")
+    state.positions["user"] = 5
+    state.turn = "user"
+    start_balance = state.players["user"].balance
+    submit_dice(state, 3)
+    result = apply_move(state, "user", 5, 8)
+    assert result.wrapped is False
+    assert result.start_bonus_collected == 0
+    assert state.players["user"].balance == start_balance
+
+
 def test_tax_bankruptcy_goes_to_bank_not_opponent() -> None:
     state = _fresh("2")
     state.players["user"].balance = 1

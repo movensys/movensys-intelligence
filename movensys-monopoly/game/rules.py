@@ -106,9 +106,10 @@ class MoveResult:
     from_tile: int
     to_tile: int
     dice_sum: int
-    wrapped: bool          # crossed the START tile
-    lap_completed: bool    # this lap is the player's first lap (Board 3 win)
-    winner: Player | None  # set if the move ended the game
+    wrapped: bool                # crossed the START tile
+    lap_completed: bool          # this lap is the player's first lap (Board 3 win)
+    winner: Player | None        # set if the move ended the game
+    start_bonus_collected: int = 0  # +$100 on Board 1, +$200 on Board 2, etc.
 
 
 def apply_move(state: GameState, player: Player, from_tile: int, to_tile: int) -> MoveResult:
@@ -146,6 +147,7 @@ def apply_move(state: GameState, player: Player, from_tile: int, to_tile: int) -
 
     lap_completed = False
     winner: Player | None = None
+    bonus = 0
     if wrapped:
         state.lap_count[player] = state.lap_count.get(player, 0) + 1
         # Board 3 rule: first to complete a full lap wins.
@@ -154,6 +156,11 @@ def apply_move(state: GameState, player: Player, from_tile: int, to_tile: int) -
             winner = player
             state.winner = player
             state.fsm = FSM.GAME_OVER
+        else:
+            # Boards 1 and 2: collect the start bonus for passing GO.
+            bonus = board.start_bonus
+            if bonus > 0:
+                state.players[player].balance += bonus
 
     return MoveResult(
         player=player,
@@ -163,6 +170,7 @@ def apply_move(state: GameState, player: Player, from_tile: int, to_tile: int) -
         wrapped=wrapped,
         lap_completed=lap_completed,
         winner=winner,
+        start_bonus_collected=bonus,
     )
 
 

@@ -108,6 +108,12 @@ class GameManager:
             )
             if result.wrapped:
                 self.bus.publish_nowait("lap_completed", {"player": result.player})
+                if result.start_bonus_collected > 0:
+                    self.bus.publish_nowait("start_bonus", {
+                        "player": result.player,
+                        "amount": result.start_bonus_collected,
+                        "balance": self.state.players[result.player].balance,
+                    })
             self._emit_transition(prev, self.state.fsm, trigger="move_applied")
 
             resolved = []
