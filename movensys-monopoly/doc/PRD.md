@@ -352,8 +352,10 @@ Error codes (고정 집합):
 
 ### 7.1 Board 3 — 12-tile headless smoke
 
-- 12개 빈 타일 + START
-- 돈·property·chance 없음, `fsm` 은 `IDLE → TURN_START → MOVING → END_TURN` 루프만
+- 12개 빈 타일 + START, **3×5 직사각형 퍼리미터**
+- 물리 원본: `movensys-simulation/dobot_cr3a/monopoly_board.drawio.png` → `static/assets/boards/board3_physical.png`
+- UI 대체 SVG: `static/assets/boards/board3_blank.svg` (타일 번호 오버레이)
+- 돈·property·chance 없음, `fsm`은 `IDLE → TURN_START → MOVING → END_TURN` 루프만
 - 승리: 한 바퀴 먼저 완료 (`positions[p]`가 wrap 발생)
 - **목적:** E2E 파이프라인(dice→move→winner) 검증 전용
 

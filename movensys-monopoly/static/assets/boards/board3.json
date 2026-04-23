@@ -4,7 +4,10 @@
   "seed_money": 0,
   "start_bonus": 0,
   "monopoly_bonus_multiplier": 0,
-  "_note": "Headless smoke-test board. 12 blank tiles + START. Winner = first to complete one lap.",
+  "layout": { "shape": "rectangle", "columns": 3, "rows": 5 },
+  "physical_image": "board3_physical.png",
+  "blank_svg": "board3_blank.svg",
+  "_note": "Headless smoke-test board. 3x5 rectangular perimeter = 12 tiles + START. Winner = first to complete one lap. Physical source: movensys-simulation/dobot_cr3a/monopoly_board.drawio.png.",
   "tiles": [
     { "index": 0,  "kind": "start", "name": "START" },
     { "index": 1,  "kind": "blank", "name": "" },
