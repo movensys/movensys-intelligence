@@ -720,17 +720,17 @@ movensys-monopoly/
 Definition of Done은 체크 + CI green + 해당 마일스톤의 §15 AC 충족.
 
 ### 16.1 M0 — Skeleton + Docker + CI
-- [ ] `requirements.txt` (fastapi, uvicorn, httpx, pydantic, pytest, pytest-asyncio)
-- [ ] `docker/Dockerfile`, `docker/docker-compose.yml`, `docker/entrypoint.sh` (§12, §10.1)
-- [ ] `main.py` FastAPI entry — lifespan, CORS, router 등록
-- [ ] `router.py` skeleton — `GET /api/health` → `{"status":"ok"}` (§5.1)
-- [ ] `adapters/{stt,llm,robot}.py` — 빈 URL에서 stub 모드 기동, 로그 배너
-- [ ] `GET /api/robot/health` — `{mode: "live"|"stub", url?}` (§5.7)
-- [ ] `static/index.html` — 최소 플레이스홀더 + "AI:off / Robot:off" 배지 (§9)
-- [ ] `ros2_node.py` skeleton — 노드 기동만, 구독 없음 (§11.5)
-- [ ] Structured JSON logger with `event_id` (§11.4)
-- [ ] `MONOPOLY_DEBUG_ROUTES` 게이트 미들웨어 (§5.10, §10.1)
-- [ ] CI green: syntax + health + stub 불변식 (§14)
+- [x] `requirements.txt` (fastapi, uvicorn, httpx, pydantic, python-multipart)
+- [x] `docker/Dockerfile`, `docker/docker-compose.yml`, `docker/entrypoint.sh` (§12, §10.1)
+- [x] `main.py` FastAPI entry — lifespan, 이벤트 ID 미들웨어, static 서빙
+- [x] `router.py` skeleton — `GET /api/health` → `{"status":"ok"}` (§5.1)
+- [x] `adapters/{stt,llm,robot}.py` — 빈 URL에서 stub 모드 기동, 로그 배너
+- [x] `GET /api/robot/health` — `{mode: "live"|"stub", url?}` (§5.7)
+- [x] `static/index.html` — 최소 플레이스홀더 + 어댑터 모드 배지 (§9)
+- [x] `ros2_node.py` skeleton — 노드 기동만, 구독 없음 (§11.5)
+- [x] Structured JSON logger with `event_id` (§11.4)
+- [x] `MONOPOLY_DEBUG_ROUTES` 게이트 미들웨어 (§5.10, §10.1)
+- [ ] CI green: syntax + health + stub 불변식 (§14) — 로컬 `ci_local.sh` 통과 확인됨, GitHub Actions 결과 대기
 
 ### 16.2 M1 — Board 3 headless E2E
 - [ ] `game/state.py` — `GameState`, `PlayerState`, `FSM` enum (§4)
