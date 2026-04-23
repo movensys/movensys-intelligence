@@ -15,11 +15,13 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from adapters import LLMAdapter, RobotAdapter, STTAdapter
+from game.events import EventBus
+from game.manager import GameManager
 from ros2_node import Ros2Bridge
 from router import api_router
 from utils import logging as jlog
@@ -38,6 +40,8 @@ async def lifespan(app: FastAPI):
     app.state.llm_adapter = LLMAdapter.from_env()
     app.state.robot_adapter = RobotAdapter.from_env()
     app.state.debug_routes_enabled = _debug_routes_enabled()
+    app.state.event_bus = EventBus()
+    app.state.game = GameManager(bus=app.state.event_bus)
     app.state.ros2 = Ros2Bridge()
     app.state.ros2.start()
     log.info(
@@ -86,6 +90,32 @@ async def debug_routes_guard(request: Request, call_next):
                 },
             )
     return await call_next(request)
+
+
+@app.exception_handler(HTTPException)
+async def http_error_envelope(request: Request, exc: HTTPException) -> JSONResponse:
+    """Convert HTTPException into the PRD §4.7 error envelope."""
+    eid = jlog.current_event_id() or jlog.new_event_id()
+    detail = exc.detail
+    if isinstance(detail, dict) and "code" in detail:
+        body = {
+            "error": {
+                "code": detail.get("code", "BAD_REQUEST"),
+                "message": detail.get("message", ""),
+                "details": detail.get("details", {}),
+                "event_id": eid,
+            }
+        }
+    else:
+        body = {
+            "error": {
+                "code": "BAD_REQUEST" if exc.status_code < 500 else "INTERNAL",
+                "message": str(detail) if detail else "",
+                "details": {},
+                "event_id": eid,
+            }
+        }
+    return JSONResponse(status_code=exc.status_code, headers={"X-Event-Id": eid}, content=body)
 
 
 app.include_router(api_router)

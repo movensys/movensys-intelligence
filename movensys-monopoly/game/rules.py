@@ -47,7 +47,7 @@ def _init_players(state: GameState, board: Board) -> None:
 
 def start_game(state: GameState, board_id: str) -> Board:
     if state.fsm not in (FSM.IDLE, FSM.GAME_OVER):
-        raise RuleError("INVALID_STATE", f"cannot start while fsm={state.fsm}")
+        raise RuleError("INVALID_STATE", f"cannot start while fsm={state.fsm.value}")
     if board_id not in ("1", "2", "3"):
         raise RuleError("BAD_REQUEST", f"unknown board_id: {board_id!r}")
     board = load_board(board_id)
@@ -69,7 +69,7 @@ def start_game(state: GameState, board_id: str) -> Board:
 
 def submit_dice(state: GameState, value: int | tuple[int, int]) -> None:
     if state.fsm != FSM.TURN_START:
-        raise RuleError("INVALID_STATE", f"cannot submit dice in fsm={state.fsm}")
+        raise RuleError("INVALID_STATE", f"cannot submit dice in fsm={state.fsm.value}")
     if isinstance(value, tuple):
         d1, d2 = value
         if not (1 <= d1 <= 6 and 1 <= d2 <= 6):
@@ -99,7 +99,7 @@ class MoveResult:
 
 def apply_move(state: GameState, player: Player, from_tile: int, to_tile: int) -> MoveResult:
     if state.fsm != FSM.MOVING:
-        raise RuleError("INVALID_STATE", f"cannot apply move in fsm={state.fsm}")
+        raise RuleError("INVALID_STATE", f"cannot apply move in fsm={state.fsm.value}")
     if player != state.turn:
         raise RuleError("INVALID_STATE", f"not {player}'s turn (turn={state.turn})")
     if state.pending_dice is None:
@@ -156,7 +156,7 @@ def end_turn(state: GameState) -> None:
     if state.fsm == FSM.GAME_OVER:
         return
     if state.fsm not in (FSM.RESOLVE_TILE, FSM.END_TURN):
-        raise RuleError("INVALID_STATE", f"cannot end turn in fsm={state.fsm}")
+        raise RuleError("INVALID_STATE", f"cannot end turn in fsm={state.fsm.value}")
     state.turn = state.other(state.turn)
     state.turn_number += 1
     state.last_dice = None
