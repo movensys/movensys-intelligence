@@ -34,6 +34,12 @@ async def llm_health(request: Request) -> dict[str, object]:
     return request.app.state.llm_adapter.health()
 
 
+@api_router.get("/ros2/health")
+async def ros2_health(request: Request) -> dict[str, object]:
+    bridge = request.app.state.ros2
+    return {"enabled": bridge.enabled, "isaac_topic": bridge.isaac_card_spawn_topic}
+
+
 @api_router.get("/_event_id")
 async def current_event() -> dict[str, str | None]:
     """Diagnostic: return the event_id bound to this request."""

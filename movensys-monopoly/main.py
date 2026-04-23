@@ -18,6 +18,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from adapters import LLMAdapter, RobotAdapter, STTAdapter
+from ros2_node import Ros2Bridge
 from router import api_router
 from utils import logging as jlog
 
@@ -35,16 +36,20 @@ async def lifespan(app: FastAPI):
     app.state.llm_adapter = LLMAdapter.from_env()
     app.state.robot_adapter = RobotAdapter.from_env()
     app.state.debug_routes_enabled = _debug_routes_enabled()
+    app.state.ros2 = Ros2Bridge()
+    app.state.ros2.start()
     log.info(
         "startup",
         extra={
             "stt_mode": app.state.stt_adapter.mode,
             "llm_mode": app.state.llm_adapter.mode,
             "robot_mode": app.state.robot_adapter.mode,
+            "ros2_enabled": app.state.ros2.enabled,
             "debug_routes": app.state.debug_routes_enabled,
         },
     )
     yield
+    app.state.ros2.stop()
     log.info("shutdown")
 
 
