@@ -1,0 +1,22 @@
+{
+  "board_id": "3",
+  "tile_count": 12,
+  "seed_money": 0,
+  "start_bonus": 0,
+  "monopoly_bonus_multiplier": 0,
+  "_note": "Headless smoke-test board. 12 blank tiles + START. Winner = first to complete one lap.",
+  "tiles": [
+    { "index": 0,  "kind": "start", "name": "START" },
+    { "index": 1,  "kind": "blank", "name": "" },
+    { "index": 2,  "kind": "blank", "name": "" },
+    { "index": 3,  "kind": "blank", "name": "" },
+    { "index": 4,  "kind": "blank", "name": "" },
+    { "index": 5,  "kind": "blank", "name": "" },
+    { "index": 6,  "kind": "blank", "name": "" },
+    { "index": 7,  "kind": "blank", "name": "" },
+    { "index": 8,  "kind": "blank", "name": "" },
+    { "index": 9,  "kind": "blank", "name": "" },
+    { "index": 10, "kind": "blank", "name": "" },
+    { "index": 11, "kind": "blank", "name": "" }
+  ]
+}
