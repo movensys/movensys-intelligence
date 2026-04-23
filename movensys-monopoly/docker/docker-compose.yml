@@ -1,0 +1,28 @@
+services:
+  monopoly:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        - ROS_DISTRO=${ROS_DISTRO:-jazzy}
+    image: movensys_monopoly_image:latest
+    container_name: movensys_monopoly_container
+    environment:
+      # ROS 2
+      - ROS_DISTRO=${ROS_DISTRO:-jazzy}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+      - RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+      # FastAPI
+      - MONOPOLY_PORT=${MONOPOLY_PORT:-8000}
+      - MONOPOLY_LOG_LEVEL=${MONOPOLY_LOG_LEVEL:-INFO}
+      - MONOPOLY_DEBUG_ROUTES=${MONOPOLY_DEBUG_ROUTES:-true}
+      # External FastAPI adapters (empty -> stub mode, PRD 8.x)
+      - STT_SERVICE_URL=${STT_SERVICE_URL:-}
+      - LLM_SERVICE_URL=${LLM_SERVICE_URL:-}
+      - ROBOT_SERVICE_URL=${ROBOT_SERVICE_URL:-}
+      # Isaac Sim card-spawn publisher (PRD 11.5)
+      - MONOPOLY_ISAAC_TOPIC_CARD_SPAWN=${MONOPOLY_ISAAC_TOPIC_CARD_SPAWN:-/isaac/card_spawn}
+      # Optional persistence (PRD 11.3)
+      - MONOPOLY_PERSISTENCE_PATH=${MONOPOLY_PERSISTENCE_PATH:-}
+    restart: unless-stopped
+    network_mode: host
