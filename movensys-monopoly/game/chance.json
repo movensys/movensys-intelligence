@@ -1,0 +1,21 @@
+{
+  "deck": "chance",
+  "cards": [
+    { "id": "advance_to_go",         "text": "Advance to GO. Collect $200.",                        "effect": { "type": "move_to_tile", "tile_index": 0, "collect_on_pass": true } },
+    { "id": "advance_to_illinois",   "text": "Advance to Illinois Avenue. If you pass GO, collect $200.", "effect": { "type": "move_to_tile", "tile_index": 24, "collect_on_pass": true } },
+    { "id": "advance_to_st_charles", "text": "Advance to St. Charles Place. If you pass GO, collect $200.", "effect": { "type": "move_to_tile", "tile_index": 11, "collect_on_pass": true } },
+    { "id": "bank_dividend",         "text": "Bank pays you a dividend of $50.",                    "effect": { "type": "collect", "amount": 50 } },
+    { "id": "jail_free_chance",      "text": "Get Out of Jail Free. Keep this card until needed.",  "effect": { "type": "grant_jail_free_card" } },
+    { "id": "go_back_three",         "text": "Go back 3 spaces.",                                   "effect": { "type": "move_relative", "delta": -3 } },
+    { "id": "go_to_jail_chance",     "text": "Go directly to Jail. Do not pass GO.",                "effect": { "type": "go_to_jail" } },
+    { "id": "repairs",               "text": "Make general repairs. Pay $25 per house, $100 per hotel.", "effect": { "type": "pay_per_building", "per_house": 25, "per_hotel": 100 } },
+    { "id": "poor_tax",              "text": "Pay poor tax of $15.",                                "effect": { "type": "pay", "amount": 15, "to": "bank" } },
+    { "id": "advance_to_reading",    "text": "Take a trip to Reading Railroad. If you pass GO, collect $200.", "effect": { "type": "move_to_tile", "tile_index": 5, "collect_on_pass": true } },
+    { "id": "advance_to_boardwalk",  "text": "Take a walk on the Boardwalk. Advance to Boardwalk.", "effect": { "type": "move_to_tile", "tile_index": 39, "collect_on_pass": false } },
+    { "id": "chairman",              "text": "You have been elected Chairman of the Board. Pay each other player $50.", "effect": { "type": "pay_each_player", "amount": 50 } },
+    { "id": "building_loan",         "text": "Your building loan matures. Collect $150.",           "effect": { "type": "collect", "amount": 150 } },
+    { "id": "speeding",              "text": "Speeding fine. Pay $15.",                             "effect": { "type": "pay", "amount": 15, "to": "bank" } },
+    { "id": "crossword",             "text": "You have won a crossword competition. Collect $100.", "effect": { "type": "collect", "amount": 100 } },
+    { "id": "nearest_railroad",      "text": "Advance to the nearest Railroad. Pay owner twice rent; if unowned, you may buy.", "effect": { "type": "move_to_nearest", "kind": "railroad", "double_rent": true } }
+  ]
+}
