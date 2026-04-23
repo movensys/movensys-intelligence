@@ -158,42 +158,54 @@ def go_to_jail(state: GameState, board: Board, player: Player) -> dict[str, Any]
 # ---- dispatcher ------------------------------------------------------------
 
 
+def _require(effect: dict[str, Any], key: str) -> Any:
+    if key not in effect:
+        raise EffectError("BAD_REQUEST", f"effect missing required field: {key!r}")
+    return effect[key]
+
+
 def apply_effect(
     state: GameState, board: Board, player: Player, effect: dict[str, Any],
 ) -> dict[str, Any]:
     etype = effect.get("type")
     bonus = board.start_bonus
-    if etype == "collect":
-        return collect(state, player, int(effect["amount"]))
-    if etype == "pay":
-        return pay(state, player, int(effect["amount"]), to=effect.get("to", "bank"))
-    if etype == "pay_each_player":
-        return pay_each_player(state, player, int(effect["amount"]))
-    if etype == "collect_from_each_player":
-        return collect_from_each_player(state, player, int(effect["amount"]))
-    if etype == "pay_per_building":
-        return pay_per_building(
-            state, board, player,
-            per_house=int(effect["per_house"]), per_hotel=int(effect["per_hotel"]),
-        )
-    if etype == "move_to_tile":
-        return move_to_tile(
-            state, board, player,
-            tile_index=int(effect["tile_index"]),
-            collect_on_pass=bool(effect.get("collect_on_pass", False)),
-            start_bonus=bonus,
-        )
-    if etype == "move_relative":
-        return move_relative(state, board, player, delta=int(effect["delta"]))
-    if etype == "move_to_nearest":
-        return move_to_nearest(
-            state, board, player,
-            kind=effect["kind"],
-            collect_on_pass=True,
-            start_bonus=bonus,
-        )
-    if etype == "grant_jail_free_card":
-        return grant_jail_free_card(state, player)
-    if etype == "go_to_jail":
-        return go_to_jail(state, board, player)
+    try:
+        if etype == "collect":
+            return collect(state, player, int(_require(effect, "amount")))
+        if etype == "pay":
+            return pay(state, player, int(_require(effect, "amount")),
+                       to=effect.get("to", "bank"))
+        if etype == "pay_each_player":
+            return pay_each_player(state, player, int(_require(effect, "amount")))
+        if etype == "collect_from_each_player":
+            return collect_from_each_player(state, player, int(_require(effect, "amount")))
+        if etype == "pay_per_building":
+            return pay_per_building(
+                state, board, player,
+                per_house=int(_require(effect, "per_house")),
+                per_hotel=int(_require(effect, "per_hotel")),
+            )
+        if etype == "move_to_tile":
+            return move_to_tile(
+                state, board, player,
+                tile_index=int(_require(effect, "tile_index")),
+                collect_on_pass=bool(effect.get("collect_on_pass", False)),
+                start_bonus=bonus,
+            )
+        if etype == "move_relative":
+            return move_relative(state, board, player,
+                                  delta=int(_require(effect, "delta")))
+        if etype == "move_to_nearest":
+            return move_to_nearest(
+                state, board, player,
+                kind=_require(effect, "kind"),
+                collect_on_pass=True,
+                start_bonus=bonus,
+            )
+        if etype == "grant_jail_free_card":
+            return grant_jail_free_card(state, player)
+        if etype == "go_to_jail":
+            return go_to_jail(state, board, player)
+    except (TypeError, ValueError) as exc:
+        raise EffectError("BAD_REQUEST", f"invalid arg in {etype!r}: {exc}") from exc
     raise EffectError("BAD_REQUEST", f"unknown effect type: {etype!r}")

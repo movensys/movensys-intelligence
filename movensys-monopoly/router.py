@@ -292,6 +292,7 @@ async def money_player(request: Request, player: Literal["user", "robot"]) -> di
 
 @api_router.post("/effects/{effect_type}")
 async def effects_apply(request: Request, effect_type: str, body: EffectRequest) -> dict[str, Any]:
+    from game.effects import EffectError
     game = request.app.state.game
     payload = body.model_dump(exclude={"player"})
     payload["type"] = effect_type
@@ -299,9 +300,9 @@ async def effects_apply(request: Request, effect_type: str, body: EffectRequest)
         return await game.apply_card_effect(body.player, payload)
     except RuleError as exc:
         raise HTTPException(**_http_kwargs(exc))
-    except ValueError as exc:
+    except EffectError as exc:
         raise HTTPException(status_code=400,
-                            detail={"code": "BAD_REQUEST", "message": str(exc)})
+                            detail={"code": exc.code, "message": str(exc)})
 
 
 # ---- WebSocket stream ------------------------------------------------------

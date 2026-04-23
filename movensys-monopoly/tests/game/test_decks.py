@@ -178,6 +178,21 @@ def test_unknown_effect_raises() -> None:
         apply_effect(st, board, "user", {"type": "teleport_to_mars"})
 
 
+def test_missing_required_field_raises_bad_request() -> None:
+    st, board = _state()
+    with pytest.raises(EffectError) as exc:
+        apply_effect(st, board, "user", {"type": "collect"})  # no amount
+    assert exc.value.code == "BAD_REQUEST"
+    assert "amount" in str(exc.value)
+
+
+def test_malformed_arg_raises_bad_request() -> None:
+    st, board = _state()
+    with pytest.raises(EffectError) as exc:
+        apply_effect(st, board, "user", {"type": "collect", "amount": "not-a-number"})
+    assert exc.value.code == "BAD_REQUEST"
+
+
 # ---- sanity: every card's effect dispatches ------------------------------
 
 
