@@ -168,13 +168,15 @@ def test_even_build_blocks_two_gap(board2_state) -> None:
 # ---- Board 1 sanity --------------------------------------------------------
 
 
-def test_board1_single_tile_group_no_monopoly_bonus() -> None:
+def test_board1_single_tile_group_gets_monopoly_bonus() -> None:
+    """Board 1 uses monopoly_bonus_multiplier=2 and each color group is a
+    single tile, so owning one tile trivially owns the group and the
+    base rent doubles."""
     board = load_board("1")
     state = GameState(board_id="1", properties=initial_properties(board))
     _own(state, "board1:baltic_avenue")
-    # Board 1 monopoly_bonus_multiplier=1, so owning only baltic still
-    # returns base rent (no doubling).
-    assert compute_rent(state, board, 1, None) == 4
+    # Baltic base rent 4 * 2 = 8
+    assert compute_rent(state, board, 1, None) == 8
 
 
 def test_property_id_slug_stability() -> None:

@@ -137,22 +137,17 @@ def grant_jail_free_card(state: GameState, player: Player) -> dict[str, Any]:
 
 
 def go_to_jail(state: GameState, board: Board, player: Player) -> dict[str, Any]:
-    """Move the player to jail_visit. Only sets the in_jail flag when the
-    board actually enforces a jail FSM (Board 2, monopoly_bonus_multiplier > 1).
-    Board 1's short game does not have jail exit mechanics, so the teleport
-    alone is the full behaviour (PRD §7.3.1 lands in M3).
+    """Move the player to jail_visit. The in_jail FSM lands in M3 (PRD
+    §7.3.1); until then no board has an exit mechanism, so go_to_jail
+    is a pure teleport and we deliberately do not set the in_jail flag.
     """
     jail_visit = next((t.index for t in board.tiles if t.kind == "jail_visit"), None)
     if jail_visit is None:
         return {"kind": "go_to_jail", "player": player, "found": False}
     current = state.positions[player]
     state.positions[player] = jail_visit
-    jail_fsm = board.monopoly_bonus_multiplier > 1  # Board 2 only, for now
-    if jail_fsm:
-        state.players[player].in_jail = True
-        state.players[player].jail_turns_left = 3
     return {"kind": "go_to_jail", "player": player, "from": current, "to": jail_visit,
-            "jail_fsm": jail_fsm}
+            "jail_fsm": False}
 
 
 # ---- dispatcher ------------------------------------------------------------

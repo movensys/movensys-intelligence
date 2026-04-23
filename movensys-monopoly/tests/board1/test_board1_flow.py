@@ -100,10 +100,11 @@ async def test_board1_rent_transfers_when_opponent_owns(client: AsyncClient) -> 
     res = await _post(client, "/api/move/apply", player="user", from_tile=0, to_tile=1)
     tile = res["resolved"]["tiles"][0]
     assert tile["kind"] == "rent_paid"
-    assert tile["payload"]["amount"] == 4  # base rent for Baltic
+    # Baltic base rent 4, doubled by Board 1 monopoly bonus (single-tile group) = 8
+    assert tile["payload"]["amount"] == 8
     state = (await client.get("/api/game/state")).json()
-    assert state["players"]["user"]["balance"] == 996
-    assert state["players"]["robot"]["balance"] == 1004
+    assert state["players"]["user"]["balance"] == 992
+    assert state["players"]["robot"]["balance"] == 1008
 
 
 @pytest.mark.asyncio

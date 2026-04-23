@@ -3,7 +3,7 @@
   "tile_count": 16,
   "seed_money": 1000,
   "start_bonus": 100,
-  "monopoly_bonus_multiplier": 1,
+  "monopoly_bonus_multiplier": 2,
   "physical_image": "board1.png",
   "layout": { "shape": "square", "per_side": 3, "corner_ratio": 1.5 },
   "_note": "Monopoly Short Game — 4 corners + 3 tiles per side = 16 tiles. Standard Hasbro layout with corners 1.5x the non-corner tile width. Derived from ~/Downloads/Monopoly_short.png.",

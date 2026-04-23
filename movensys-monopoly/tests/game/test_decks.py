@@ -162,14 +162,16 @@ def test_grant_jail_free_card_sets_flag() -> None:
     assert st.players["user"].has_jail_free_card is True
 
 
-def test_go_to_jail_moves_to_jail_visit_and_flags_in_jail() -> None:
+def test_go_to_jail_teleports_without_jail_fsm() -> None:
+    """Until the M3 jail FSM lands, go_to_jail is a pure teleport on every
+    board. The in_jail flag stays False because nothing would clear it."""
     st, board = _state()
     st.positions["user"] = 25
     apply_effect(st, board, "user", {"type": "go_to_jail"})
     # Board 2 jail_visit tile is index 10
     assert st.positions["user"] == 10
-    assert st.players["user"].in_jail is True
-    assert st.players["user"].jail_turns_left == 3
+    assert st.players["user"].in_jail is False
+    assert st.players["user"].jail_turns_left == 0
 
 
 def test_unknown_effect_raises() -> None:
