@@ -17,41 +17,54 @@ const BOARD3_LAYOUT = {
   },
 };
 
-/** Compute tile-center pixel coordinates for a square-perimeter board
- * (N tiles total, 4 corners + (N-4)/4 on each side, counter-clockwise
- * from the bottom-right GO corner). */
-function squarePerimeterCenters(n, size = 1000) {
+/** Compute tile-center pixel coordinates for a square-perimeter board.
+ * `n` is total tiles; corners occupy `cornerRatio` × side-tile width
+ * (Hasbro boards use ~1.5). Indexing is counter-clockwise from the
+ * bottom-right GO corner.
+ *
+ * Board edge length = 2 * cornerWidth + perSide * sideTileWidth
+ *                   = size
+ * so sideTileWidth = size / (perSide + 2 * cornerRatio)
+ */
+function squarePerimeterCenters(n, size = 1000, cornerRatio = 1.5) {
   const perSide = (n - 4) / 4;
-  const tile = size / (perSide + 2);
-  const half = tile / 2;
+  const sideW = size / (perSide + 2 * cornerRatio);   // non-corner tile width
+  const cornerW = cornerRatio * sideW;
+  const halfCorner = cornerW / 2;
   const centers = {};
 
-  centers[0] = [size - half, size - half]; // bottom-right corner
-  // bottom row: 1..perSide, moving left
+  // side-tile center along the axis of travel (from the corner edge, moving away)
+  const sideCenter = (i) => cornerW + (i - 0.5) * sideW;  // i = 1..perSide
+
+  centers[0] = [size - halfCorner, size - halfCorner];  // GO
   for (let i = 1; i <= perSide; i++) {
-    centers[i] = [size - (i + 1) * tile + half, size - half];
+    // bottom row — moving left from GO: x decreases
+    centers[i] = [size - sideCenter(i), size - halfCorner];
   }
-  centers[perSide + 1] = [half, size - half]; // bottom-left corner
-  // left column: moving up
+  centers[perSide + 1] = [halfCorner, size - halfCorner];  // Jail / Just Visiting
+
   for (let i = 1; i <= perSide; i++) {
-    centers[perSide + 1 + i] = [half, size - (i + 1) * tile + half];
+    // left column — moving up from Jail: y decreases
+    centers[perSide + 1 + i] = [halfCorner, size - sideCenter(i)];
   }
-  centers[2 * (perSide + 1)] = [half, half]; // top-left corner
-  // top row: moving right
+  centers[2 * (perSide + 1)] = [halfCorner, halfCorner];  // Free Parking
+
   for (let i = 1; i <= perSide; i++) {
-    centers[2 * (perSide + 1) + i] = [(i + 1) * tile - half, half];
+    // top row — moving right from Free Parking: x increases
+    centers[2 * (perSide + 1) + i] = [sideCenter(i), halfCorner];
   }
-  centers[3 * (perSide + 1)] = [size - half, half]; // top-right corner
-  // right column: moving down
+  centers[3 * (perSide + 1)] = [size - halfCorner, halfCorner];  // Go To Jail
+
   for (let i = 1; i <= perSide; i++) {
-    centers[3 * (perSide + 1) + i] = [size - half, (i + 1) * tile - half];
+    // right column — moving down from Go To Jail: y increases
+    centers[3 * (perSide + 1) + i] = [size - halfCorner, sideCenter(i)];
   }
-  return { viewBox: { w: size, h: size }, centers };
+  return { viewBox: { w: size, h: size }, centers, cornerW, sideW };
 }
 
 const BOARD_LAYOUTS = {
-  "1": squarePerimeterCenters(20),
-  "2": squarePerimeterCenters(40),
+  "1": squarePerimeterCenters(16, 1000, 1.5),
+  "2": squarePerimeterCenters(40, 1000, 1.5),
   "3": BOARD3_LAYOUT,
 };
 
@@ -100,15 +113,14 @@ async function refreshBadges() {
 // ---- board rendering ------------------------------------------------------
 
 async function loadBoardVisual(boardId) {
+  const wrap = document.getElementById("board-wrap");
   const host = document.getElementById("board-host");
   const pieces = document.getElementById("pieces");
-  host.classList.toggle("board3", boardId === "3");
-  pieces.classList.toggle("board3", boardId === "3");
+  wrap.classList.toggle("board3", boardId === "3");
 
   const layout = BOARD_LAYOUTS[boardId];
   pieces.setAttribute("viewBox", `0 0 ${layout.viewBox.w} ${layout.viewBox.h}`);
 
-  // Pull the board definition to learn which image to render.
   const boardJson = await fetchJson(`/assets/boards/board${boardId}.json`);
   if (boardId === "3") {
     const r = await fetch(`/assets/boards/${boardJson.blank_svg || "board3_blank.svg"}`);

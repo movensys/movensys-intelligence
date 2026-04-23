@@ -5,7 +5,7 @@ import pytest
 from game.boards import load_board
 
 
-@pytest.mark.parametrize("board_id,expected_tiles", [("1", 20), ("2", 40), ("3", 12)])
+@pytest.mark.parametrize("board_id,expected_tiles", [("1", 16), ("2", 40), ("3", 12)])
 def test_load_board_tile_counts(board_id: str, expected_tiles: int) -> None:
     board = load_board(board_id)
     assert board.board_id == board_id

@@ -95,27 +95,28 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* board */
 .board-pane {
-  position: relative;
   background: var(--panel);
   border-radius: 10px;
   padding: 12px;
   display: flex; align-items: center; justify-content: center;
 }
+.board-wrap {
+  position: relative;
+  width: 100%; max-width: 640px;
+  aspect-ratio: 1/1;
+}
+.board-wrap.board3 { aspect-ratio: 3/5; max-width: 420px; }
 #board-host {
-  width: 100%; max-width: 640px; aspect-ratio: 1/1;
+  width: 100%; height: 100%;
   background: #fff; border-radius: 6px; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
 }
 #board-host svg, #board-host img { width: 100%; height: 100%; object-fit: contain; display: block; }
-#board-host.board3 { aspect-ratio: 3/5; max-width: 420px; }
 #pieces {
-  position: absolute; inset: 12px;
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
   pointer-events: none;
-  width: calc(100% - 24px); max-width: 640px;
-  height: auto;
-  left: 50%; transform: translateX(-50%);
 }
-#pieces.board3 { max-width: 420px; }
 #pieces circle { transition: cx 500ms ease-out, cy 500ms ease-out; }
 
 /* property sidebar */

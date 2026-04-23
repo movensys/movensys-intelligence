@@ -35,11 +35,13 @@
     </aside>
 
     <section class="board-pane">
-      <div id="board-host"></div>
-      <svg id="pieces" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid meet">
-        <circle id="piece-user"  r="22" cx="950" cy="950" fill="var(--user)"  stroke="#000" stroke-width="1.5"/>
-        <circle id="piece-robot" r="22" cx="950" cy="950" fill="var(--robot)" stroke="#000" stroke-width="1.5" transform="translate(-36 0)"/>
-      </svg>
+      <div class="board-wrap" id="board-wrap">
+        <div id="board-host"></div>
+        <svg id="pieces" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid meet">
+          <circle id="piece-user"  r="22" cx="875" cy="875" fill="var(--user)"  stroke="#000" stroke-width="1.5"/>
+          <circle id="piece-robot" r="22" cx="875" cy="875" fill="var(--robot)" stroke="#000" stroke-width="1.5" transform="translate(-40 0)"/>
+        </svg>
+      </div>
     </section>
 
     <aside class="sidebar sidebar-right">

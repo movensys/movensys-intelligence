@@ -130,57 +130,26 @@ async def test_board1_build_without_monopoly_ok(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_board1_tax_tile_deducts(client: AsyncClient) -> None:
+async def test_board1_start_wraps_past_go(client: AsyncClient) -> None:
+    """Board 1 is 16 tiles. Position 14, roll 3 → wraps through GO to tile 1."""
     await _post(client, "/api/game/start", board="1")
-    # Income tax is at tile 8; dice-of-6 from tile 2 (Community Chest). We set
-    # position directly to keep the plumbing honest.
-    app.state.game.state.positions["user"] = 2
-    # Dice 6 → tile 8 (Income Tax $100)
-    await _post(client, "/api/dice/submit", value=6, source="manual")
-    res = await _post(client, "/api/move/apply", player="user", from_tile=2, to_tile=8)
-    assert any(t["kind"] == "tax_paid" for t in res["resolved"]["tiles"])
-    state = (await client.get("/api/game/state")).json()
-    assert state["players"]["user"]["balance"] == 900
+    app.state.game.state.positions["user"] = 14
+    await _post(client, "/api/dice/submit", value=3, source="manual")
+    res = await _post(client, "/api/move/apply", player="user", from_tile=14, to_tile=1)
+    assert res["resolved"]["wrapped"] is True
 
 
 @pytest.mark.asyncio
-async def test_board1_start_bonus_on_lap(client: AsyncClient) -> None:
-    await _post(client, "/api/game/start", board="1")
-    # Put user at tile 18, roll 2 → wraps to tile 0 (GO).
-    app.state.game.state.positions["user"] = 18
-    await _post(client, "/api/dice/submit", value=2, source="manual")
-    await _post(client, "/api/move/apply", player="user", from_tile=18, to_tile=0)
-    state = (await client.get("/api/game/state")).json()
-    # Board 1 start_bonus is $100; landed on GO counts as a wrap for us.
-    # resolve_tile currently just no-ops on "start"; the wrap-start bonus
-    # needs to be credited in apply_move or resolve. For M2 we accept that
-    # the lap is counted but the credit lands via resolve's start_landed
-    # branch (start tile has no amount in JSON). So balance unchanged.
-    assert state["positions"]["user"] == 0
-
-
-@pytest.mark.asyncio
-async def test_board1_bankruptcy_to_bank_on_tax(client: AsyncClient) -> None:
-    await _post(client, "/api/game/start", board="1")
-    app.state.game.state.players["user"].balance = 10
-    app.state.game.state.positions["user"] = 2
-    await _post(client, "/api/dice/submit", value=6, source="manual")
-    await _post(client, "/api/move/apply", player="user", from_tile=2, to_tile=8)
-    state = (await client.get("/api/game/state")).json()
-    assert state["fsm"] == "GAME_OVER"
-    assert state["winner"] == "robot"
-    assert state["players"]["user"]["balance"] == 0
-
-
-@pytest.mark.asyncio
-async def test_board1_chance_draw_via_move(client: AsyncClient) -> None:
-    """Board 1 chance tiles are 12 and 19. Land on 12."""
+async def test_board1_go_to_jail_tile_teleports(client: AsyncClient) -> None:
+    """Tile 12 is Go To Jail — landing should send user to Jail / Just Visiting."""
     await _post(client, "/api/game/start", board="1")
     app.state.game.state.positions["user"] = 6
     await _post(client, "/api/dice/submit", value=6, source="manual")
-    res = await _post(client, "/api/move/apply", player="user", from_tile=6, to_tile=12)
-    kinds = [t["kind"] for t in res["resolved"]["tiles"]]
-    assert "chance_drawn" in kinds
+    await _post(client, "/api/move/apply", player="user", from_tile=6, to_tile=12)
+    state = (await client.get("/api/game/state")).json()
+    # Jail visit is tile 4 on Board 1 (3-per-side layout)
+    assert state["positions"]["user"] == 4
+    assert state["players"]["user"]["in_jail"] is True
 
 
 @pytest.mark.asyncio
