@@ -43,8 +43,9 @@ pgrep -fa 'uvicorn main:app' || echo "no uvicorn running"
 
 ```bash
 cd movensys-monopoly/docker
-docker compose up --build          # 포그라운드
-docker compose up -d --build       # 백그라운드(detached)
+docker compose down
+docker compose up -d --build
+docker compose up
 ```
 
 ### 로그

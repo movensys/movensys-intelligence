@@ -1,7 +1,7 @@
 # PRD — movensys-monopoly
 
 **Owner:** sjhwang@movensys.com
-**Status:** Draft v0.2 (2026-04-23)
+**Status:** Draft v0.3 (2026-04-24)
 **Sibling:** `movensys_vlm` (same repo)
 **Easy read:** [`PRD_easy.md`](./PRD_easy.md)
 
@@ -21,6 +21,14 @@
 5. **Board 1**: Monopoly Short Game PNG 분석 기반 **20칸** 확정 (§7.2, `static/assets/boards/board1.json`).
 6. **`ros2_node.py` 범위**: 카메라 구독 + **Isaac Sim 카드 소환 이벤트 토픽** publish (§12).
 7. **Debug 라우트 가드**: `MONOPOLY_DEBUG_ROUTES` env 플래그로 Production 배포 시 `/api/debug/*` 비활성 (§5.10, §10.1).
+
+### 1.2 Key decisions (v0.3, 2026-04-24)
+8. **`/game/start` 시맨틱 = 항상 리셋**: IDLE 가드 제거. 싱글턴 게임 모델에서 Start는 "현재 상태를 클로버해 새 게임 시작"이 사용자 의도와 일치 (§5.1, §6). UI는 별도 **Reset 버튼**을 제공 — 현재 `board_id`로 다시 시작 (§9).
+9. **Adapter 모드 조회 = 집계 스냅샷 1회**: `GET /api/modes`가 `stt/llm/robot/ros2`를 한 번에 반환. UI는 부팅 시 1회 호출(§9 배지). 개별 `/*/health`는 curl 드릴다운용으로 유지 (§5.1). 정적 데이터를 폴링하지 않는다.
+10. **Board 3 타일 인덱싱**: **START=top-left, 시계방향**으로 0..11 번호 부여 (§7.1). viewBox `500×300` landscape, SVG/JS 좌표 테이블 동기화.
+11. **말 아이콘**: 22×22 정사각형(rect). 사각 보드와 정렬 용이, 슬라이드 애니메이션 `x/y` attribute transition.
+12. **카메라 UI 배치**: 뷰포트 우하단 **고정 오버레이 도크** (200px width, blur backdrop) — 사이드바 안이 아니라 항상 보이는 영역. `/cameras` 전체 뷰 링크 포함 (§9).
+13. **Docker compose 프로젝트 격리**: `name: movensys-monopoly` 명시 → 형제 스택(movensys_vlm 등)과 `--remove-orphans` 범위 분리. native `healthcheck` 블록 + `docker/run.sh`/`stop.sh` 런처 (사전 포트 선점 검사, 고스트 ROS 노드 sweep, detached 후 상태 요약) (§14).
 
 ---
 
@@ -235,12 +243,15 @@ Error codes (고정 집합):
 
 | Method | Path | Body → Response | Notes |
 |---|---|---|---|
-| POST | `/game/start` | `{board: BoardId}` → `{fsm, turn}` | IDLE에서만 허용 |
+| POST | `/game/start` | `{board: BoardId}` → `{fsm, turn}` | **항상 리셋** — 모든 FSM 상태에서 호출 가능(§1.2, §6). UI Reset 버튼도 동일 엔드포인트 사용 |
 | POST | `/game/end_turn` | `{}` → `{fsm, turn}` | RESOLVE 완료 후 |
 | GET  | `/game/state` | → `GameState` | 전체 스냅샷 |
 | GET  | `/game/winner` | → `{winner: Player \| null}` | Board 3 필수 |
 | GET  | `/game/next_prompt` | → `{hint: string}` | LLM용 텍스트 힌트 |
 | POST | `/game/config` | `RuntimeConfig` 일부 | 색상·dice_source·auctions_enabled |
+| GET  | `/modes` | → `{stt, llm, robot, ros2}` | 4개 어댑터 집계 스냅샷. UI 부팅 1회만 호출 — 모드는 런타임에 변하지 않음 (§1.2). 개별 `/*/health`는 유지 |
+| GET  | `/stt/health` \| `/llm/health` \| `/robot/health` | → `{mode}` | 개별 드릴다운, curl 용 |
+| GET  | `/ros2/health` | → `{enabled, cameras_enabled, isaac_topic}` | ROS 2 브리지 상태 |
 | WS   | `/stream/game` | FSM·턴·승패 이벤트 | envelope §4.6 |
 | GET  | `/health` | → `{status: "ok"}` | |
 
@@ -301,8 +312,13 @@ Error codes (고정 집합):
 
 ### 5.8 Cameras (ROS 2 프록시 — `movensys_vlm`에서 이식)
 
-| WS | `/stream/image_top/{rgb,depth,camera_info}` |
-| WS | `/stream/image_hand/{rgb,depth,camera_info}` |
+| Method | Path | 설명 |
+|---|---|---|
+| WS  | `/stream/image_top/{rgb,depth,camera_info}` | 실시간 프레임. `{data, error}` envelope — 브리지 비활성/프레임 미도착 시 `{data:null, error:"No data"}` |
+| WS  | `/stream/image_hand/{rgb,depth,camera_info}` | 동일 |
+| GET | `/topics/image_{top,hand}/{rgb,depth,camera_info}` | 1회 스냅샷, 브리지 off 시 503 `ADAPTER_UNAVAILABLE` |
+
+RGB는 JPEG(q85), depth는 turbo colormap JPEG(0.1–5m, q80), base64 인코딩. 인코더 미탑재(cv2/numpy 없음) 시 카메라 구독만 disabled, Isaac publisher는 계속 동작 (§11.5).
 
 ### 5.9 Board assets
 
@@ -346,13 +362,16 @@ Error codes (고정 집합):
 
 전이별로 `/stream/game` 이벤트 발행: `{event_id, ts, type: "fsm_transition", payload: {from, to, trigger}}`.
 
+**`/game/start` 특례 (§1.2 #8):** 어떤 FSM 상태에서 호출되어도 허용. 내부적으로 `state.players/properties/positions/dice/turn`을 전부 초기화한 뒤 `TURN_START`로 진입. 싱글턴 게임 모델이므로 "진행 중 게임을 덮어쓰지 마라"는 방어 가드는 UX를 방해하는 비용만 발생 — 명시적 리셋이 정답.
+
 ---
 
 ## 7. Game Rules
 
 ### 7.1 Board 3 — 12-tile headless smoke
 
-- 12개 빈 타일 + START, **3×5 직사각형 퍼리미터**
+- 12개 빈 타일 + START, **3×5 직사각형 퍼리미터** (viewBox 500×300, landscape)
+- **타일 인덱싱:** START(0)은 **좌상단**, 0→11 **시계방향** 증가 (§1.2 #10). SVG와 `BOARD3_LAYOUT.centers`가 동일 좌표 테이블을 공유
 - 물리 원본: `movensys-simulation/dobot_cr3a/monopoly_board.drawio.png` → `static/assets/boards/board3_physical.png`
 - UI 대체 SVG: `static/assets/boards/board3_blank.svg` (타일 번호 오버레이)
 - 돈·property·chance 없음, `fsm`은 `IDLE → TURN_START → MOVING → END_TURN` 루프만
@@ -361,9 +380,8 @@ Error codes (고정 집합):
 
 ### 7.2 Board 1 — short board (20 tiles, image-analyzed)
 
-- 타일 **20칸 확정** — 출처 `static/assets/boards/board1.json`, `Monopoly_short.png` 분석 기반
+- 타일 **16칸 확정** — 출처 `static/assets/boards/board1.json`, `Monopoly_short.png` 분석 기반
 - 시드 잔액 $1,000, 시작점 통과 +$100
-- 포함 타일: GO · Jail Visit · Free Parking · Go To Jail (4 corners) · property 7 · railroad 3 · utility 2 · chance 2 · community chest 1 · income tax 1
 - 감옥 FSM·독점 보너스 **없음** (단순화) — 로직은 재사용하되 `monopoly_bonus_multiplier: 1`
 - 색상 그룹당 1개 타일뿐이라 독점 불가 — 설계 의도
 
@@ -513,12 +531,12 @@ def resolve_tile(state, player, tile) -> ResolveResult:
 
 SPA. 서버측 세션 없음 — `/game/state` 폴링/WS로만 동기화.
 
-- **Top bar**: 두 플레이어 잔액 (지폐 스택 + 숫자), 턴 표시, 모드 배지 (`AI:off/on`, `Robot:off/on`)
-- **Board canvas**: 보드 이미지 + 말 아이콘 슬라이드 애니메이션 (400ms)
+- **Top bar**: 두 플레이어 잔액 (지폐 스택 + 숫자), 턴 표시, 모드 배지 (`STT/LLM/Robot/ROS2`) — 부팅 시 `/api/modes` 1회 호출 (§1.2 #9, §5.1). 런타임 변경 필요 시 WS push로 진화
+- **Board canvas**: 보드 이미지 + 말 아이콘(22×22 rect) 슬라이드 애니메이션 (x/y transition 500ms)
 - **Money widget**: 이동 시 지폐 페이드/플라이 애니메이션 (600ms), 사이드 토글로 최근 10건 history
 - **Property sidebar (좌/우)**: 색상그룹별 썸네일, 건물 수 아이콘 오버레이, 클릭 시 카드 모달
-- **Manual control panel**: 모든 FSM 전이를 버튼으로 트리거 — 개발·시연 상시 활성
-- **Camera thumbnails**: 우측 하단, WS 스트림 미공급 시 "No stream"
+- **Manual control panel**: 모든 FSM 전이를 버튼으로 트리거 — 개발·시연 상시 활성. **Reset 버튼** 포함 — 현 `board_id` 유지한 채 1턴부터 재시작 (Start는 드롭다운 선택 반영, Reset은 현 게임 유지 — §1.2 #8)
+- **Camera dock**: 뷰포트 **우하단 고정 오버레이** (사이드바 바깥, 200px width, backdrop blur). top/hand 2개 썸네일 + `/cameras` 전체 뷰 링크. WS 프레임 미도착 시 "No stream" 폴백, 900px 미만 모바일에서 숨김 (§1.2 #12)
 - **Card modal**: 빈 property 도착 시 자동 표시, `skip / buy / buy+build N` 버튼
 
 ### 9.1 Card art assets (**self-produced, v1 확정**)
@@ -615,9 +633,11 @@ movensys-monopoly/
 │   ├── PRD_easy.md
 │   └── running.md              ← 실행법 (TBD)
 ├── docker/
-│   ├── Dockerfile
-│   ├── docker-compose.yml
-│   └── entrypoint.sh
+│   ├── Dockerfile              ← ros-base + python3-opencv (M3 카메라 인코딩용)
+│   ├── docker-compose.yml      ← name: movensys-monopoly, native healthcheck
+│   ├── entrypoint.sh
+│   ├── run.sh                  ← pre-flight 포트·ROS 노드 검사 + detached up, 상태 요약
+│   └── stop.sh                 ← compose down + 포트/노드 잔여 검증
 ├── main.py                     ← FastAPI entry
 ├── router.py                   ← REST + WS routes
 ├── ros2_node.py                ← ROS 2 node: camera subscribers + Isaac card-spawn publisher
@@ -645,8 +665,9 @@ movensys-monopoly/
 ├── tests/
 │   ├── game/                   ← unit tests (pure Python)
 │   ├── board1/
-│   ├── board2/
-│   └── e2e/                    ← headless FastAPI E2E
+│   ├── board2/                 ← (M3 Board 2 개발 중단 중 — §16.4)
+│   ├── m4/                     ← camera WS/REST stub envelope + Isaac 훅 계약 (M3 Camera)
+│   └── e2e/                    ← headless FastAPI E2E (`/api/modes`, Board 3 smoke)
 ├── scripts/
 │   ├── ci_local.sh
 │   └── render_cards.py         ← SVG 카드 일괄 렌더링
@@ -664,7 +685,8 @@ movensys-monopoly/
 | `tests/game/` | 규칙 엔진 순수 로직 — 임대료 계산, 독점 검사, 파산 순서 | pytest |
 | `tests/board1/` | Board 1 시나리오 (매입·건설·임대·chance) | pytest + 픽스처 상태 |
 | `tests/board2/` | Jail FSM, 역·유틸리티, 세금, 독점 배수, 균등 건설, CC 덱, 저당 | pytest |
-| `tests/e2e/` | FastAPI 앱 실제 기동 (httpx AsyncClient), Board 3 한 바퀴 → winner | pytest-asyncio |
+| `tests/e2e/` | FastAPI 앱 실제 기동 (httpx AsyncClient), Board 3 한 바퀴 → winner, `/api/modes` 계약 | pytest-asyncio |
+| `tests/m4/` | 카메라 WS `{data,error}` envelope, REST 503 fallback, Chance/CC 카드 드로우 → Isaac 훅 페이로드 | pytest + FastAPI TestClient |
 | Adapter stub | 3개 env 미설정 상태에서 §5.7 `/robot/health` → `{mode: "stub"}` | pytest |
 | UI 회귀 | Playwright (선택) — 돈 애니메이션·말 이동·모달 | 별도 워크플로 |
 
@@ -690,7 +712,9 @@ movensys-monopoly/
 
 **회귀 방지 정책:** 테스트 디렉토리 삭제는 코드 리뷰에서 차단 (CI에 milestone 게이팅 로직 넣지 않음 — PR 리뷰 책임).
 
-**로컬 재현:** `scripts/ci_local.sh` — 워크플로 스텝과 1:1 동일.
+**로컬 재현:** `scripts/ci_local.sh` — 워크플로 스텝과 1:1 동일. 검증용 uvicorn 기동은 pre-flight 포트 점검 + 프로세스 그룹 kill + orphan sweep으로 고스트 프로세스 누적 방지 (§1.2 #13).
+
+**Docker 런처:** `docker/run.sh` — 사전 `:8000` 포트 점유 검사, 중복 `/movensys_monopoly` ROS 노드 경고, compose `up -d --remove-orphans` (프로젝트 `name:` 격리로 형제 스택 안 건드림), healthcheck 대기, detached 상태 요약. `docker/stop.sh` — compose down 후 포트·노드 잔여 검증.
 
 ---
 
@@ -698,17 +722,19 @@ movensys-monopoly/
 
 각 마일스톤의 완료 정의는 **CI에서 관찰 가능한 Acceptance Criteria**. Definition of Done = AC 전수 통과 + `main` 병합.
 
-| # | Scope | Acceptance Criteria |
-|---|---|---|
-| M0 | Skeleton + Docker + CI | `docker compose up` → `/api/health` 200 · `/api/robot/health` → stub · CI green |
-| M1 | Board 3 headless E2E | `tests/e2e/test_board3.py` 한 바퀴 → `GET /game/winner` 가 non-null |
-| M2 | Board 1 full rules | `tests/board1/` 전수 통과 · 매입·건설·임대·파산 시나리오 |
-| **M3** | **Board 2 full rules** | `tests/board2/` §7.3.1-7.3.10 전수 통과 — 외부 FastAPI 기동 없이 |
-| M4 | Camera stream proxy | WS `/stream/image_top/rgb` 프레임 수신 (ROS 2 publish 중일 때) |
-| M5 | Robot adapter integration | `ROBOT_SERVICE_URL` 설정 시 실제 dice/horse 호출 (수동 테스트) |
-| M6 | Whisper adapter integration | `STT_SERVICE_URL` 설정 시 발화 → 텍스트 → 엔드포인트 경로 |
-| M7 | Gemma adapter integration | `LLM_SERVICE_URL` 설정 시 발화/이미지 → intent → 엔드포인트 |
-| M8 | (옵션) Chance art + Isaac | 카드 이미지 교체 + Isaac 카드 소환 토픽 |
+마일스톤 번호는 §16 Development Checklist와 일치. v0.3에서 Board 2(구 M3)를 보류로 전환하고 Camera stream + Isaac을 **M3**로 당김.
+
+| # | Scope | Acceptance Criteria | Status |
+|---|---|---|---|
+| M0 | Skeleton + Docker + CI | `docker compose up` → `/api/health` 200 · `/api/robot/health` → stub · CI green | ✅ |
+| M1 | Board 3 headless E2E | `tests/e2e/test_board3.py` 한 바퀴 → `GET /game/winner` 가 non-null | ✅ |
+| M2 | Board 1 full rules | `tests/board1/` 전수 통과 · 매입·건설·임대·파산 시나리오 | ✅ |
+| **M3** | **Camera stream + Isaac topic** | `tests/m4/` 통과 · ROS publish 중 WS `/stream/image_top/rgb` 프레임 수신 · Chance/CC 드로우 시 `/isaac/card_spawn` 페이로드 (§11.5) | ✅ |
+| M4 | Robot adapter integration | `ROBOT_SERVICE_URL` 설정 시 실제 dice/horse 호출 (수동 테스트) | |
+| M5 | Whisper adapter integration | `STT_SERVICE_URL` 설정 시 발화 → 텍스트 → 엔드포인트 경로 | |
+| M6 | Gemma adapter integration | `LLM_SERVICE_URL` 설정 시 발화/이미지 → intent → 엔드포인트 | |
+| M7 | (옵션) Chance art + Isaac payload 확정 | 카드 이미지 교체 + Isaac 팀과 end-to-end 소환 합의 | |
+| (보류) | Board 2 full rules | `tests/board2/` §7.3.1-7.3.10 — M3로 이동 전까지 중단 | |
 
 **불변식:** 모든 마일스톤에서 `STT/LLM/ROBOT_SERVICE_URL`을 모두 비운 상태로 CI가 녹색이어야 한다.
 
@@ -762,7 +788,7 @@ Definition of Done은 체크 + CI green + 해당 마일스톤의 §15 AC 충족.
 - [x] UI: 수동 컨트롤 패널 (FSM 전이 버튼) (§9)
 - [x] `tests/board1/` — buy / rent / build / tax / chance / bankruptcy / mortgage 9개 시나리오
 
-### 16.4 M3 — Board 2 full rules
+<!-- ### 16.4 M3 — Board 2 full rules
 - [ ] `compute_rent` railroad 분기 — $25 × 2^(n-1) (§7.3.2)
 - [ ] `compute_rent` utility 분기 — dice × 4/10 (§7.3.3)
 - [ ] `game/jail.py` FSM — in_jail, jail_turns_left, jail_free_card (§7.3.1)
@@ -775,18 +801,29 @@ Definition of Done은 체크 + CI green + 해당 마일스톤의 §15 AC 충족.
 - [ ] `policies/greedy.py` — robot fallback policy (§7.3.11)
 - [ ] `decision_source` 태깅 WS payload (§7.3.11)
 - [ ] Config toggle `auctions_enabled` (기본 off) (§10.2)
-- [ ] `tests/board2/` — jail FSM, 역/유틸리티 임대료, 세금, 독점 배수, 균등 건설, CC "Get Out of Jail", 저당 사이클, greedy policy 결정
+- [ ] `tests/board2/` — jail FSM, 역/유틸리티 임대료, 세금, 독점 배수, 균등 건설, CC "Get Out of Jail", 저당 사이클, greedy policy 결정 -->
 
-### 16.5 M4 — Camera stream + Isaac topic
-- [ ] `ros2_node.py` 6개 카메라 토픽 구독 (rgb/depth/camera_info × top/hand) (§11.5)
-- [ ] WS 프록시 `/api/stream/image_top/*`, `/api/stream/image_hand/*`
-- [ ] `static/cameras.html` — `movensys_vlm`에서 이식
-- [ ] 메인 UI 우측 하단 카메라 썸네일, "No stream" 폴백 (§9)
-- [ ] `ros2_node.py` Isaac card-spawn publisher — `${MONOPOLY_ISAAC_TOPIC_CARD_SPAWN}` (§11.5)
-- [ ] 카드 draw 시 publish 훅 (§7.3.6)
-- [ ] Isaac 구독자 없을 때 publish 무시 동작 검증
+### 16.5 M3 — Camera stream + Isaac topic
+- [x] `ros2_node.py` 6개 카메라 토픽 구독 (rgb/depth/camera_info × top/hand) (§11.5)
+- [x] WS 프록시 `/api/stream/image_top/*`, `/api/stream/image_hand/*` + REST 스냅샷 `/api/topics/...` (§5.8)
+- [x] `static/cameras.html` — `movensys_vlm`에서 이식 (타이틀·back link만 monopoly로 치환)
+- [x] 메인 UI 뷰포트 우하단 **고정 도크**, "No stream" 폴백, `/cameras` 전체 뷰 링크 (§9, §1.2 #12)
+- [x] `ros2_node.py` Isaac card-spawn publisher — `${MONOPOLY_ISAAC_TOPIC_CARD_SPAWN}` (§11.5)
+- [x] 카드 draw 시 publish 훅 — `GameManager.card_spawn_hook` 콜백, 예외는 게임 진행 방해 안 함
+- [x] Isaac 구독자 없을 때 publish 무시 — rclpy/DDS 기본 동작으로 검증됨, 라이브 `ros2 topic echo`로 확인
+- [x] Dockerfile에 `python3-opencv` 추가 (M3 카메라 인코딩 의존성)
+- [x] `tests/m4/` — 카메라 WS envelope + REST 503 + Chance/CC 훅 페이로드 (6개 케이스)
 
-### 16.6 M5 — Robot adapter integration
+**세션 부산물 (v0.3 인프라 개선):**
+- [x] `/api/modes` 집계 엔드포인트 + UI 부팅 1회 호출 (§1.2 #9, §5.1)
+- [x] `/game/start` 싱글턴 리셋 시맨틱 (§1.2 #8, §6)
+- [x] UI **Reset 버튼** — 현 `board_id`로 재시작 (§9)
+- [x] Board 3 타일 인덱싱 좌상단·시계방향 재배치 (§1.2 #10, §7.1)
+- [x] 말 아이콘 circle → rect (§1.2 #11)
+- [x] docker-compose `name: movensys-monopoly` 프로젝트 격리 + healthcheck (§1.2 #13)
+- [x] `docker/run.sh`, `docker/stop.sh` 런처 + `scripts/ci_local.sh` 포트·PGID 보강 (§14)
+
+### 16.6 M4 — Robot adapter integration (이전 M5)
 - [ ] `adapters/robot.py` httpx 클라이언트 — `/dice/roll`, `/horse/move`, `/base_position` (§8.3)
 - [ ] Fire-and-forget `/horse/move` — 게임 엔진 비차단 (§8.3)
 - [ ] `/api/robot/{base_position,roll_dice,move_piece}` 프록시 라우트 (§5.7)
@@ -795,7 +832,7 @@ Definition of Done은 체크 + CI green + 해당 마일스톤의 §15 AC 충족.
 - [ ] `dice_source="robot"` 설정 시 `/dice/request`가 로봇 호출로 라우팅
 - [ ] 실제 로봇 서비스와 수동 통합 테스트
 
-### 16.7 M6 — Whisper STT integration
+### 16.7 M5 — Whisper STT integration (이전 M6)
 - [ ] 브라우저 push-to-talk 버튼 (`MediaRecorder` WAV/Opus) (§8.1)
 - [ ] `adapters/stt.py` — multipart 업로드 클라이언트
 - [ ] `POST /api/stt` 어댑터 라우트
@@ -804,7 +841,7 @@ Definition of Done은 체크 + CI green + 해당 마일스톤의 §15 AC 충족.
 - [ ] UI: stub 모드에서 텍스트 입력창 fallback
 - [ ] 언어 hint 처리 (ko/en)
 
-### 16.8 M7 — Gemma 4 LLM integration
+### 16.8 M6 — Gemma 4 LLM integration (이전 M7)
 - [ ] `adapters/llm.py` — `POST /infer` 클라이언트 (§8.2)
 - [ ] Intent dispatcher — 12개 intent → 엔드포인트 매핑 (§8.2)
 - [ ] Context builder (fsm, turn, pending_decision, balance, board_id)
@@ -814,7 +851,7 @@ Definition of Done은 체크 + CI green + 해당 마일스톤의 §15 AC 충족.
 - [ ] Low confidence (< 0.5) 시 greedy로 fallback
 - [ ] `POST /api/debug/simulate_llm_intent` (§5.10)
 
-### 16.9 M8 — (Optional) Chance art + Isaac
+### 16.9 M7 — (Optional) Chance art + Isaac (이전 M8)
 - [ ] Chance/CC 카드 SVG 자체 제작 (텍스트 기반) (§9.1)
 - [ ] 카드 모달에 이미지 렌더 (현재는 텍스트만)
 - [ ] Isaac 카드 소환 payload 필드 최종 확정 (§16 Open Q. 4)

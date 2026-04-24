@@ -1,6 +1,6 @@
 # PRD (쉽게 읽는 버전) — movensys-monopoly
 
-비개발자를 위한 1페이지 요약.
+비개발자를 위한 1페이지 요약. **v0.3 (2026-04-24)**
 기술 상세는 [`PRD.md`](./PRD.md). 이 문서는 원문을 **복붙하지 않는다** — 결정 맥락과 용어집만 제공.
 
 ---
@@ -58,18 +58,26 @@
 | Board 2 | 원본 40칸 풀 규칙 | 최상 (감옥·역·유틸리티·세금·독점·CC·저당) | **아니오 — 순수 계산 로직** |
 
 각 보드의 정확한 규칙: PRD.md §7.
+Board 3의 타일 번호는 **좌상단 START → 시계방향으로 0,1,2…11** 로 매겨진다(v0.3에서 확정, PRD §7.1).
 
 ---
 
-## 일정
+## 일정 (v0.3에서 재편)
 
-| 단계 | 언제 | 외부 FastAPI |
-|---|---|---|
-| M0~M4 | 다른 팀 안 기다리고 우리가 먼저 | 필요 없음 |
-| M5~M7 | 3개 FastAPI를 받는 대로 순서 무관하게 통합 | 해당 1종씩 |
-| M8 | 선택 — 카드 아트, Isaac Sim | Isaac |
+| 단계 | 언제 | 외부 FastAPI | 상태 |
+|---|---|---|---|
+| M0 | 스켈레톤 + Docker + CI | 필요 없음 | ✅ |
+| M1 | Board 3 E2E 스모크 | 필요 없음 | ✅ |
+| M2 | Board 1 풀 규칙 | 필요 없음 | ✅ |
+| **M3** | **카메라 WS 프록시 + Isaac 카드 소환 토픽** | 필요 없음 | ✅ |
+| M4 | 주사위·말 로봇 어댑터 연결 | 로봇 FastAPI | |
+| M5 | Whisper STT 연결 | Whisper | |
+| M6 | Gemma 4 LLM 연결 | Gemma | |
+| M7 | (선택) Chance 카드 아트 + Isaac 스펙 확정 | Isaac | |
+| (보류) | Board 2 풀 규칙 | 필요 없음 | M3 이후 |
 
 각 단계의 구체적 완료 기준: PRD.md §15.
+**변경 이유**: v0.3에서 Board 2 작업을 일시 보류하고 카메라/Isaac을 먼저 끌어올림. 시뮬레이션·실물 시연 준비가 규칙 엔진 완성도보다 앞선 병목이었음.
 
 ---
 
@@ -92,10 +100,13 @@ CI가 녹색 = **외부 의존성 하나도 없이도 게임이 동작함**을 �
 ## 실행 방법
 
 ```bash
-cd ~/workspaces/movensys-intelligence/movensys-monopoly/docker
-docker compose up
-# 브라우저: http://localhost:8000
+cd ~/workspaces/.../movensys-monopoly
+./docker/run.sh             # 빌드 + 실행 + 헬스 대기 + 상태 요약 (권장)
+# 브라우저: http://localhost:8000   (카메라 전체 뷰: /cameras)
+./docker/stop.sh            # 종료 + 포트·ROS 노드 잔여 검증
 ```
+
+`run.sh`는 시작 전에 **8000 포트 점유**와 **중복 ROS 노드**를 먼저 체크해 고스트 인스턴스 위에 덧붙지 않도록 막는다(v0.3 신설, PRD §14).
 
 외부 FastAPI 연결이 있을 때만 설정:
 ```bash
@@ -116,6 +127,9 @@ export ROBOT_SERVICE_URL=http://robot:8003
 | Fire-and-forget | 로봇에게 명령만 쏘고 응답 안 기다림 |
 | FSM | 유한 상태 기계 — 턴이 어느 단계인지 추적 |
 | Monopoly bonus | 같은 색 그룹 독점 시 임대료 2배 + 건물 건설 가능 (Board 2) |
+| Camera dock | 뷰포트 우하단에 고정된 카메라 썸네일 오버레이 (v0.3) |
+| Reset (버튼) | 현재 보드를 1턴부터 다시 시작. Start는 드롭다운 선택, Reset은 현 보드 유지 (v0.3) |
+| Isaac card-spawn | Chance/CC 카드 뽑을 때 Isaac Sim에 카드 소환을 알리는 ROS 토픽 publish |
 
 ---
 
@@ -128,3 +142,15 @@ PR 단위로 쪼갠 실행 목록은 **PRD.md §16 Development Checklist**. M0~M
 ## 확정 안 된 것 (컨펌 대기)
 
 PRD.md §17 Open Questions. 외부 FastAPI 스펙, 플레이어 색상 기본값, Isaac 토픽 페이로드 등.
+
+---
+
+## v0.3에서 달라진 것 (2026-04-24)
+
+한눈에 보는 주요 변경 — 상세는 PRD.md §1.2.
+
+- **M3 교체**: Board 2 규칙(보류) → **카메라 스트림 + Isaac 카드 소환 토픽** ✅
+- **Start/Reset 분리**: Start는 새 보드 선택, Reset은 현 보드 유지 재시작. 서버는 언제 눌러도 리셋
+- **모드 배지 폴링 제거**: 4개 `/health` 엔드포인트를 5초마다 긁던 코드를 `/api/modes` 1회 호출로 대체
+- **UI 정비**: Board 3 START 좌상단·시계방향, 말 아이콘 사각형, 카메라 도크 고정 오버레이
+- **Docker 안전장치**: `docker/run.sh`/`stop.sh` 런처가 포트·ROS 노드 사전 점검 + compose 프로젝트 격리
