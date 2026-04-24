@@ -1,6 +1,6 @@
 import asyncio
 import json
-from typing import List
+from typing import List, Optional
 
 import std_srvs.srv
 from movensys_manipulator_moveit_config.srv import GetEefPose, MovePose, MoveJoints
@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 import ros2_node as rn
+import vlm_client
 
 router = APIRouter()
 
@@ -59,6 +60,24 @@ class ScalesRequest(BaseModel):
     model_config = {
         "json_schema_extra": {
             "example": {"vel_scale": 0.5, "acc_scale": 0.5}
+        }
+    }
+
+class VlmInferRequest(BaseModel):
+    camera: str = "top"   # "top" or "hand"
+    prompt: Optional[str] = None
+    system_prompt: Optional[str] = None
+    max_tokens: int = 512
+    temperature: float = 0.2
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "camera": "top",
+                "prompt": "Which player tokens are on the board and where?",
+                "max_tokens": 512,
+                "temperature": 0.2,
+            }
         }
     }
 
@@ -263,6 +282,75 @@ def set_scales(body: ScalesRequest):
     if not (0.0 < body.acc_scale <= 1.0):
         raise HTTPException(400, detail="acc_scale must be in (0, 1]")
     return rn.set_scales(body.vel_scale, body.acc_scale)
+
+
+# ---------------------------------------------------------------------------
+# VLM inference
+# ---------------------------------------------------------------------------
+
+@router.post("/api/vlm/infer")
+async def vlm_infer(body: VlmInferRequest):
+    if rn.ros_node is None:
+        raise HTTPException(503, detail="ROS node not running")
+
+    if body.camera == "hand":
+        img = rn.ros_node.latest_hand_rgb_image
+    elif body.camera == "top":
+        img = rn.ros_node.latest_top_rgb_image
+    else:
+        raise HTTPException(400, detail="camera must be 'top' or 'hand'")
+
+    if img is None:
+        raise HTTPException(503, detail=f"No RGB image available for camera '{body.camera}'")
+
+    user_prompt = body.prompt or "Report the tokens on the board and the die value."
+    try:
+        result = await vlm_client.infer(
+            img["data"],
+            user_prompt=user_prompt,
+            system_prompt=body.system_prompt,
+            max_tokens=body.max_tokens,
+            temperature=body.temperature,
+        )
+    except Exception as exc:
+        raise HTTPException(502, detail=f"VLM inference failed: {exc}")
+
+    return {
+        "camera": body.camera,
+        "width": img.get("width"),
+        "height": img.get("height"),
+        "response": result,
+    }
+
+
+class VlmSystemPromptRequest(BaseModel):
+    system_prompt: str
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {"system_prompt": "You are a vision assistant for a simplified Monopoly game…"}
+        }
+    }
+
+
+@router.get("/api/vlm/system_prompt")
+def vlm_get_system_prompt():
+    return {
+        "system_prompt": vlm_client.get_system_prompt(),
+        "default_system_prompt": vlm_client.DEFAULT_SYSTEM_PROMPT,
+    }
+
+
+@router.put("/api/vlm/system_prompt")
+def vlm_set_system_prompt(body: VlmSystemPromptRequest):
+    if not body.system_prompt.strip():
+        raise HTTPException(400, detail="system_prompt must not be empty")
+    return {"system_prompt": vlm_client.set_system_prompt(body.system_prompt)}
+
+
+@router.delete("/api/vlm/system_prompt")
+def vlm_reset_system_prompt():
+    return {"system_prompt": vlm_client.reset_system_prompt()}
 
 
 # ---------------------------------------------------------------------------

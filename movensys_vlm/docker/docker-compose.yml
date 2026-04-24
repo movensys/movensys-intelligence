@@ -18,6 +18,9 @@ services:
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID}
       - RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION}
       - MOVENSYS_MANIPULATOR_PACKAGES=${MOVENSYS_MANIPULATOR_PACKAGES}
+      - VLM_BASE_URL=${VLM_BASE_URL:-http://192.168.0.73:8000/v1}
+      - VLM_API_KEY=${VLM_API_KEY:-none}
+      - VLM_MODEL=${VLM_MODEL:-google/gemma-4-E4B-it}
     restart: unless-stopped
     network_mode: host
 

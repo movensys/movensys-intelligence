@@ -4,147 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Movensys — Camera Feeds</title>
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-  body {
-    font-family: 'Segoe UI', system-ui, sans-serif;
-    background: #0f172a;
-    color: #e2e8f0;
-    min-height: 100vh;
-  }
-
-  header {
-    background: #1e293b;
-    border-bottom: 1px solid #334155;
-    padding: 14px 24px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  header h1 { font-size: 1.2rem; font-weight: 600; color: #f8fafc; }
-  header a {
-    font-size: 0.78rem;
-    color: #64748b;
-    text-decoration: none;
-    margin-left: auto;
-    padding: 4px 10px;
-    border: 1px solid #334155;
-    border-radius: 6px;
-    transition: color 0.15s, border-color 0.15s;
-  }
-  header a:hover { color: #e2e8f0; border-color: #64748b; }
-  #health-dot {
-    width: 10px; height: 10px;
-    border-radius: 50%;
-    background: #334155;
-    transition: background 0.3s;
-  }
-  #health-dot.ok  { background: #22c55e; }
-  #health-dot.err { background: #ef4444; }
-
-  .page { padding: 24px; display: flex; flex-direction: column; gap: 24px; }
-
-  .cam-section {
-    background: #1e293b;
-    border: 1px solid #334155;
-    border-radius: 10px;
-    overflow: hidden;
-  }
-  .cam-section-header {
-    padding: 12px 18px;
-    background: #162032;
-    border-bottom: 1px solid #334155;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .cam-section-header h2 {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #cbd5e1;
-    font-family: 'Courier New', monospace;
-  }
-  .stream-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: #475569;
-    transition: background 0.3s;
-    flex-shrink: 0;
-  }
-  .stream-dot.live { background: #22c55e; animation: pulse 1.5s infinite; }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-
-  .cam-body { padding: 18px; display: flex; flex-direction: column; gap: 18px; }
-
-  .cam-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-  }
-  @media (max-width: 700px) { .cam-grid { grid-template-columns: 1fr; } }
-
-  .cam-cell { display: flex; flex-direction: column; gap: 6px; }
-  .cam-label {
-    font-size: 0.72rem;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    font-weight: 600;
-  }
-  .cam-img {
-    width: 100%;
-    aspect-ratio: 4/3;
-    object-fit: contain;
-    border-radius: 6px;
-    border: 1px solid #334155;
-    background: #0a111e;
-    display: block;
-  }
-  .cam-status {
-    font-size: 0.72rem;
-    color: #475569;
-    font-family: 'Courier New', monospace;
-  }
-
-  .info-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 0 32px;
-    border-top: 1px solid #1e3a5f;
-    padding-top: 14px;
-  }
-  .info-title {
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: #475569;
-    font-weight: 600;
-    margin-bottom: 8px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .kv-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 0.82rem; }
-  .kv-row .k { color: #64748b; }
-  .kv-row .v { font-family: 'Courier New', monospace; color: #7dd3fc; }
-
-  .kmat-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 3px;
-    margin-top: 6px;
-  }
-  .kmat-cell {
-    background: #0f172a;
-    border: 1px solid #1e3a5f;
-    border-radius: 3px;
-    padding: 4px 6px;
-    font-family: 'Courier New', monospace;
-    font-size: 0.75rem;
-    color: #7dd3fc;
-    text-align: center;
-  }
-</style>
+<link rel="stylesheet" href="/cameras-page.css" />
 </head>
 <body>
 
@@ -155,6 +15,58 @@
 </header>
 
 <div class="page">
+
+  <!-- VLM inference -->
+  <div class="vlm-section">
+    <div class="vlm-header">
+      <h2>✨ Ask VLM</h2>
+      <span class="stream-dot" id="vlm-loop-dot" style="margin-left:auto"></span>
+      <span style="font-size:0.72rem;color:#475569;margin-left:4px" id="vlm-loop-status">idle</span>
+    </div>
+    <div class="vlm-body vlm-split">
+      <!-- Left: query + response -->
+      <div class="vlm-col">
+        <div class="vlm-controls">
+          <select id="vlm-camera" title="Source camera">
+            <option value="top">top camera</option>
+            <option value="hand">hand camera</option>
+          </select>
+          <input id="vlm-prompt" type="text"
+                 placeholder="Ask about the board… (empty = default description)" />
+          <button id="vlm-ask" class="vlm-btn">Ask</button>
+        </div>
+        <div class="vlm-controls">
+          <label class="vlm-check">
+            <input id="vlm-repeat" type="checkbox" />
+            <span>Repeat every</span>
+          </label>
+          <select id="vlm-interval" title="Repeat interval">
+            <option value="5">5 s</option>
+            <option value="10" selected>10 s</option>
+            <option value="20">20 s</option>
+            <option value="30">30 s</option>
+            <option value="60">60 s</option>
+          </select>
+        </div>
+        <div id="vlm-response" class="vlm-response empty">No response yet.</div>
+        <div id="vlm-meta" class="vlm-meta"></div>
+      </div>
+
+      <!-- Right: editable system prompt -->
+      <div class="vlm-col">
+        <div class="vlm-col-header">
+          <span class="vlm-col-title">System prompt</span>
+          <span class="vlm-meta" id="vlm-sp-status"></span>
+        </div>
+        <textarea id="vlm-system-prompt" class="vlm-textarea"
+                  placeholder="Loading system prompt…" spellcheck="false"></textarea>
+        <div class="vlm-controls">
+          <button id="vlm-sp-save" class="vlm-btn">Save</button>
+          <button id="vlm-sp-reset" class="vlm-btn vlm-btn-secondary" title="Reset to default">Reset</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Top camera -->
   <div class="cam-section">
@@ -313,6 +225,182 @@ startStream('/api/stream/image_hand/depth', null, (data) => {
   document.getElementById('hand-depth-status').textContent = `${data.width}×${data.height} · ${data.encoding}`;
 });
 startStream('/api/stream/image_hand/camera_info', 'dot-hand-info', (data) => applyCameraInfo('hand', data));
+
+// VLM inference
+const vlmCamera    = document.getElementById('vlm-camera');
+const vlmPrompt    = document.getElementById('vlm-prompt');
+const vlmAsk       = document.getElementById('vlm-ask');
+const vlmRepeat    = document.getElementById('vlm-repeat');
+const vlmInterval  = document.getElementById('vlm-interval');
+const vlmResponse  = document.getElementById('vlm-response');
+const vlmMeta      = document.getElementById('vlm-meta');
+const vlmLoopDot   = document.getElementById('vlm-loop-dot');
+const vlmLoopLabel = document.getElementById('vlm-loop-status');
+
+let vlmLoopTimer = null;
+let vlmInFlight  = false;
+
+async function askVlmOnce() {
+  if (vlmInFlight) return;
+  vlmInFlight = true;
+
+  const camera = vlmCamera.value;
+  const prompt = vlmPrompt.value.trim();
+
+  vlmAsk.disabled = true;
+  vlmAsk.textContent = 'Thinking…';
+  vlmResponse.className = 'vlm-response empty';
+  vlmResponse.textContent = 'Waiting for VLM response…';
+
+  const started = performance.now();
+  try {
+    const r = await fetch('/api/vlm/infer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ camera, prompt: prompt || null }),
+    });
+    const body = await r.json();
+    const elapsedMs = Math.round(performance.now() - started);
+
+    if (!r.ok) {
+      vlmResponse.className = 'vlm-response error';
+      vlmResponse.textContent = body.detail || `HTTP ${r.status}`;
+      vlmMeta.textContent = `camera=${camera} · ${elapsedMs} ms`;
+      return;
+    }
+
+    vlmResponse.className = 'vlm-response';
+    vlmResponse.textContent = body.response || '(empty response)';
+    const wh = (body.width && body.height) ? `${body.width}×${body.height}` : '—';
+    const ts = new Date().toLocaleTimeString();
+    vlmMeta.textContent = `camera=${body.camera} · frame=${wh} · ${elapsedMs} ms · ${ts}`;
+  } catch (err) {
+    vlmResponse.className = 'vlm-response error';
+    vlmResponse.textContent = String(err);
+  } finally {
+    vlmInFlight = false;
+    vlmAsk.disabled = false;
+    vlmAsk.textContent = 'Ask';
+  }
+}
+
+function scheduleNextVlm() {
+  if (!vlmRepeat.checked) return;
+  const delayMs = Number(vlmInterval.value) * 1000;
+  vlmLoopTimer = setTimeout(async () => {
+    if (!vlmRepeat.checked) return;
+    await askVlmOnce();
+    scheduleNextVlm();
+  }, delayMs);
+}
+
+function stopVlmLoop() {
+  if (vlmLoopTimer !== null) { clearTimeout(vlmLoopTimer); vlmLoopTimer = null; }
+  vlmLoopDot.classList.remove('live');
+  vlmLoopLabel.textContent = 'idle';
+}
+
+function startVlmLoop() {
+  stopVlmLoop();
+  vlmLoopDot.classList.add('live');
+  vlmLoopLabel.textContent = `every ${vlmInterval.value}s`;
+  askVlmOnce().then(scheduleNextVlm);
+}
+
+vlmAsk.addEventListener('click', () => {
+  if (vlmRepeat.checked) startVlmLoop(); else askVlmOnce();
+});
+vlmPrompt.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (vlmRepeat.checked) startVlmLoop(); else askVlmOnce();
+  }
+});
+vlmRepeat.addEventListener('change', () => {
+  if (vlmRepeat.checked) startVlmLoop(); else stopVlmLoop();
+});
+vlmInterval.addEventListener('change', () => {
+  if (vlmRepeat.checked) {
+    vlmLoopLabel.textContent = `every ${vlmInterval.value}s`;
+    // Reset schedule so the new interval takes effect immediately after the current call finishes.
+    if (vlmLoopTimer !== null) { clearTimeout(vlmLoopTimer); vlmLoopTimer = null; }
+    if (!vlmInFlight) scheduleNextVlm();
+  }
+});
+
+// VLM system prompt (editable)
+const vlmSP       = document.getElementById('vlm-system-prompt');
+const vlmSPSave   = document.getElementById('vlm-sp-save');
+const vlmSPReset  = document.getElementById('vlm-sp-reset');
+const vlmSPStatus = document.getElementById('vlm-sp-status');
+
+let vlmSPServer = '';
+
+function setSPStatus(text, isError = false) {
+  vlmSPStatus.textContent = text;
+  vlmSPStatus.style.color = isError ? '#fca5a5' : '#64748b';
+}
+
+function updateSPDirty() {
+  const dirty = vlmSP.value !== vlmSPServer;
+  vlmSPSave.disabled = !dirty;
+  if (dirty) setSPStatus('unsaved changes');
+}
+
+async function loadSystemPrompt() {
+  try {
+    const r = await fetch('/api/vlm/system_prompt');
+    const body = await r.json();
+    vlmSPServer = body.system_prompt || '';
+    vlmSP.value = vlmSPServer;
+    setSPStatus('loaded');
+    vlmSPSave.disabled = true;
+  } catch (err) {
+    setSPStatus(`load failed: ${err}`, true);
+  }
+}
+
+async function saveSystemPrompt() {
+  vlmSPSave.disabled = true;
+  setSPStatus('saving…');
+  try {
+    const r = await fetch('/api/vlm/system_prompt', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ system_prompt: vlmSP.value }),
+    });
+    const body = await r.json();
+    if (!r.ok) { setSPStatus(body.detail || `HTTP ${r.status}`, true); return; }
+    vlmSPServer = body.system_prompt;
+    vlmSP.value = vlmSPServer;
+    setSPStatus('saved');
+  } catch (err) {
+    setSPStatus(`save failed: ${err}`, true);
+  } finally {
+    updateSPDirty();
+  }
+}
+
+async function resetSystemPrompt() {
+  if (!confirm('Reset system prompt to default?')) return;
+  setSPStatus('resetting…');
+  try {
+    const r = await fetch('/api/vlm/system_prompt', { method: 'DELETE' });
+    const body = await r.json();
+    if (!r.ok) { setSPStatus(body.detail || `HTTP ${r.status}`, true); return; }
+    vlmSPServer = body.system_prompt;
+    vlmSP.value = vlmSPServer;
+    setSPStatus('reset to default');
+    vlmSPSave.disabled = true;
+  } catch (err) {
+    setSPStatus(`reset failed: ${err}`, true);
+  }
+}
+
+vlmSP.addEventListener('input', updateSPDirty);
+vlmSPSave.addEventListener('click', saveSystemPrompt);
+vlmSPReset.addEventListener('click', resetSystemPrompt);
+loadSystemPrompt();
 </script>
 </body>
 </html>

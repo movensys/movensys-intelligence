@@ -24,9 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 RUN if [ "${ROS_DISTRO}" = "jazzy" ]; then \
-        pip3 install --no-cache-dir --break-system-packages fastapi "uvicorn[standard]" pydantic; \
+        pip3 install --no-cache-dir --break-system-packages fastapi "uvicorn[standard]" pydantic "openai>=1.30.0"; \
     elif [ "${ROS_DISTRO}" = "humble" ]; then \
-        pip3 install --no-cache-dir fastapi "uvicorn[standard]" pydantic; \
+        pip3 install --no-cache-dir fastapi "uvicorn[standard]" pydantic "openai>=1.30.0"; \
     fi
 
 WORKDIR /app
