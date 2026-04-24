@@ -38,8 +38,8 @@
       <div class="board-wrap" id="board-wrap">
         <div id="board-host"></div>
         <svg id="pieces" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid meet">
-          <circle id="piece-user"  r="22" cx="875" cy="875" fill="var(--user)"  stroke="#000" stroke-width="1.5"/>
-          <circle id="piece-robot" r="22" cx="875" cy="875" fill="var(--robot)" stroke="#000" stroke-width="1.5" transform="translate(-40 0)"/>
+          <rect id="piece-user"  width="22" height="22" x="864" y="864" fill="var(--user)"  stroke="#000" stroke-width="1.5"/>
+          <rect id="piece-robot" width="22" height="22" x="864" y="864" fill="var(--robot)" stroke="#000" stroke-width="1.5" transform="translate(-20 0)"/>
         </svg>
       </div>
     </section>
@@ -78,6 +78,9 @@
           <button id="btn-apply-move" title="Applies the move the server is expecting">Apply move</button>
           <button id="btn-end-turn">End turn</button>
         </div>
+        <div class="row">
+          <button id="btn-reset" class="btn-secondary" title="Restart the current board from turn 1">Reset game</button>
+        </div>
       </div>
 
       <div class="card">
@@ -91,6 +94,22 @@
       </div>
     </aside>
   </main>
+
+  <!-- Camera thumbnails — fixed to viewport bottom-right so they stay
+       visible without scrolling. Link opens the full /cameras view. -->
+  <div class="camera-dock">
+    <a href="/cameras" class="camera-dock-link" title="Open full view">Cameras ↗</a>
+    <div class="camera-thumb">
+      <div class="camera-label">top</div>
+      <img id="cam-top-thumb" class="camera-img" alt="Top camera">
+      <div class="camera-status" id="cam-top-status">No stream</div>
+    </div>
+    <div class="camera-thumb">
+      <div class="camera-label">hand</div>
+      <img id="cam-hand-thumb" class="camera-img" alt="Hand camera">
+      <div class="camera-status" id="cam-hand-status">No stream</div>
+    </div>
+  </div>
 
   <!-- Property arrival / decision modal -->
   <div class="modal-backdrop hidden" id="decision-modal">

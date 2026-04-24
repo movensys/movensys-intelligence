@@ -7,13 +7,14 @@
  * handles all three.
  */
 
+// Board 3: 12-tile perimeter, index 0 (START) at top-left, clockwise.
 const BOARD3_LAYOUT = {
-  viewBox: { w: 300, h: 500 },
+  viewBox: { w: 500, h: 300 },
   centers: {
-    0: [250, 450], 1: [150, 450], 2: [50, 450],
-    3: [50, 350], 4: [50, 250], 5: [50, 150],
-    6: [50, 50], 7: [150, 50], 8: [250, 50],
-    9: [250, 150], 10: [250, 250], 11: [250, 350],
+    0: [50, 50],   1: [150, 50],  2: [250, 50],
+    3: [350, 50],  4: [450, 50],  5: [450, 150],
+    6: [450, 250], 7: [350, 250], 8: [250, 250],
+    9: [150, 250], 10: [50, 250], 11: [50, 150],
   },
 };
 
@@ -96,18 +97,15 @@ function modeBadge(label, health) {
   const cls = ["live", "on"].includes(mode) ? mode : "stub";
   return `<span class="badge ${cls}"><span class="dot"></span>${label}:${mode}</span>`;
 }
-async function refreshBadges() {
+async function loadBadges() {
+  // Adapter modes are set at server startup (lifespan() from env) and
+  // don't change during a session — fetch once at boot, no interval.
   try {
-    const [stt, llm, robot, ros2] = await Promise.all([
-      fetchJson("/api/stt/health"),
-      fetchJson("/api/llm/health"),
-      fetchJson("/api/robot/health"),
-      fetchJson("/api/ros2/health"),
-    ]);
+    const m = await fetchJson("/api/modes");
     document.getElementById("modes").innerHTML =
-      modeBadge("STT", stt) + modeBadge("LLM", llm) +
-      modeBadge("Robot", robot) + modeBadge("ROS2", ros2);
-  } catch (err) { console.warn("badge refresh failed:", err); }
+      modeBadge("STT", m.stt) + modeBadge("LLM", m.llm) +
+      modeBadge("Robot", m.robot) + modeBadge("ROS2", m.ros2);
+  } catch (err) { console.warn("modes fetch failed:", err); }
 }
 
 // ---- board rendering ------------------------------------------------------
@@ -138,9 +136,10 @@ function movePiece(player, tileIndex, boardId) {
   if (!coords) return;
   const [cx, cy] = coords;
   const el = document.getElementById(`piece-${player}`);
-  el.setAttribute("cx", cx);
-  el.setAttribute("cy", cy);
-  if (player === "robot") el.setAttribute("transform", "translate(-36 0)");
+  const half = parseFloat(el.getAttribute("width")) / 2;
+  el.setAttribute("x", cx - half);
+  el.setAttribute("y", cy - half);
+  if (player === "robot") el.setAttribute("transform", "translate(-18 0)");
 }
 
 // ---- money widget ---------------------------------------------------------
@@ -283,6 +282,11 @@ function renderState(state) {
   document.getElementById("btn-submit-dice").disabled = state.fsm !== "TURN_START";
   document.getElementById("btn-end-turn").disabled =
     !["RESOLVE_TILE", "END_TURN"].includes(state.fsm) || winner;
+  // Reset makes sense as soon as any game has started — before then,
+  // the "reset target" board is just the dropdown default, so Start is
+  // the proper action and Reset stays out of the way.
+  document.getElementById("btn-reset").disabled =
+    state.fsm === "IDLE" && Object.keys(state.players || {}).length === 0;
 }
 
 async function refreshState() {
@@ -325,8 +329,11 @@ function openStream() {
 
 document.getElementById("btn-start").addEventListener("click", async () => {
   const board = document.getElementById("board-select").value;
-  await loadBoardVisual(board);
+  // Server first: if /game/start rejects (e.g. bad board id) we don't
+  // want the UI to swap the board image and leave the piece stranded at
+  // a stale tile coordinate.
   await postJson("/api/game/start", { board });
+  await loadBoardVisual(board);
   await refreshState();
 });
 document.getElementById("btn-submit-dice").addEventListener("click", async () => {
@@ -347,16 +354,53 @@ document.getElementById("btn-apply-move").addEventListener("click", async () => 
 document.getElementById("btn-end-turn").addEventListener("click", async () => {
   await postJson("/api/game/end_turn");
 });
+document.getElementById("btn-reset").addEventListener("click", async () => {
+  // Reset = restart the active board from turn 1. Distinct from Start,
+  // which takes the (possibly different) dropdown selection.
+  const board = currentState?.board_id
+    || document.getElementById("board-select").value;
+  await postJson("/api/game/start", { board });
+  await loadBoardVisual(board);
+  await refreshState();
+});
 document.getElementById("btn-skip").addEventListener("click", () => submitDecision("skip"));
 document.getElementById("btn-buy").addEventListener("click", () => submitDecision("buy"));
 document.getElementById("btn-buy-build").addEventListener("click", () => submitDecision("build", 1));
 
+// ---- camera thumbs --------------------------------------------------------
+
+function openCameraThumb(path, imgId, statusId) {
+  const img = document.getElementById(imgId);
+  const status = document.getElementById(statusId);
+  const thumb = img.closest(".camera-thumb");
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(`${proto}//${location.host}${path}`);
+  ws.onmessage = (ev) => {
+    const payload = JSON.parse(ev.data);
+    if (payload.error || !payload.data?.data) {
+      thumb.classList.remove("live");
+      status.textContent = "No stream";
+      return;
+    }
+    thumb.classList.add("live");
+    img.src = `data:image/jpeg;base64,${payload.data.data}`;
+    status.textContent = `${payload.data.width}×${payload.data.height}`;
+  };
+  ws.onerror = () => thumb.classList.remove("live");
+  ws.onclose = () => {
+    thumb.classList.remove("live");
+    status.textContent = "No stream";
+    setTimeout(() => openCameraThumb(path, imgId, statusId), 3000);
+  };
+}
+
 // ---- boot -----------------------------------------------------------------
 
 (async () => {
-  await refreshBadges();
-  setInterval(refreshBadges, 5000);
+  await loadBadges();
   await loadBoardVisual("3");
   await refreshState();
   openStream();
+  openCameraThumb("/api/stream/image_top/rgb", "cam-top-thumb", "cam-top-status");
+  openCameraThumb("/api/stream/image_hand/rgb", "cam-hand-thumb", "cam-hand-status");
 })();

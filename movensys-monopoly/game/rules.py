@@ -58,8 +58,9 @@ def _tile_pid(board: Board, tile_index: int) -> str:
 
 
 def start_game(state: GameState, board_id: str) -> Board:
-    if state.fsm not in (FSM.IDLE, FSM.GAME_OVER):
-        raise RuleError("INVALID_STATE", f"cannot start while fsm={state.fsm.value}")
+    # Singleton-game model: pressing "Start" always begins a fresh game
+    # even mid-play. The reset below clobbers every in-memory field, so
+    # there's nothing to protect from a second /game/start call.
     if board_id not in ("1", "2", "3"):
         raise RuleError("BAD_REQUEST", f"unknown board_id: {board_id!r}")
     board = load_board(board_id)

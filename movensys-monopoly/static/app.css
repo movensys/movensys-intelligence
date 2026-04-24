@@ -105,7 +105,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   width: 100%; max-width: 640px;
   aspect-ratio: 1/1;
 }
-.board-wrap.board3 { aspect-ratio: 3/5; max-width: 420px; }
+.board-wrap.board3 { aspect-ratio: 5/3; max-width: 700px; }
 #board-host {
   width: 100%; height: 100%;
   background: #fff; border-radius: 6px; overflow: hidden;
@@ -117,7 +117,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   width: 100%; height: 100%;
   pointer-events: none;
 }
-#pieces circle { transition: cx 500ms ease-out, cy 500ms ease-out; }
+#pieces rect { transition: x 500ms ease-out, y 500ms ease-out; }
 
 /* property sidebar */
 .property-groups { display: flex; flex-direction: column; gap: 6px; }
@@ -179,6 +179,65 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .card-preview .price { font-size: 14px; }
 .card-preview .kind { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; }
 .modal-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* camera dock — fixed overlay at viewport bottom-right (PRD §9) */
+.camera-dock {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 200px;
+  background: rgba(36, 36, 36, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  backdrop-filter: blur(6px);
+}
+.camera-dock-link {
+  align-self: flex-end;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 10px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+.camera-dock-link:hover { color: var(--fg); }
+.camera-thumb {
+  position: relative;
+  background: #000;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  aspect-ratio: 4/3;
+  overflow: hidden;
+}
+.camera-thumb .camera-label {
+  position: absolute; top: 4px; left: 6px;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted);
+  background: rgba(0,0,0,0.55);
+  padding: 2px 6px; border-radius: 3px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+.camera-thumb .camera-img {
+  width: 100%; height: 100%; object-fit: contain; display: block;
+}
+.camera-thumb .camera-status {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  padding: 4px 6px;
+  background: rgba(0,0,0,0.55);
+  color: var(--muted);
+  font-size: 10px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  text-align: right;
+}
+.camera-thumb.live .camera-status { color: var(--accent); }
+.camera-thumb:not(.live) .camera-img { opacity: 0.25; }
+
+@media (max-width: 900px) {
+  .camera-dock { display: none; }
+}
 
 @media (max-width: 900px) {
   .grid { grid-template-columns: 1fr; }

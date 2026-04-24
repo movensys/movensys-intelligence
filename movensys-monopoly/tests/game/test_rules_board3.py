@@ -29,11 +29,20 @@ def test_start_initialises_state() -> None:
     assert state.winner is None
 
 
-def test_start_twice_requires_game_over_or_idle() -> None:
+def test_start_twice_resets_mid_game() -> None:
+    """Singleton-game model (PRD §2.3): pressing Start mid-game wipes
+    state and begins a fresh game instead of raising. This lets the UI
+    honour a fresh Start click without asking the player to end the
+    current game first."""
     state = _fresh("3")
-    with pytest.raises(RuleError) as exc:
-        start_game(state, "3")
-    assert exc.value.code == "INVALID_STATE"
+    submit_dice(state, 3)
+    assert state.fsm == FSM.MOVING
+    start_game(state, "1")
+    assert state.fsm == FSM.TURN_START
+    assert state.board_id == "1"
+    assert state.positions == {"user": 0, "robot": 0}
+    assert state.turn_number == 1
+    assert state.last_dice is None
 
 
 def test_start_rejects_unknown_board() -> None:
