@@ -14,10 +14,13 @@ RUN if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then \
 # M0: Python tooling + cyclonedds RMW (the rest of the movensys stack
 # uses RMW_IMPLEMENTATION=rmw_cyclonedds_cpp, so we ship it here too
 # to avoid rcl aborting the process when the shared lib is missing).
-# Camera/imaging deps land in M4 when ros2_node.py starts subscribing
-# to /image_* topics.
+# M4: python3-opencv + sensor_msgs are needed for ros2_node.py to
+# subscribe to /image_{top,hand}/* and encode RGB/depth as JPEG for the
+# browser WS proxy (§11.5). sensor_msgs is already in ros-base; we add
+# opencv (brings numpy as a dep) and std_msgs is already pulled in.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
+    python3-opencv \
     ros-${ROS_DISTRO}-rmw-cyclonedds-cpp \
     && rm -rf /var/lib/apt/lists/*
 

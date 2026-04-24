@@ -44,6 +44,9 @@ async def lifespan(app: FastAPI):
     app.state.game = GameManager(bus=app.state.event_bus)
     app.state.ros2 = Ros2Bridge()
     app.state.ros2.start()
+    # Bridge the Chance/CC card draws onto the Isaac spawn topic (§7.3.6).
+    # No-op when the bridge stayed in disabled mode (dev laptops, CI).
+    app.state.game.card_spawn_hook = app.state.ros2.publish_card_spawn
     log.info(
         "startup",
         extra={
@@ -69,6 +72,17 @@ async def event_id_middleware(request: Request, call_next):
     eid = jlog.current_event_id()
     if eid:
         response.headers["X-Event-Id"] = eid
+    return response
+
+
+@app.middleware("http")
+async def no_cache_static(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.startswith("/static") or path.startswith("/assets"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
     return response
 
 
@@ -128,3 +142,7 @@ if _static_dir.exists():
     @app.get("/")
     async def index() -> FileResponse:
         return FileResponse(_static_dir / "index.html")
+
+    @app.get("/cameras")
+    async def cameras() -> FileResponse:
+        return FileResponse(_static_dir / "cameras.html")

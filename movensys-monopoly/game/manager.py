@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-from typing import Any
+from typing import Any, Callable
 
 from game import rules
 from game.boards import load_board
@@ -30,6 +30,9 @@ class GameManager:
         self._lock: asyncio.Lock = asyncio.Lock()
         self._chance: Deck | None = None
         self._cc: Deck | None = None
+        # Set by main.py lifespan after the ROS bridge starts. Fire-and-forget —
+        # exceptions inside the hook must not derail game progress.
+        self.card_spawn_hook: Callable[[dict[str, Any]], None] | None = None
 
     # ---- public API --------------------------------------------------------
 
@@ -133,6 +136,8 @@ class GameManager:
                         "needs_decision": r.needs_decision,
                         **r.payload,
                     })
+                    if r.kind in ("chance_drawn", "community_chest_drawn"):
+                        self._fire_card_spawn(r)
                     resolved.append({
                         "kind": r.kind,
                         "tile_index": r.tile_index,
@@ -275,3 +280,20 @@ class GameManager:
             "fsm_transition",
             {"from": prev.value, "to": nxt.value, "trigger": trigger},
         )
+
+    def _fire_card_spawn(self, tile: rules.TileResolution) -> None:
+        """Invoke the Isaac card-spawn hook. Crashes in the hook are
+        swallowed — physical card summoning failures must not stall the
+        in-memory game."""
+        if self.card_spawn_hook is None:
+            return
+        deck = "chance" if tile.kind == "chance_drawn" else "community_chest"
+        payload = {
+            "deck": deck,
+            "card_id": tile.payload.get("card_id"),
+            "tile_index": tile.tile_index,
+        }
+        try:
+            self.card_spawn_hook(payload)
+        except Exception as exc:
+            log.warning("card_spawn_hook_failed", extra={"error": str(exc), **payload})
