@@ -163,24 +163,87 @@ header a:hover { color: #e2e8f0; border-color: #64748b; }
 
 .vlm-split {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 18px;
+  align-items: start;
 }
-@media (max-width: 900px) { .vlm-split { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .vlm-split { grid-template-columns: 1fr; } }
 
-.vlm-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.vlm-sent-frame {
+  position: relative;
+  width: 70%;
+  aspect-ratio: 4/3;
+  border-radius: 6px;
+  border: 1px solid #1e3a5f;
+  background: #0a111e;
+  overflow: hidden;
+  margin: 0 auto;
+}
+.vlm-sent-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: none;
+}
+.vlm-sent-img.has-image { display: block; }
+.vlm-sent-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #475569;
+  font-size: 0.82rem;
+  font-style: italic;
+  text-align: center;
+  padding: 12px;
+}
+.vlm-sent-placeholder.hidden { display: none; }
+
+.vlm-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border-radius: 8px;
+  border: 1px solid var(--col-accent, #334155);
+  background: var(--col-bg, rgba(15, 23, 42, 0.45));
+  box-shadow: inset 0 0 0 1px var(--col-accent-soft, transparent);
+}
 .vlm-col-header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--col-accent-soft, #1e3a5f);
 }
 .vlm-col-title {
   font-size: 0.72rem;
-  color: #93c5fd;
+  color: var(--col-accent, #93c5fd);
   text-transform: uppercase;
   letter-spacing: 0.07em;
   font-weight: 600;
+}
+
+/* Per-column accents */
+.vlm-col-query {
+  --col-accent: #22d3ee;
+  --col-accent-soft: rgba(34, 211, 238, 0.18);
+  --col-bg: rgba(8, 47, 73, 0.55);
+}
+.vlm-col-image {
+  --col-accent: #fbbf24;
+  --col-accent-soft: rgba(251, 191, 36, 0.18);
+  --col-bg: rgba(69, 26, 3, 0.45);
+}
+.vlm-col-prompt {
+  --col-accent: #c084fc;
+  --col-accent-soft: rgba(192, 132, 252, 0.18);
+  --col-bg: rgba(46, 16, 78, 0.55);
 }
 
 .vlm-textarea {

@@ -25,7 +25,10 @@
     </div>
     <div class="vlm-body vlm-split">
       <!-- Left: query + response -->
-      <div class="vlm-col">
+      <div class="vlm-col vlm-col-query">
+        <div class="vlm-col-header">
+          <span class="vlm-col-title">Query &amp; response</span>
+        </div>
         <div class="vlm-controls">
           <select id="vlm-camera" title="Source camera">
             <option value="top">top camera</option>
@@ -52,8 +55,20 @@
         <div id="vlm-meta" class="vlm-meta"></div>
       </div>
 
+      <!-- Middle: image sent to VLM -->
+      <div class="vlm-col vlm-col-image">
+        <div class="vlm-col-header">
+          <span class="vlm-col-title">Image sent to VLM</span>
+          <span class="vlm-meta" id="vlm-img-meta"></span>
+        </div>
+        <div class="vlm-sent-frame">
+          <img id="vlm-sent-image" class="vlm-sent-img" alt="" />
+          <div class="vlm-sent-placeholder" id="vlm-img-placeholder">No image yet — click Ask to capture.</div>
+        </div>
+      </div>
+
       <!-- Right: editable system prompt -->
-      <div class="vlm-col">
+      <div class="vlm-col vlm-col-prompt">
         <div class="vlm-col-header">
           <span class="vlm-col-title">System prompt</span>
           <span class="vlm-meta" id="vlm-sp-status"></span>
@@ -227,15 +242,24 @@ startStream('/api/stream/image_hand/depth', null, (data) => {
 startStream('/api/stream/image_hand/camera_info', 'dot-hand-info', (data) => applyCameraInfo('hand', data));
 
 // VLM inference
-const vlmCamera    = document.getElementById('vlm-camera');
-const vlmPrompt    = document.getElementById('vlm-prompt');
-const vlmAsk       = document.getElementById('vlm-ask');
-const vlmRepeat    = document.getElementById('vlm-repeat');
-const vlmInterval  = document.getElementById('vlm-interval');
-const vlmResponse  = document.getElementById('vlm-response');
-const vlmMeta      = document.getElementById('vlm-meta');
-const vlmLoopDot   = document.getElementById('vlm-loop-dot');
-const vlmLoopLabel = document.getElementById('vlm-loop-status');
+const vlmCamera        = document.getElementById('vlm-camera');
+const vlmPrompt        = document.getElementById('vlm-prompt');
+const vlmAsk           = document.getElementById('vlm-ask');
+const vlmRepeat        = document.getElementById('vlm-repeat');
+const vlmInterval      = document.getElementById('vlm-interval');
+const vlmResponse      = document.getElementById('vlm-response');
+const vlmMeta          = document.getElementById('vlm-meta');
+const vlmLoopDot       = document.getElementById('vlm-loop-dot');
+const vlmLoopLabel     = document.getElementById('vlm-loop-status');
+const vlmSentImage     = document.getElementById('vlm-sent-image');
+const vlmImgPlaceholder = document.getElementById('vlm-img-placeholder');
+const vlmImgMeta       = document.getElementById('vlm-img-meta');
+
+vlmSentImage.addEventListener('error', () => {
+  vlmSentImage.classList.remove('has-image');
+  vlmImgPlaceholder.classList.remove('hidden');
+  vlmImgPlaceholder.textContent = 'Failed to render captured image.';
+});
 
 let vlmLoopTimer = null;
 let vlmInFlight  = false;
@@ -274,6 +298,12 @@ async function askVlmOnce() {
     const wh = (body.width && body.height) ? `${body.width}×${body.height}` : '—';
     const ts = new Date().toLocaleTimeString();
     vlmMeta.textContent = `camera=${body.camera} · frame=${wh} · ${elapsedMs} ms · ${ts}`;
+    if (body.image) {
+      vlmSentImage.src = `data:image/jpeg;base64,${body.image}`;
+      vlmSentImage.classList.add('has-image');
+      vlmImgPlaceholder.classList.add('hidden');
+      vlmImgMeta.textContent = `${wh} · ${ts}`;
+    }
   } catch (err) {
     vlmResponse.className = 'vlm-response error';
     vlmResponse.textContent = String(err);

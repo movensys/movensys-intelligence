@@ -319,6 +319,8 @@ async def vlm_infer(body: VlmInferRequest):
         "camera": body.camera,
         "width": img.get("width"),
         "height": img.get("height"),
+        "image": img.get("data"),
+        "encoding": img.get("encoding"),
         "response": result,
     }
 
