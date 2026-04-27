@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 import ros2_node as rn
 import vlm_client
+import monopoly_geometry as mg
 
 router = APIRouter()
 
@@ -294,6 +295,43 @@ def set_scales(body: ScalesRequest):
 # VLM inference
 # ---------------------------------------------------------------------------
 
+def _classify_token(label: str, pose: Optional[dict], board_pose: dict) -> dict:
+    """Run geometry classification for one token; return a serializable dict."""
+    if pose is None:
+        return {"label": label, "status": "unavailable",
+                "row": None, "col": None, "world": None}
+    info = mg.classify_piece(
+        (pose["position"]["x"], pose["position"]["y"]),
+        (board_pose["position"]["x"], board_pose["position"]["y"]),
+        (
+            board_pose["orientation"]["x"],
+            board_pose["orientation"]["y"],
+            board_pose["orientation"]["z"],
+            board_pose["orientation"]["w"],
+        ),
+    )
+    return {
+        "label": label,
+        "status": info["status"],
+        "row": info["row"],
+        "col": info["col"],
+        "world": {"x": pose["position"]["x"], "y": pose["position"]["y"]},
+        "local": {"x": info["local_x"], "y": info["local_y"]},
+    }
+
+
+def _format_token_lines(tokens: List[dict]) -> str:
+    lines = []
+    for t in tokens:
+        if t["status"] == "unavailable":
+            lines.append(f"- {t['label']}: pose unavailable")
+        elif t["status"] == "on_board":
+            lines.append(f"- {t['label']}: status=on_board, row={t['row']}, col={t['col']}")
+        else:
+            lines.append(f"- {t['label']}: status={t['status']}")
+    return "\n".join(lines) if lines else "(no tokens)"
+
+
 @router.post("/api/vlm/infer")
 async def vlm_infer(body: VlmInferRequest):
     if rn.ros_node is None:
@@ -317,7 +355,21 @@ async def vlm_infer(body: VlmInferRequest):
         pil_img.save(buf, format="JPEG")
         image_b64 = base64.b64encode(buf.getvalue()).decode()
 
-    user_prompt = body.prompt or "Report the tokens on the board."
+    board_pose = rn.ros_node.latest_board_pose
+    tokens: List[dict] = []
+    if board_pose is not None:
+        tokens.append(_classify_token("piece_1", rn.ros_node.latest_piece_1_pose, board_pose))
+        tokens.append(_classify_token("piece_2", rn.ros_node.latest_piece_2_pose, board_pose))
+
+    sensor_block = _format_token_lines(tokens) if tokens else "(no /board pose received yet — fall back to vision)"
+    base_prompt = body.prompt or "Report the tokens on the board."
+    user_prompt = (
+        f"Sensor data (from /piece_1, /piece_2, /board topics):\n{sensor_block}\n\n"
+        f"{base_prompt}"
+    )
+
+    error: Optional[str] = None
+    result: Optional[str] = None
     try:
         result = await vlm_client.infer(
             image_b64,
@@ -327,7 +379,7 @@ async def vlm_infer(body: VlmInferRequest):
             temperature=body.temperature,
         )
     except Exception as exc:
-        raise HTTPException(502, detail=f"VLM inference failed: {exc}")
+        error = f"VLM inference failed: {exc}"
 
     return {
         "camera": body.camera,
@@ -335,7 +387,10 @@ async def vlm_infer(body: VlmInferRequest):
         "height": img.get("height"),
         "image": image_b64,
         "encoding": img.get("encoding"),
-        "response": result,
+        "user_prompt": user_prompt,
+        "tokens": tokens,
+        "response": result if result is not None else (error or ""),
+        "error": error,
     }
 
 
