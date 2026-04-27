@@ -59,6 +59,10 @@
       <div class="vlm-col vlm-col-image">
         <div class="vlm-col-header">
           <span class="vlm-col-title">Image sent to VLM</span>
+          <label class="vlm-check" style="margin-left:auto">
+            <input id="vlm-rotate180" type="checkbox" />
+            <span>Rotate 180°</span>
+          </label>
           <span class="vlm-meta" id="vlm-img-meta"></span>
         </div>
         <div class="vlm-sent-frame">
@@ -254,6 +258,8 @@ const vlmLoopLabel     = document.getElementById('vlm-loop-status');
 const vlmSentImage     = document.getElementById('vlm-sent-image');
 const vlmImgPlaceholder = document.getElementById('vlm-img-placeholder');
 const vlmImgMeta       = document.getElementById('vlm-img-meta');
+const vlmRotate180     = document.getElementById('vlm-rotate180');
+
 
 vlmSentImage.addEventListener('error', () => {
   vlmSentImage.classList.remove('has-image');
@@ -281,7 +287,7 @@ async function askVlmOnce() {
     const r = await fetch('/api/vlm/infer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ camera, prompt: prompt || null }),
+      body: JSON.stringify({ camera, prompt: prompt || null, rotate180: vlmRotate180.checked }),
     });
     const body = await r.json();
     const elapsedMs = Math.round(performance.now() - started);

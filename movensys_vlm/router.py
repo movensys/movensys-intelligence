@@ -1,6 +1,10 @@
 import asyncio
+import base64
+import io
 import json
 from typing import List, Optional
+
+from PIL import Image
 
 import std_srvs.srv
 from movensys_manipulator_moveit_config.srv import GetEefPose, MovePose, MoveJoints
@@ -69,6 +73,7 @@ class VlmInferRequest(BaseModel):
     system_prompt: Optional[str] = None
     max_tokens: int = 512
     temperature: float = 0.2
+    rotate180: bool = False
 
     model_config = {
         "json_schema_extra": {
@@ -77,6 +82,7 @@ class VlmInferRequest(BaseModel):
                 "prompt": "Which player tokens are on the board and where?",
                 "max_tokens": 512,
                 "temperature": 0.2,
+                "rotate180": False,
             }
         }
     }
@@ -303,10 +309,18 @@ async def vlm_infer(body: VlmInferRequest):
     if img is None:
         raise HTTPException(503, detail=f"No RGB image available for camera '{body.camera}'")
 
-    user_prompt = body.prompt or "Report the tokens on the board and the die value."
+    image_b64 = img["data"]
+    if body.rotate180:
+        pil_img = Image.open(io.BytesIO(base64.b64decode(image_b64)))
+        pil_img = pil_img.rotate(180)
+        buf = io.BytesIO()
+        pil_img.save(buf, format="JPEG")
+        image_b64 = base64.b64encode(buf.getvalue()).decode()
+
+    user_prompt = body.prompt or "Report the tokens on the board."
     try:
         result = await vlm_client.infer(
-            img["data"],
+            image_b64,
             user_prompt=user_prompt,
             system_prompt=body.system_prompt,
             max_tokens=body.max_tokens,
@@ -319,7 +333,7 @@ async def vlm_infer(body: VlmInferRequest):
         "camera": body.camera,
         "width": img.get("width"),
         "height": img.get("height"),
-        "image": img.get("data"),
+        "image": image_b64,
         "encoding": img.get("encoding"),
         "response": result,
     }
