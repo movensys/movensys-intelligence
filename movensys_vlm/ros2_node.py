@@ -98,8 +98,8 @@ class ManipulatorNode(Node):
         self.cli_abs_base_joint = self.create_client(MovePose,             "/wmx/moveit2/absolute_base_eef_joint_movement", callback_group=cb)
         self.cli_joint_abs      = self.create_client(MoveJoints,           "/wmx/moveit2/joint_movement",                   callback_group=cb)
         self.cli_joint_rel      = self.create_client(MoveJoints,           "/wmx/moveit2/relative_joint_movement",          callback_group=cb)
-        self.cli_set_params     = self.create_client(SetParameters,        "/moveit2_api_node/set_parameters",              callback_group=cb)
-        self.cli_get_params     = self.create_client(GetParameters,        "/moveit2_api_node/get_parameters",              callback_group=cb)
+        self.cli_set_params     = self.create_client(SetParameters,        "/trajectory_api/set_parameters",              callback_group=cb)
+        self.cli_get_params     = self.create_client(GetParameters,        "/trajectory_api/get_parameters",              callback_group=cb)
 
     def _cb_eef_pose(self, msg: geometry_msgs.msg.PoseStamped):
         p, o = msg.pose.position, msg.pose.orientation
