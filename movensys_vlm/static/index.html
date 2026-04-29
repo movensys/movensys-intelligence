@@ -873,12 +873,12 @@ async function sendMove(url, body, label) {
 
 // ---- Joint rows ----
 const defaultJoints = [
-  {name:'joint1', v:'2.1251'},
-  {name:'joint2', v:'-0.0225'},
-  {name:'joint3', v:'1.135'},
-  {name:'joint4', v:'0.4638'},
-  {name:'joint5', v:'-1.5708'},
-  {name:'joint6', v:'-1.0157'},
+  {name:'joint1', v:'0.0'},
+  {name:'joint2', v:'0.0'},
+  {name:'joint3', v:'-1.57'},
+  {name:'joint4', v:'0.0'},
+  {name:'joint5', v:'1.57'},
+  {name:'joint6', v:'0.0'},
 ];
 
 function buildJointRows(containerId, prefix, joints) {
@@ -896,7 +896,7 @@ function buildJointRows(containerId, prefix, joints) {
 }
 
 buildJointRows('joints-abs-rows', 'jabs', defaultJoints);
-buildJointRows('joints-rel-rows', 'jrel', [{name:'joint1',v:'0.2'},{name:'joint2',v:'-0.2'}]);
+buildJointRows('joints-rel-rows', 'jrel', [{name:'joint1',v:'0.2'},{name:'joint2',v:'0.2'}]);
 
 let absCount = defaultJoints.length;
 let relCount = 2;
