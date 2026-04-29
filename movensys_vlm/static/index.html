@@ -418,9 +418,9 @@
         <div class="form-group">
           <label>Position [x, y, z] (m)</label>
           <div class="row3">
-            <input type="number" id="acb-px" step="0.001" placeholder="x" value="0.098" />
+            <input type="number" id="acb-px" step="0.001" placeholder="x" value="-0.158" />
             <input type="number" id="acb-py" step="0.001" placeholder="y" value="-0.071" />
-            <input type="number" id="acb-pz" step="0.001" placeholder="z" value="0.45" />
+            <input type="number" id="acb-pz" step="0.001" placeholder="z" value="0.346" />
           </div>
         </div>
         <div class="form-group">
@@ -428,7 +428,7 @@
           <div class="row3">
             <input type="number" id="acb-or" step="0.001" placeholder="roll" value="3.14" />
             <input type="number" id="acb-op" step="0.001" placeholder="pitch" value="0.0" />
-            <input type="number" id="acb-oy" step="0.001" placeholder="yaw" value="3.14" />
+            <input type="number" id="acb-oy" step="0.001" placeholder="yaw" value="-3.14" />
           </div>
         </div>
         <button class="btn btn-primary" onclick="moveCartesian('absolute_cartesian_base','acb')">Send</button>
@@ -490,9 +490,9 @@
         <div class="form-group">
           <label>Position [x, y, z] (m)</label>
           <div class="row3">
-            <input type="number" id="ajp-px" step="0.001" placeholder="x" value="0.23" />
-            <input type="number" id="ajp-py" step="0.001" placeholder="y" value="0.0" />
-            <input type="number" id="ajp-pz" step="0.001" placeholder="z" value="0.45" />
+            <input type="number" id="ajp-px" step="0.001" placeholder="x" value="-0.005" />
+            <input type="number" id="ajp-py" step="0.001" placeholder="y" value="-0.071" />
+            <input type="number" id="ajp-pz" step="0.001" placeholder="z" value="0.346" />
           </div>
         </div>
         <div class="form-group">
@@ -500,7 +500,7 @@
           <div class="row3">
             <input type="number" id="ajp-or" step="0.001" placeholder="roll" value="3.14" />
             <input type="number" id="ajp-op" step="0.001" placeholder="pitch" value="0.0" />
-            <input type="number" id="ajp-oy" step="0.001" placeholder="yaw" value="3.14" />
+            <input type="number" id="ajp-oy" step="0.001" placeholder="yaw" value="-3.14" />
           </div>
         </div>
         <button class="btn btn-primary" onclick="moveCartesian('absolute_joint_pose','ajp')">Send</button>
@@ -939,7 +939,7 @@ async function moveJoints(endpoint, type) {
 // ---- Initial pose ----
 const INITIAL_POSE = {
   joint_names:  ['joint1','joint2','joint3','joint4','joint5','joint6'],
-  joint_values: [3.14, -0.5928, 1.5576, 0.6173, -1.57, 0.0],
+  joint_values: [-0.0003, 0.7041, -1.9892, -0.2873, 1.57, 0.0],
 };
 
 async function goToInitialPose() {
