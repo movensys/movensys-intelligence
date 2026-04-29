@@ -5,7 +5,7 @@ check `doc/` number 1,2, and 3
 ```
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
 docker compose down
-docker compose build --no-cache
+docker compose build
 docker compose up
 ```
 
