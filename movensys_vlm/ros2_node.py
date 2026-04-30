@@ -72,6 +72,9 @@ class ManipulatorNode(Node):
         self.latest_hand_depth_image: Optional[dict] = None
         self.latest_hand_rgb_image: Optional[dict] = None
         self.latest_tf_static: Optional[dict] = None
+        self.latest_board_pose: Optional[dict] = None
+        self.latest_piece_1_pose: Optional[dict] = None
+        self.latest_piece_2_pose: Optional[dict] = None
 
         _transient_local = QoSProfile(
             depth=1,
@@ -89,6 +92,9 @@ class ManipulatorNode(Node):
         self.create_subscription(sensor_msgs.msg.Image,            "/image_hand/depth",       self._cb_hand_depth,         1, callback_group=cb)
         self.create_subscription(sensor_msgs.msg.Image,            "/image_hand/rgb",         self._cb_hand_rgb,           1, callback_group=cb)
         self.create_subscription(tf2_msgs.msg.TFMessage,           "/tf_static",              self._cb_tf_static,          _transient_local, callback_group=cb)
+        self.create_subscription(geometry_msgs.msg.Pose,           "/board",                  self._cb_board_pose,        10, callback_group=cb)
+        self.create_subscription(geometry_msgs.msg.Pose,           "/piece_1",                self._cb_piece_1_pose,      10, callback_group=cb)
+        self.create_subscription(geometry_msgs.msg.Pose,           "/piece_2",                self._cb_piece_2_pose,      10, callback_group=cb)
 
         self.cli_get_eef_pose   = self.create_client(GetEefPose,           "/wmx/moveit2/get_eef_pose",                     callback_group=cb)
         self.cli_gripper        = self.create_client(std_srvs.srv.SetBool, "/wmx/set_gripper",                              callback_group=cb)
@@ -157,6 +163,23 @@ class ManipulatorNode(Node):
 
     def _cb_hand_rgb(self, msg: sensor_msgs.msg.Image):
         self.latest_hand_rgb_image = _encode_rgb(msg)
+
+    @staticmethod
+    def _pose_to_dict(msg: geometry_msgs.msg.Pose) -> dict:
+        p, o = msg.position, msg.orientation
+        return {
+            "position":    {"x": p.x, "y": p.y, "z": p.z},
+            "orientation": {"x": o.x, "y": o.y, "z": o.z, "w": o.w},
+        }
+
+    def _cb_board_pose(self, msg: geometry_msgs.msg.Pose):
+        self.latest_board_pose = self._pose_to_dict(msg)
+
+    def _cb_piece_1_pose(self, msg: geometry_msgs.msg.Pose):
+        self.latest_piece_1_pose = self._pose_to_dict(msg)
+
+    def _cb_piece_2_pose(self, msg: geometry_msgs.msg.Pose):
+        self.latest_piece_2_pose = self._pose_to_dict(msg)
 
     _TF_PARENT = "world_manipulator"
     _TF_CHILD  = "camera_top_color_optical_frame"

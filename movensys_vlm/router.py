@@ -1,6 +1,10 @@
 import asyncio
+import base64
+import io
 import json
-from typing import List
+from typing import List, Optional
+
+from PIL import Image
 
 import std_srvs.srv
 from movensys_manipulator_moveit_config.srv import GetEefPose, MovePose, MoveJoints
@@ -9,6 +13,8 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 import ros2_node as rn
+import vlm_client
+import monopoly_geometry as mg
 
 router = APIRouter()
 
@@ -59,6 +65,26 @@ class ScalesRequest(BaseModel):
     model_config = {
         "json_schema_extra": {
             "example": {"vel_scale": 0.5, "acc_scale": 0.5}
+        }
+    }
+
+class VlmInferRequest(BaseModel):
+    camera: str = "top"   # "top" or "hand"
+    prompt: Optional[str] = None
+    system_prompt: Optional[str] = None
+    max_tokens: int = 512
+    temperature: float = 0.2
+    rotate180: bool = False
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "camera": "top",
+                "prompt": "Which player tokens are on the board and where?",
+                "max_tokens": 512,
+                "temperature": 0.2,
+                "rotate180": False,
+            }
         }
     }
 
@@ -263,6 +289,139 @@ def set_scales(body: ScalesRequest):
     if not (0.0 < body.acc_scale <= 1.0):
         raise HTTPException(400, detail="acc_scale must be in (0, 1]")
     return rn.set_scales(body.vel_scale, body.acc_scale)
+
+
+# ---------------------------------------------------------------------------
+# VLM inference
+# ---------------------------------------------------------------------------
+
+def _classify_token(label: str, pose: Optional[dict], board_pose: dict) -> dict:
+    """Run geometry classification for one token; return a serializable dict."""
+    if pose is None:
+        return {"label": label, "status": "unavailable",
+                "row": None, "col": None, "world": None}
+    info = mg.classify_piece(
+        (pose["position"]["x"], pose["position"]["y"]),
+        (board_pose["position"]["x"], board_pose["position"]["y"]),
+        (
+            board_pose["orientation"]["x"],
+            board_pose["orientation"]["y"],
+            board_pose["orientation"]["z"],
+            board_pose["orientation"]["w"],
+        ),
+    )
+    return {
+        "label": label,
+        "status": info["status"],
+        "row": info["row"],
+        "col": info["col"],
+        "world": {"x": pose["position"]["x"], "y": pose["position"]["y"]},
+        "local": {"x": info["local_x"], "y": info["local_y"]},
+    }
+
+
+def _format_token_lines(tokens: List[dict]) -> str:
+    lines = []
+    for t in tokens:
+        if t["status"] == "unavailable":
+            lines.append(f"- {t['label']}: pose unavailable")
+        elif t["status"] == "on_board":
+            lines.append(f"- {t['label']}: status=on_board, row={t['row']}, col={t['col']}")
+        else:
+            lines.append(f"- {t['label']}: status={t['status']}")
+    return "\n".join(lines) if lines else "(no tokens)"
+
+
+@router.post("/api/vlm/infer")
+async def vlm_infer(body: VlmInferRequest):
+    if rn.ros_node is None:
+        raise HTTPException(503, detail="ROS node not running")
+
+    if body.camera == "hand":
+        img = rn.ros_node.latest_hand_rgb_image
+    elif body.camera == "top":
+        img = rn.ros_node.latest_top_rgb_image
+    else:
+        raise HTTPException(400, detail="camera must be 'top' or 'hand'")
+
+    if img is None:
+        raise HTTPException(503, detail=f"No RGB image available for camera '{body.camera}'")
+
+    image_b64 = img["data"]
+    if body.rotate180:
+        pil_img = Image.open(io.BytesIO(base64.b64decode(image_b64)))
+        pil_img = pil_img.rotate(180)
+        buf = io.BytesIO()
+        pil_img.save(buf, format="JPEG")
+        image_b64 = base64.b64encode(buf.getvalue()).decode()
+
+    board_pose = rn.ros_node.latest_board_pose
+    tokens: List[dict] = []
+    if board_pose is not None:
+        tokens.append(_classify_token("piece_1", rn.ros_node.latest_piece_1_pose, board_pose))
+        tokens.append(_classify_token("piece_2", rn.ros_node.latest_piece_2_pose, board_pose))
+
+    sensor_block = _format_token_lines(tokens) if tokens else "(no /board pose received yet — fall back to vision)"
+    base_prompt = body.prompt or "Report the tokens on the board."
+    user_prompt = (
+        f"Sensor data (from /piece_1, /piece_2, /board topics):\n{sensor_block}\n\n"
+        f"{base_prompt}"
+    )
+
+    error: Optional[str] = None
+    result: Optional[str] = None
+    try:
+        result = await vlm_client.infer(
+            image_b64,
+            user_prompt=user_prompt,
+            system_prompt=body.system_prompt,
+            max_tokens=body.max_tokens,
+            temperature=body.temperature,
+        )
+    except Exception as exc:
+        error = f"VLM inference failed: {exc}"
+
+    return {
+        "camera": body.camera,
+        "width": img.get("width"),
+        "height": img.get("height"),
+        "image": image_b64,
+        "encoding": img.get("encoding"),
+        "user_prompt": user_prompt,
+        "tokens": tokens,
+        "response": result if result is not None else (error or ""),
+        "error": error,
+    }
+
+
+class VlmSystemPromptRequest(BaseModel):
+    system_prompt: str
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {"system_prompt": "You are a vision assistant for a simplified Monopoly game…"}
+        }
+    }
+
+
+@router.get("/api/vlm/system_prompt")
+def vlm_get_system_prompt():
+    return {
+        "system_prompt": vlm_client.get_system_prompt(),
+        "default_system_prompt": vlm_client.DEFAULT_SYSTEM_PROMPT,
+    }
+
+
+@router.put("/api/vlm/system_prompt")
+def vlm_set_system_prompt(body: VlmSystemPromptRequest):
+    if not body.system_prompt.strip():
+        raise HTTPException(400, detail="system_prompt must not be empty")
+    return {"system_prompt": vlm_client.set_system_prompt(body.system_prompt)}
+
+
+@router.delete("/api/vlm/system_prompt")
+def vlm_reset_system_prompt():
+    return {"system_prompt": vlm_client.reset_system_prompt()}
 
 
 # ---------------------------------------------------------------------------
