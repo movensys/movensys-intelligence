@@ -6,8 +6,13 @@ USER root
 
 RUN rm -f /etc/apt/sources.list.d/yarn.list || true
 
-RUN sed -i -E 's|http://(archive\|security)\.ubuntu\.com/ubuntu/|https://\1.ubuntu.com/ubuntu/|g' \
-      /etc/apt/sources.list.d/ubuntu.sources
+RUN if [ "${ROS_DISTRO}" = "jazzy" ]; then \
+      sed -i -E 's|http://(archive\|security)\.ubuntu\.com/ubuntu/|https://\1.ubuntu.com/ubuntu/|g' \
+        /etc/apt/sources.list.d/ubuntu.sources; \
+    elif [ "${ROS_DISTRO}" = "humble" ]; then \
+      sed -i -E 's|http://(archive\|security)\.ubuntu\.com/ubuntu/|https://\1.ubuntu.com/ubuntu/|g' \
+        /etc/apt/sources.list; \
+    fi
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
