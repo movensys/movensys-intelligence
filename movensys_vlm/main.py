@@ -7,6 +7,15 @@ from fastapi.openapi.utils import get_openapi
 from ros2_node import start_ros_node
 from router import router
 
+
+class SafeStaticFiles(StaticFiles):
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.close", "code": 1000})
+            return
+        await super().__call__(scope, receive, send)
+
 app = FastAPI(
     title="Movensys Manipulator API",
     version="2.0.0",
@@ -110,4 +119,4 @@ def startup():
     start_ros_node()
 
 
-app.mount("/", StaticFiles(directory="/app/static", html=True), name="static")
+app.mount("/", SafeStaticFiles(directory="/app/static", html=True), name="static")
