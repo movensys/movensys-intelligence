@@ -1,0 +1,90 @@
+name: CI - movensys-monopoly
+
+on:
+  pull_request:
+    branches: [main, devel]
+    paths:
+      - 'movensys-monopoly/**'
+      - '.github/workflows/movensys-monopoly.yml'
+
+jobs:
+  lint-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ros_distro: jazzy
+            os: ubuntu-24.04
+
+    runs-on: ${{ matrix.os }}
+
+    # Adapter stub-mode invariant: all external FastAPI URLs are unset.
+    # CI green with these empty proves the game runs without AI/robot.
+    env:
+      STT_SERVICE_URL: ''
+      LLM_SERVICE_URL: ''
+      ROBOT_SERVICE_URL: ''
+
+    defaults:
+      run:
+        working-directory: movensys-monopoly
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup ROS ${{ matrix.ros_distro }}
+        uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: ${{ matrix.ros_distro }}
+
+      - name: Install Python dependencies
+        run: |
+          set -eu
+          if [ -f requirements.txt ]; then
+            pip3 install --no-cache-dir --break-system-packages -r requirements.txt
+          fi
+          pip3 install --no-cache-dir --break-system-packages pytest pytest-asyncio httpx uvicorn fastapi
+
+      - name: Python syntax check
+        run: |
+          set -eu
+          mapfile -t files < <(find . -type f -name '*.py' \
+            -not -path './.venv/*' -not -path './build/*' -not -path './__pycache__/*')
+          for f in "${files[@]}"; do
+            echo "  $f"
+            python3 -m py_compile "$f"
+          done
+
+      - name: FastAPI health + stub-mode invariant
+        if: hashFiles('movensys-monopoly/main.py') != ''
+        run: |
+          set -eu
+          python3 -m uvicorn main:app --host 127.0.0.1 --port 8000 &
+          pid=$!
+          trap 'kill $pid 2>/dev/null || true' EXIT
+          for _ in $(seq 1 20); do
+            curl -sf http://127.0.0.1:8000/api/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+          body=$(curl -sf http://127.0.0.1:8000/api/health)
+          echo "health: $body"
+          echo "$body" | grep -q '"status"' || { echo "FAIL: health missing status"; exit 1; }
+
+          robot=$(curl -sf http://127.0.0.1:8000/api/robot/health)
+          echo "robot: $robot"
+          echo "$robot" | grep -Eq '"mode"[[:space:]]*:[[:space:]]*"stub"' \
+            || { echo "FAIL: adapter not in stub mode with empty ROBOT_SERVICE_URL"; exit 1; }
+
+      - name: Pytest
+        run: |
+          set -eu
+          if [ ! -d tests ]; then
+            echo "tests/ not yet present — nothing to run"
+            exit 0
+          fi
+          # Exit code 5 = "no tests collected" is acceptable for early milestones.
+          python3 -m pytest -v tests/ || rc=$?
+          if [ "${rc:-0}" != "0" ] && [ "${rc:-0}" != "5" ]; then
+            exit "${rc}"
+          fi

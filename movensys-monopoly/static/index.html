@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>movensys-monopoly</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header>
+    <h1>movensys-monopoly</h1>
+    <span class="badge" id="milestone">M2 board 1/2/3</span>
+    <div class="spacer"></div>
+    <div class="money-bar">
+      <div class="money-player" id="money-user">
+        <span class="money-color" style="background:var(--user)"></span>
+        <span class="money-label">user</span>
+        <span class="money-value" id="money-user-value">$0</span>
+      </div>
+      <div class="money-player" id="money-robot">
+        <span class="money-color" style="background:var(--robot)"></span>
+        <span class="money-label">robot</span>
+        <span class="money-value" id="money-robot-value">$0</span>
+      </div>
+    </div>
+    <div class="badges" id="modes"></div>
+  </header>
+
+  <main class="grid">
+    <aside class="sidebar sidebar-left">
+      <div class="card">
+        <h2>user properties</h2>
+        <div class="property-groups" id="props-user"></div>
+      </div>
+    </aside>
+
+    <section class="board-pane">
+      <div class="board-wrap" id="board-wrap">
+        <div id="board-host"></div>
+        <svg id="pieces" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid meet">
+          <rect id="piece-user"  width="22" height="22" x="864" y="864" fill="var(--user)"  stroke="#000" stroke-width="1.5"/>
+          <rect id="piece-robot" width="22" height="22" x="864" y="864" fill="var(--robot)" stroke="#000" stroke-width="1.5" transform="translate(-20 0)"/>
+        </svg>
+      </div>
+    </section>
+
+    <aside class="sidebar sidebar-right">
+      <div class="card">
+        <h2>Game state</h2>
+        <dl>
+          <dt>FSM</dt>     <dd id="st-fsm">IDLE</dd>
+          <dt>Turn</dt>    <dd id="st-turn">—</dd>
+          <dt>Turn #</dt>  <dd id="st-num">0</dd>
+          <dt>Dice</dt>    <dd id="st-dice">—</dd>
+          <dt>Winner</dt>  <dd id="st-winner">—</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h2>Manual controls</h2>
+        <div class="row">
+          <label>Board
+            <select id="board-select">
+              <option value="3" selected>3 — blank (12)</option>
+              <option value="1">1 — short (20)</option>
+              <option value="2">2 — full (40)</option>
+            </select>
+          </label>
+          <button id="btn-start">Start</button>
+        </div>
+        <div class="row">
+          <label>Dice
+            <input id="dice-input" type="number" min="1" max="6" value="3">
+          </label>
+          <button id="btn-submit-dice">Submit dice</button>
+        </div>
+        <div class="row">
+          <button id="btn-apply-move" title="Applies the move the server is expecting">Apply move</button>
+          <button id="btn-end-turn">End turn</button>
+        </div>
+        <div class="row">
+          <button id="btn-reset" class="btn-secondary" title="Restart the current board from turn 1">Reset game</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>robot properties</h2>
+        <div class="property-groups" id="props-robot"></div>
+      </div>
+
+      <div class="card">
+        <h2>Events</h2>
+        <ol id="event-log"></ol>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Camera thumbnails — fixed to viewport bottom-right so they stay
+       visible without scrolling. Link opens the full /cameras view. -->
+  <div class="camera-dock">
+    <a href="/cameras" class="camera-dock-link" title="Open full view">Cameras ↗</a>
+    <div class="camera-thumb">
+      <div class="camera-label">top</div>
+      <img id="cam-top-thumb" class="camera-img" alt="Top camera">
+      <div class="camera-status" id="cam-top-status">No stream</div>
+    </div>
+    <div class="camera-thumb">
+      <div class="camera-label">hand</div>
+      <img id="cam-hand-thumb" class="camera-img" alt="Hand camera">
+      <div class="camera-status" id="cam-hand-status">No stream</div>
+    </div>
+  </div>
+
+  <!-- Property arrival / decision modal -->
+  <div class="modal-backdrop hidden" id="decision-modal">
+    <div class="modal">
+      <h3 id="decision-title">Land on property</h3>
+      <div id="decision-card"></div>
+      <div class="modal-buttons">
+        <button id="btn-skip" class="btn-secondary">Skip</button>
+        <button id="btn-buy">Buy</button>
+        <button id="btn-buy-build">Buy + build 1</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

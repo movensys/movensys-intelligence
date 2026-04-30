@@ -1,0 +1,21 @@
+{
+  "deck": "community_chest",
+  "cards": [
+    { "id": "advance_to_go_cc",       "text": "Advance to GO. Collect $200.",                       "effect": { "type": "move_to_tile", "tile_index": 0, "collect_on_pass": true } },
+    { "id": "bank_error",             "text": "Bank error in your favor. Collect $200.",            "effect": { "type": "collect", "amount": 200 } },
+    { "id": "doctor_fee",             "text": "Doctor's fee. Pay $50.",                             "effect": { "type": "pay", "amount": 50, "to": "bank" } },
+    { "id": "sale_of_stock",          "text": "From sale of stock you get $50.",                    "effect": { "type": "collect", "amount": 50 } },
+    { "id": "jail_free_cc",           "text": "Get Out of Jail Free. Keep this card until needed.", "effect": { "type": "grant_jail_free_card" } },
+    { "id": "go_to_jail_cc",          "text": "Go directly to Jail. Do not pass GO.",               "effect": { "type": "go_to_jail" } },
+    { "id": "holiday_fund",           "text": "Holiday fund matures. Collect $100.",                "effect": { "type": "collect", "amount": 100 } },
+    { "id": "income_tax_refund",      "text": "Income tax refund. Collect $20.",                    "effect": { "type": "collect", "amount": 20 } },
+    { "id": "birthday",               "text": "It is your birthday. Collect $10 from each player.", "effect": { "type": "collect_from_each_player", "amount": 10 } },
+    { "id": "life_insurance",         "text": "Life insurance matures. Collect $100.",              "effect": { "type": "collect", "amount": 100 } },
+    { "id": "hospital",               "text": "Hospital fees. Pay $50.",                            "effect": { "type": "pay", "amount": 50, "to": "bank" } },
+    { "id": "school_fees",            "text": "School fees. Pay $50.",                              "effect": { "type": "pay", "amount": 50, "to": "bank" } },
+    { "id": "consultancy_fee",        "text": "Receive $25 consultancy fee.",                       "effect": { "type": "collect", "amount": 25 } },
+    { "id": "street_repairs",         "text": "Street repairs. $40 per house, $115 per hotel.",     "effect": { "type": "pay_per_building", "per_house": 40, "per_hotel": 115 } },
+    { "id": "beauty_contest",         "text": "You have won second prize in a beauty contest. Collect $10.", "effect": { "type": "collect", "amount": 10 } },
+    { "id": "inheritance",            "text": "You inherit $100.",                                  "effect": { "type": "collect", "amount": 100 } }
+  ]
+}
