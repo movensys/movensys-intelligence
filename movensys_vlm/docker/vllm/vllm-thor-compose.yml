@@ -1,0 +1,23 @@
+services:
+  vllm-gemma4:
+    image: vllm-thor:0.20
+    build:
+      context: .
+      dockerfile: Dockerfile.vllm-thor
+    container_name: vllm-gemma4
+    runtime: nvidia
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ~/models:/models
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    environment:
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+    command:
+      - vllm
+      - serve
+      - /models/gemma-4-E4B-it
+      - --served-model-name=gemma-4-e4b
+      - --max-model-len=8192
+      - --gpu-memory-utilization=0.3
