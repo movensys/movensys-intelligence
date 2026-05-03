@@ -1,0 +1,24 @@
+services:
+  vllm-xpu:
+    image: vllm-xpu:source
+    build:
+      context: ${VLLM_SRC:-../../../../vllm}
+      dockerfile: docker/Dockerfile.xpu
+      shm_size: "4gb"
+    container_name: vllm-xpu
+    restart: unless-stopped
+    network_mode: host
+    ipc: host
+    privileged: true
+    devices:
+      - /dev/dri:/dev/dri
+    volumes:
+      - /dev/dri/by-path:/dev/dri/by-path
+      - ~/models:/models
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    command:
+      - /models/gemma-4-E4B-it-W4A16-AutoRound
+      - --served-model-name=gemma-4-E4B-it-W4A16-AutoRound
+      - --max-model-len=1024
+      - --dtype=float16
+      - --gpu-memory-utilization=0.4
