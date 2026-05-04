@@ -6,4 +6,4 @@ set -e
 source /opt/ros/${ROS_DISTRO}/setup.bash
 
 cd /app
-exec uvicorn main:app --host 0.0.0.0 --port "${MONOPOLY_PORT:-8000}"
+exec uvicorn main:app --host 0.0.0.0 --port "${MONOPOLY_PORT:-7999}"

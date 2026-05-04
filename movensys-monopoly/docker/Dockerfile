@@ -41,6 +41,6 @@ COPY static/ ./static/
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-EXPOSE 8000
+EXPOSE 7999
 
 ENTRYPOINT ["/entrypoint.sh"]

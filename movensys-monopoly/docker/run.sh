@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Launch movensys-monopoly via docker compose with the same safeguards
 # as scripts/ci_local.sh:
-#   - Refuse to start if host port ${MONOPOLY_PORT:-8000} is held by
+#   - Refuse to start if host port ${MONOPOLY_PORT:-7999} is held by
 #     something that is NOT our own container (prevents silent shadowing
 #     by a stray uvicorn on the host).
 #   - Warn if a stray /movensys_monopoly node is already in the ROS 2
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PORT="${MONOPOLY_PORT:-8000}"
+PORT="${MONOPOLY_PORT:-7999}"
 CONTAINER="movensys_monopoly_container"
 
 step() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }

@@ -35,41 +35,41 @@ done
 
 step "FastAPI health + stub-mode invariant"
 if [ -f main.py ]; then
-  # Pre-flight: refuse to start if port 8000 is already taken — a stale
+  # Pre-flight: refuse to start if port 7999 is already taken — a stale
   # uvicorn from a previous run would happily answer /api/health with
   # old code and hide regressions.
-  if ss -ltn "sport = :8000" 2>/dev/null | grep -q ':8000'; then
-    fail "port 8000 already in use — stop the other uvicorn before rerunning"
+  if ss -ltn "sport = :7999" 2>/dev/null | grep -q ':7999'; then
+    fail "port 7999 already in use — stop the other uvicorn before rerunning"
   fi
 
   # Own process group so cleanup can sweep any workers uvicorn may spawn,
   # not just the direct child.
   set -m
-  python3 -m uvicorn main:app --host 127.0.0.1 --port 8000 &
+  python3 -m uvicorn main:app --host 127.0.0.1 --port 7999 &
   pid=$!
   set +m
 
   cleanup() {
     # TERM the whole process group, then verify nothing survived. Any
-    # lingering uvicorn on :8000 after this script exits is a bug.
+    # lingering uvicorn on :7999 after this script exits is a bug.
     kill -TERM -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
-    if pgrep -f "uvicorn.*main:app.*--port 8000" >/dev/null 2>&1; then
+    if pgrep -f "uvicorn.*main:app.*--port 7999" >/dev/null 2>&1; then
       echo "  warning: uvicorn survived cleanup — killing -9" >&2
-      pkill -9 -f "uvicorn.*main:app.*--port 8000" || true
+      pkill -9 -f "uvicorn.*main:app.*--port 7999" || true
     fi
   }
   trap cleanup EXIT INT TERM
 
   for _ in $(seq 1 20); do
-    curl -sf http://127.0.0.1:8000/api/health >/dev/null 2>&1 && break
+    curl -sf http://127.0.0.1:7999/api/health >/dev/null 2>&1 && break
     sleep 1
   done
-  body=$(curl -sf http://127.0.0.1:8000/api/health) || fail "/api/health did not respond"
+  body=$(curl -sf http://127.0.0.1:7999/api/health) || fail "/api/health did not respond"
   echo "  health: $body"
   echo "$body" | grep -q '"status"' || fail "health missing status"
 
-  robot=$(curl -sf http://127.0.0.1:8000/api/robot/health) || fail "/api/robot/health did not respond"
+  robot=$(curl -sf http://127.0.0.1:7999/api/robot/health) || fail "/api/robot/health did not respond"
   echo "  robot: $robot"
   echo "$robot" | grep -Eq '"mode"[[:space:]]*:[[:space:]]*"stub"' \
     || fail "adapter not in stub mode with empty ROBOT_SERVICE_URL"

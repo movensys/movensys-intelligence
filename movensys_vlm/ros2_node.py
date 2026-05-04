@@ -75,6 +75,7 @@ class ManipulatorNode(Node):
         self.latest_board_pose: Optional[dict] = None
         self.latest_piece_1_pose: Optional[dict] = None
         self.latest_piece_2_pose: Optional[dict] = None
+        self.latest_yolo_tf: Optional[dict] = None
 
         _transient_local = QoSProfile(
             depth=1,
@@ -92,6 +93,7 @@ class ManipulatorNode(Node):
         self.create_subscription(sensor_msgs.msg.Image,            "/image_hand/depth",       self._cb_hand_depth,         1, callback_group=cb)
         self.create_subscription(sensor_msgs.msg.Image,            "/image_hand/rgb",         self._cb_hand_rgb,           1, callback_group=cb)
         self.create_subscription(tf2_msgs.msg.TFMessage,           "/tf_static",              self._cb_tf_static,          _transient_local, callback_group=cb)
+        self.create_subscription(tf2_msgs.msg.TFMessage,           "/tf",                     self._cb_tf,                10, callback_group=cb)
         self.create_subscription(geometry_msgs.msg.Pose,           "/board",                  self._cb_board_pose,        10, callback_group=cb)
         self.create_subscription(geometry_msgs.msg.Pose,           "/piece_1",                self._cb_piece_1_pose,      10, callback_group=cb)
         self.create_subscription(geometry_msgs.msg.Pose,           "/piece_2",                self._cb_piece_2_pose,      10, callback_group=cb)
@@ -183,6 +185,7 @@ class ManipulatorNode(Node):
 
     _TF_PARENT = "world_manipulator"
     _TF_CHILD  = "camera_top_color_optical_frame"
+    _YOLO_FRAMES = {"yolo_cube_red", "yolo_cube_green", "yolo_dice_one"}
 
     def _cb_tf_static(self, msg: tf2_msgs.msg.TFMessage):
         for t in msg.transforms:
@@ -197,6 +200,23 @@ class ManipulatorNode(Node):
                 "rotation":     {"x": ro.x, "y": ro.y, "z": ro.z, "w": ro.w},
             }
             break
+
+    def _cb_tf(self, msg: tf2_msgs.msg.TFMessage):
+        for t in msg.transforms:
+            if t.child_frame_id not in self._YOLO_FRAMES:
+                continue
+            tr = t.transform.translation
+            ro = t.transform.rotation
+            if self.latest_yolo_tf is None:
+                self.latest_yolo_tf = {}
+            # "received at" is for time-checking at client.
+            self.latest_yolo_tf[t.child_frame_id] = {
+                "parent_frame": t.header.frame_id,
+                "child_frame":  t.child_frame_id,
+                "received_at":  time.time(),
+                "translation":  {"x": tr.x, "y": tr.y, "z": tr.z},
+                "rotation":     {"x": ro.x, "y": ro.y, "z": ro.z, "w": ro.w},
+            }
 
 
 ros_node: Optional[ManipulatorNode] = None
