@@ -185,7 +185,7 @@ class ManipulatorNode(Node):
 
     _TF_PARENT = "world_manipulator"
     _TF_CHILD  = "camera_top_color_optical_frame"
-    _YOLO_FRAMES = {"yolo_cube_red", "yolo_cube_green", "yolo_dice_one"}
+    _YOLO_FRAMES = {"yolo_cube_red", "yolo_cube_green", "dice"}
 
     def _cb_tf_static(self, msg: tf2_msgs.msg.TFMessage):
         for t in msg.transforms:

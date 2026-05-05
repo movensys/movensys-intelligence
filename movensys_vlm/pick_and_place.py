@@ -5,9 +5,11 @@ import requests
 
 URL = "http://localhost:8000"
 STALE_SECONDS = 2.0
-_YOLO = ("yolo_cube_red", "yolo_cube_green", "yolo_dice_one")
-yolo_offset_x = 0.045  # [m]
-yolo_offset_y = 0.04  # [m]
+_YOLO = ("yolo_cube_red", "yolo_cube_green", "dice")
+# yolo_offset_x = 0.015  # [m]
+# yolo_offset_y = -0.075  # [m]
+yolo_offset_x = 0.009  # [m]
+yolo_offset_y = -0.1  # [m]
 
 logger = logging.getLogger(__name__)
 
@@ -65,28 +67,22 @@ def get_piece_xyz_yaw(name: str = _YOLO[0], decimal_place: int = 4):
 
 # 6 motion movements
 def absolute_cartesian_base(pos, ori):                                                                                                                                                           
-    return requests.post(f"{URL}/api/move/absolute_cartesian_base",
-                        json={"pos": pos, "ori": ori}).json()
+    return requests.post(f"{URL}/api/move/absolute_cartesian_base", json={"pos": pos, "ori": ori}).json()
 
 def relative_cartesian_base(pos, ori):
-    return requests.post(f"{URL}/api/move/relative_cartesian_base",                                                                                                                         
-                        json={"pos": pos, "ori": ori}).json()
+    return requests.post(f"{URL}/api/move/relative_cartesian_base", json={"pos": pos, "ori": ori}).json()
 
 def relative_cartesian_tool(pos, ori):                                                                                                                                                           
-    return requests.post(f"{URL}/api/move/relative_cartesian_tool",
-                        json={"pos": pos, "ori": ori}).json()
+    return requests.post(f"{URL}/api/move/relative_cartesian_tool", json={"pos": pos, "ori": ori}).json()
 
 def absolute_joint_pose(pos, ori):                                                                                                                                                          
-    return requests.post(f"{URL}/api/move/absolute_joint_pose",
-                        json={"pos": pos, "ori": ori}).json()
+    return requests.post(f"{URL}/api/move/absolute_joint_pose", json={"pos": pos, "ori": ori}).json()
 
 def joint_absolute(names, values):                                                                                                                                                          
-    return requests.post(f"{URL}/api/move/joint_absolute",
-                        json={"joint_names": names, "joint_values": values}).json()
+    return requests.post(f"{URL}/api/move/joint_absolute", json={"joint_names": names, "joint_values": values}).json()
 
 def joint_relative(names, values):                                                                                                                                                          
-    return requests.post(f"{URL}/api/move/joint_relative",
-                        json={"joint_names": names, "joint_values": values}).json()
+    return requests.post(f"{URL}/api/move/joint_relative", json={"joint_names": names, "joint_values": values}).json()
 
 # 3 assistance functions
 def gripper(close: bool):                                                                                                                                                                   
@@ -99,35 +95,34 @@ def set_scales(vel, acc):
     return requests.post(f"{URL}/api/config/scales",
                         json={"vel_scale": vel, "acc_scale": acc}).json()
 
+def init(status="dice"):
+    # dice init 
+    absolute_joint_pose([-0.24, -0.1, 0.47], [3.141, 0.0, -3.141]) if status == "dice" else None
+
 def pick_and_place(name: str = _YOLO[0]) -> None:
     gripper(close=False)
     x, y, z, yaw = get_piece_xyz_yaw(name)
-    print(f"{name}: x={x:.4f}, y={y:.4f}, z={z:.4f}, yaw={yaw:.4f}")
-    # x = x - yolo_offset_x
-    # y = y - yolo_offset_y
-    
-    # x = 0.21837149064921602
-    # y = 0.005233278096572507
-    relative_cartesian_tool([x,y, 0.0], [0.0,0.0,0.0])
-    # absolute_cartesian_base([-x,-y, 0.3], [3.14,0.0,-3.14])
-    # gripper(close=True)
-    # absolute_cartesian_base([x,y, z_threshold], [3.14,0.0,-3.14])
+    print(f"{name}: x={x}, y={y}, z={z}, yaw={yaw}")
+    x = x + yolo_offset_x
+    y = y + yolo_offset_y
+    print(f"{name}: x={x}, y={y}, z={z}, yaw={yaw}")
 
-def init():
-    # # initial pose
-    # init = {
-    #     "joint_names":  ["joint1","joint2","joint3","joint4","joint5","joint6"],
-    #     "joint_values": [-0.19430, -0.45370, -0.42330, -0.69780, 1.57230, -0.74330]
-    # }
-    # joint_absolute(init["joint_names"], init["joint_values"])
-    absolute_joint_pose([0.0, -0.1, 0.400], [3.141, 0.0, 3.141])
-
+    relative_cartesian_tool([x,y, 0.18], [0.0,0.0,yaw])
+    time.sleep(2.0)
+    gripper(close=True)
+    time.sleep(2.0)
+    absolute_joint_pose([-0.24, -0.1, 0.47], [3.141, 0.0, -3.141])
+    time.sleep(1.0)
+    gripper(close=False)
+    time.sleep(3.0)
+    init(status="dice")
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    absolute_joint_pose([-0.0, -0.0, 0.5], [3.141, 0.0, -3.141])
     init()
     time.sleep(3.0)
-    pick_and_place(_YOLO[0])
+    pick_and_place(_YOLO[2])
     
 
 
