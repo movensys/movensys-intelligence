@@ -1,0 +1,23 @@
+services:
+  whisper-thor:
+    image: whisper-thor:transformers
+    build:
+      context: .
+      dockerfile: Dockerfile.whisper-thor
+    container_name: whisper-thor
+    runtime: nvidia
+    restart: unless-stopped
+    ports:
+      - "9010:9010"
+    volumes:
+      - ~/models:/models
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    environment:
+      - WHISPER_BACKEND=transformers
+      - WHISPER_MODEL_REPO=${WHISPER_MODEL_REPO:-openai/whisper-large-v3}
+      - WHISPER_MODEL_DIR=${WHISPER_MODEL_DIR:-/models/whisper-large-v3}
+      - WHISPER_DEVICE=${WHISPER_DEVICE:-cuda}
+      - WHISPER_TORCH_DTYPE=${WHISPER_TORCH_DTYPE:-float16}
+      - WHISPER_DEFAULT_LANGUAGE=${WHISPER_DEFAULT_LANGUAGE:-}
+      - WHISPER_CHUNK_LENGTH_S=${WHISPER_CHUNK_LENGTH_S:-30}
+      - HF_TOKEN=${HF_TOKEN:-}

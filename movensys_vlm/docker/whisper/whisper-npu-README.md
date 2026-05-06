@@ -53,7 +53,7 @@ The image is small (~2 GB) since OpenVINO runtime is the only heavyweight dep. R
 ## 2. Build the image
 
 ```bash
-cd movensys_vlm/docker/whisper-npu
+cd movensys_vlm/docker/whisper
 docker compose -f whisper-npu-compose.yml build
 ```
 
@@ -75,7 +75,7 @@ The compose file mounts `~/models` at `/models` inside the container, and `serve
 ## 4. Run as a service
 
 ```bash
-cd movensys_vlm/docker/whisper-npu
+cd movensys_vlm/docker/whisper
 
 docker compose -f whisper-npu-compose.yml up -d
 docker compose -f whisper-npu-compose.yml logs -f
