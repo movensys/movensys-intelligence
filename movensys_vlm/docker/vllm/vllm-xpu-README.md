@@ -54,11 +54,13 @@ source ~/.venvs/vllm-xpu/bin/activate
 
 vllm serve ~/models/gemma-4-E4B-it \
   --served-model-name=gemma-4-E4B-it-ptl \
+  --port=9000 \
   --max-model-len=2048 \
   --gpu-memory-utilization=0.7 \
   --attention-backend TRITON_ATTN \
   --enforce-eager \
-  --limit-mm-per-prompt='{"image": 1, "video": 0}' \
+  --limit-mm-per-prompt='{"image": 1, "video": 0}'
+
 ```
 
 ### Why we pivoted away from Docker (for now)
@@ -162,9 +164,9 @@ Tensor/pipeline parallel only makes sense with multiple discrete GPUs; on a sing
 ## 5. Test the endpoint
 
 ```bash
-curl http://localhost:8000/v1/models
+curl http://localhost:9000/v1/models
 
-curl http://localhost:8000/v1/chat/completions \
+curl http://localhost:9000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gemma-4-e4b",

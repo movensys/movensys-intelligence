@@ -8,7 +8,7 @@ services:
     runtime: nvidia
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "9000:9000"
     volumes:
       - ~/models:/models
       - ~/.cache/huggingface:/root/.cache/huggingface
@@ -19,5 +19,6 @@ services:
       - serve
       - /models/gemma-4-E4B-it
       - --served-model-name=gemma-4-e4b
+      - --port=9000
       - --max-model-len=8192
       - --gpu-memory-utilization=0.3

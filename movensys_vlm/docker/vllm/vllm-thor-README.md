@@ -105,9 +105,9 @@ To change the model or flags, edit the `command:` block in the compose file and 
 From another terminal on Thor (or any machine on the network):
 
 ```bash
-curl http://localhost:8000/v1/models
+curl http://localhost:9000/v1/models
 
-curl http://localhost:8000/v1/chat/completions \
+curl http://localhost:9000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gemma-4-e4b",
