@@ -1,5 +1,7 @@
 # Running vLLM on Intel XPU (Panther Lake iGPU)
 
+> **Status: Docker path is on hold.** During bring-up on Panther Lake we hit a torch-xpu-ops kernel assertion (`vectorized gather kernel index out of bounds`) inside the upstream XPU container. We have switched to building vLLM from source on the host — see [§ Current approach: build wheel from source](#current-approach-build-wheel-from-source) below. The Docker assets (`Dockerfile.xpu`, this compose file) are kept for reference and should be revisited once the upstream XPU stack stabilizes for Xe3 iGPUs.
+
 Tested target:
 - Intel Core Ultra (Panther Lake) with Xe3 integrated GPU
 - Ubuntu 24.04
@@ -7,6 +9,71 @@ Tested target:
 - vLLM built from source via the upstream [`docker/Dockerfile.xpu`](https://github.com/vllm-project/vllm/blob/main/docker/Dockerfile.xpu)
 
 Unlike the Thor setup (which layers on top of NVIDIA's pre-built vLLM container), there is no pre-built XPU image published by vLLM. We build from source using their multi-stage Dockerfile, which pulls Intel oneAPI 2025.3, the Intel Graphics Compiler, the compute runtime, and Python 3.12 — then compiles vLLM with `VLLM_TARGET_DEVICE=xpu`.
+
+## Current approach: build wheel from source
+
+Following the upstream guide at <https://docs.vllm.ai/en/stable/getting_started/installation/gpu/#build-wheel-from-source>, we build vLLM directly on the host instead of inside a container. This bypasses the Docker base image's pinned oneAPI/runtime versions, lets us iterate on env vars and patches faster, and avoids the multimodal kernel issues we hit in the container path.
+
+### Prerequisites (host side)
+
+1. Intel GPU drivers installed and the iGPU visible:
+   ```bash
+   ls -l /dev/dri
+   clinfo | grep -i 'Device Name'
+   ```
+   Your user must be in the `render` and `video` groups.
+
+2. Python 3.12 (mandatory — the `vllm-xpu-kernels` wheel is Python 3.12 specific). Use `uv` for a clean env:
+   ```bash
+   uv venv --python 3.12 --seed --managed-python ~/.venvs/vllm-xpu
+   source ~/.venvs/vllm-xpu/bin/activate
+   ```
+
+### Build steps
+
+```bash
+git clone https://github.com/vllm-project/vllm.git ~/git/vllm
+cd ~/git/vllm
+git checkout v0.20.0          # pin to a release tag
+
+pip install --upgrade pip
+pip install -v -r requirements/xpu.txt
+
+# Replace the default (CUDA) Triton with the XPU build
+pip uninstall -y triton triton-xpu
+pip install triton-xpu==3.6.0 --extra-index-url https://download.pytorch.org/whl/xpu
+
+# Build vLLM against the local source tree
+VLLM_TARGET_DEVICE=xpu pip install --no-build-isolation -e . -v
+```
+
+### Run
+
+```bash
+source ~/.venvs/vllm-xpu/bin/activate
+
+vllm serve ~/models/gemma-4-E4B-it \
+  --served-model-name=gemma-4-E4B-it-ptl \
+  --max-model-len=2048 \
+  --gpu-memory-utilization=0.7 \
+  --attention-backend TRITON_ATTN \
+  --enforce-eager \
+  --limit-mm-per-prompt='{"image": 1, "video": 0}' \
+```
+
+### Why we pivoted away from Docker (for now)
+
+We kept the Docker assets in this directory because they're still the right long-term answer (reproducible env, no host pollution) — but on the current Panther Lake stack the in-container path runs into:
+
+- A long silent profile-run inside Gemma 4's video encoder (`_avg_pool_by_positions`) on Xe3, addressed with `--limit-mm-per-prompt='{"video": 0}'`.
+- A kernel-side index-out-of-bounds assertion in `torch-xpu-ops`'s vectorized gather, which we have not yet root-caused.
+- Driver/runtime fragility from the PREEMPT_RT host kernel (6.17-rt) interacting with the Intel `xe` driver and Level Zero.
+
+Once any of (a) a vLLM/torch-xpu-ops release with a fix lands, (b) we move this host off PREEMPT_RT, or (c) we get a non-multimodal model fully working in-container, **revisit `vllm-xpu-compose.yml`**: re-run the build, retry inference, and remove this status banner.
+
+## Docker setup (deferred — kept for future reference)
+
+Everything below describes the Docker / compose path. It is not currently the recommended way to run vLLM on this hardware. Treat it as documentation of what we tried; come back to it when the issues listed above are resolved.
 
 ## 1. Prerequisites
 
