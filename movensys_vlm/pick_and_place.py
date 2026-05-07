@@ -42,7 +42,7 @@ def set_scales(vel, acc):
     return requests.post(f"{URL}/api/config/scales", json={"vel_scale": vel, "acc_scale": acc}).json()
 
 class PnP:
-    def __init__(self, target_object: str = "red_cube", is_YOLO: bool = True, delay_exec: float = 0.2):
+    def __init__(self, target_object: str = "red_cube", is_YOLO: bool = True, delay_exec: float = 2.0):
         self.delay_exec = delay_exec
         self.is_YOLO = is_YOLO
 
@@ -76,14 +76,15 @@ class PnP:
     @staticmethod
     def _init_move(target_object: str = "dice"):
         if target_object == "dice":
-            absolute_cartesian_base([-0.24, -0.1, 0.47], [3.141, 0.0, -3.141])
+            absolute_cartesian_base([0.32040, -0.01058, 0.35], [3.141, 0.0, -3.141])
         else:
             absolute_cartesian_base([-0.24, -0.1, 0.47], [3.141, 0.0, -3.141])
 
     @staticmethod
     def _dest_move(target_object: str = "dice"):
         if target_object == "dice":
-            relative_cartesian_base([0.0,0.0,-0.18], [0.0,0.0,0.0])
+            # There is an vibrating in dice picking.
+            relative_cartesian_tool([0.0,0.0,-0.12], [0.0,0.0,0.0])
         else:
             # Need to define 16 types of position in IsaacSim.
             time.sleep(0.01)
@@ -110,7 +111,7 @@ class PnP:
 
             # find the result
             tf = tf_all[_target_object]
-            self.pos = {"x": tf["translation"]["x"], "y": tf["translation"]["y"], "z": tf["translation"]["z"]}
+            self.pos = {"x": round(tf["translation"]["x"], 5), "y": round(tf["translation"]["y"], 5), "z": round(tf["translation"]["z"], 5)}
             self.ori = {"w": tf["rotation"]["w"], "x": tf["rotation"]["x"], "y": tf["rotation"]["y"], "z": tf["rotation"]["z"]}
 
         # Isaac
@@ -118,25 +119,26 @@ class PnP:
             URL_topic = f"{URL}/api/topics/{_target_object}"
             resp = requests.get(URL_topic)
             info = resp.json()
-            self.pos = {"x": info["position"]["x"], "y": info["position"]["y"], "z": info["position"]["z"]}
+            self.pos = {"x": round(info["position"]["x"], 5), "y": round(info["position"]["y"], 5), "z": round(info["position"]["z"], 5)}
             self.ori = {"w": info["orientation"]["w"], "x": info["orientation"]["x"], "y": info["orientation"]["y"], "z": info["orientation"]["z"]}
 
-        self.yaw = self._quaternion_to_yaw(self.ori["w"], self.ori["x"], self.ori["y"], self.ori["z"])
+        self.yaw = round(self._quaternion_to_yaw(self.ori["w"], self.ori["x"], self.ori["y"], self.ori["z"]), 5)
         return True
 
     def pick_and_place(self):
+        gripper(close=False)
         # move to initial position
         self._init_move(self.target_object)
         time.sleep(self.delay_exec)
 
         # For YOLO, we need to set offset
         if self.is_YOLO:
-            self.pos["x"] += self.YOLO_offset_x
-            self.pos["y"] += self.YOLO_offset_y
+            self.pos['x'] += self.YOLO_offset_x
+            self.pos['y'] += self.YOLO_offset_y
         logger.info(f"{self.target_object}: x={self.pos['x']}, y={self.pos['y']}, z={self.pos['z']}, yaw={self.yaw}")
 
         # move toward target
-        relative_cartesian_tool([self.pos["x"], self.pos["y"], 0.18],[0.0, 0.0, self.yaw])
+        absolute_cartesian_base([self.pos['y'], -self.pos['x'], 0.29],[3.14, 0.0, -3.14])
         time.sleep(self.delay_exec)
 
         # grasp
@@ -158,7 +160,8 @@ def main():
     
     # init
     move_base()
-    pnp = PnP(target_object = sys.argv[1], is_YOLO=False, delay_exec=0.2)
+    time.sleep(2.0)
+    pnp = PnP(target_object = sys.argv[1], is_YOLO=False, delay_exec=2.0)
     
     # pick and place
     if not pnp.get_piece_info():
