@@ -75,6 +75,7 @@ class ManipulatorNode(Node):
         self.latest_board_pose: Optional[dict] = None
         self.latest_piece_1_pose: Optional[dict] = None
         self.latest_piece_2_pose: Optional[dict] = None
+        self.latest_dice_pose: Optional[dict] = None
         self.latest_yolo_tf: Optional[dict] = None
 
         _transient_local = QoSProfile(
@@ -97,6 +98,7 @@ class ManipulatorNode(Node):
         self.create_subscription(geometry_msgs.msg.Pose,           "/board",                  self._cb_board_pose,        10, callback_group=cb)
         self.create_subscription(geometry_msgs.msg.Pose,           "/piece_1",                self._cb_piece_1_pose,      10, callback_group=cb)
         self.create_subscription(geometry_msgs.msg.Pose,           "/piece_2",                self._cb_piece_2_pose,      10, callback_group=cb)
+        self.create_subscription(geometry_msgs.msg.Pose,           "/dice",                self._cb_dice_pose,      10, callback_group=cb)
 
         self.cli_get_eef_pose   = self.create_client(GetEefPose,           "/wmx/moveit2/get_eef_pose",                     callback_group=cb)
         self.cli_gripper        = self.create_client(std_srvs.srv.SetBool, "/wmx/set_gripper",                              callback_group=cb)
@@ -182,6 +184,9 @@ class ManipulatorNode(Node):
 
     def _cb_piece_2_pose(self, msg: geometry_msgs.msg.Pose):
         self.latest_piece_2_pose = self._pose_to_dict(msg)
+
+    def _cb_dice_pose(self, msg: geometry_msgs.msg.Pose):
+        self.latest_dice_pose = self._pose_to_dict(msg)
 
     _TF_PARENT = "world_manipulator"
     _TF_CHILD  = "camera_top_color_optical_frame"
