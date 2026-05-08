@@ -12,9 +12,9 @@ source ~/.bashrc
 # Setup Vllm
 ```
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
-COMPOSE_PROFILES=$VLM_CORE docker compose -f vllm-compose.yaml down
-COMPOSE_PROFILES=$VLM_CORE docker compose -f vllm-compose.yaml build
-COMPOSE_PROFILES=$VLM_CORE docker compose -f vllm-compose.yaml up -d  
+COMPOSE_PROFILES=$VLM_CORE docker compose -f vllm.yaml down
+COMPOSE_PROFILES=$VLM_CORE docker compose -f vllm.yaml build
+COMPOSE_PROFILES=$VLM_CORE docker compose -f vllm.yaml up -d  
 ```
 
 # Setup movensys_vlm

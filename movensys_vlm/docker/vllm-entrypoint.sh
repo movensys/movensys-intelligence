@@ -1,13 +1,16 @@
 #!/bin/bash
 set -e
 
-MODEL_REPO=${VLM_MODEL_REPO:-google/gemma-4-E4B-it}
-MODEL_NAME=$(basename "$MODEL_REPO")
-MODEL_DIR=/models/$MODEL_NAME
+MODEL_NAME=google/gemma-4-E4B-it
+MODEL_DIR=/models/gemma-4-E4B-it
+MODEL_DONE=$MODEL_DIR/.download_complete
 
-if [ ! -d "$MODEL_DIR" ]; then
-    echo "=== Downloading $MODEL_REPO ==="
-    huggingface-cli download "$MODEL_REPO" --local-dir "$MODEL_DIR"
+if [ -f "$MODEL_DONE" ]; then
+    echo "=== Model $MODEL_NAME already present, skipping download ==="
+else
+    echo "=== Downloading $MODEL_NAME ==="
+    hf download "$MODEL_NAME" --local-dir "$MODEL_DIR"
+    touch "$MODEL_DONE"
     echo "=== Download complete ==="
 fi
 

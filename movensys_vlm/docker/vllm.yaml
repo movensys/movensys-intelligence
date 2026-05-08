@@ -1,67 +1,49 @@
-# export VLM_CORE=nvidia-gpu              # support: nvidia-gpu, intel-xpu
-# COMPOSE_PROFILES=$VLM_CORE docker compose -f vllm.yaml down
-# COMPOSE_PROFILES=$VLM_CORE docker compose -f vllm.yaml build
-# COMPOSE_PROFILES=$VLM_CORE docker compose -f vllm.yaml up -d
-
 x-common: &common
   container_name: vllm_container
   image: vllm_image
   restart: unless-stopped
-
-x-vllm-volumes:
-  - &vol-models ../models:/models
+  build:
+    context: .
+    dockerfile: vllm.Dockerfile
+  network_mode: host
+  ipc: host
+  privileged: true
+  ports:
+      - "9000:9000"
+  devices:
+      - /dev/dri:/dev/dri
+  volumes:
+    - &models-vol ../models:/models
 
 services:
-
   # ── NVIDIA Jetson AGX Thor ──────────────────────────────────────────────────
   vllm-nvidia:
     <<: *common
     profiles: [nvidia-gpu]
-    build:
-      context: .
-      dockerfile: vllm.Dockerfile
     runtime: nvidia
-    ports:
-      - "9000:9000"
-    volumes:
-      - *vol-models
     environment:
-      - FLASHINFER_DISABLE_VERSION_CHECK=1
-      - HF_HOME=/models/.cache/huggingface
-      - HF_TOKEN=${HF_TOKEN}
-      - VLM_MODEL_REPO=${VLM_MODEL_REPO:-google/gemma-4-E4B-it}
+      FLASHINFER_DISABLE_VERSION_CHECK: "1"
     command:
       - vllm
       - serve
       - /models/gemma-4-E4B-it
-      - --served-model-name=gemma-4-e4b
+      - --served-model-name=gemma-4-e4b-it
       - --port=9000
       - --max-model-len=8192
-      - --gpu-memory-utilization=0.3
+      - --gpu-memory-utilization=0.6
 
   # ── Intel Panther Lake XPU ──────────────────────────────────────────────────
   vllm-xpu:
     <<: *common
     profiles: [intel-xpu]
-    build:
-      context: ${VLLM_SRC:-../../../vllm}
-      dockerfile: vllm.Dockerfile
-      shm_size: "4gb"
-    network_mode: host
-    ipc: host
-    privileged: true
-    devices:
-      - /dev/dri:/dev/dri
     volumes:
-      - *vol-models
+      - *models-vol
       - /dev/dri/by-path:/dev/dri/by-path
-    environment:
-      - HF_HOME=/models/.cache/huggingface
     command:
       - vllm
       - serve
-      - /models/gemma-4-E4B-it-W4A16-AutoRound
-      - --served-model-name=gemma-4-E4B-it-W4A16-AutoRound
+      - /models/gemma-4-E4B-it
+      - --served-model-name=gemma-4-e4b-it
       - --port=9000
       - --max-model-len=1024
       - --dtype=float16
