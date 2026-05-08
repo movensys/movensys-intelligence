@@ -38,9 +38,9 @@ WORKDIR /app
 
 COPY *.py ./
 COPY static/ ./static/
-COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY docker/movensys_vlm-entrypoint.sh /movensys_vlm-entrypoint.sh
+RUN chmod +x /movensys_vlm-entrypoint.sh
 
 EXPOSE 8000
 
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/movensys_vlm-entrypoint.sh"]

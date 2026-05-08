@@ -60,7 +60,7 @@ def reset_system_prompt() -> str:
 def get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        base_url = os.environ.get("VLM_BASE_URL", "http://192.168.10.73:9000/v1")
+        base_url = os.environ.get("VLM_BASE_URL", "http://localhost:9000/v1")
         api_key = os.environ.get("VLM_API_KEY", "none")
         timeout = float(os.environ.get("VLM_TIMEOUT", "60"))
         _client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
@@ -75,7 +75,7 @@ async def infer(
     temperature: float = 0.2,
 ) -> str:
     client = get_client()
-    model = os.environ.get("VLM_MODEL", "google/gemma-4-E4B-it")
+    model = os.environ.get("VLM_MODEL", "gemma-4-e4b")
     response = await client.chat.completions.create(
         model=model,
         max_tokens=max_tokens,
