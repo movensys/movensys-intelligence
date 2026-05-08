@@ -1,0 +1,70 @@
+# Integrated vLLM compose — select backend with VLM_CORE before running:
+#
+#   export VLM_CORE=nvidia-gpu              # support: nvidia-gpu, intel-xpu
+#   COMPOSE_PROFILES=$VLM_CORE docker compose -f vllm-compose.yml up -d
+
+x-common: &common
+  container_name: vllm-gemma4
+  restart: unless-stopped
+
+x-model-volumes:
+  - &vol-models ~/models:/models
+  - &vol-hf ~/.cache/huggingface:/root/.cache/huggingface
+
+services:
+
+  # ── NVIDIA Jetson AGX Thor ──────────────────────────────────────────────────
+  vllm-nvidia:
+    <<: *common
+    profiles: [nvidia-gpu]
+    image: vllm-thor:0.20
+    build:
+      context: vllm
+      dockerfile: Dockerfile.vllm-thor
+    runtime: nvidia
+    ports:
+      - "9000:9000"
+    volumes:
+      - *vol-models
+      - *vol-hf
+    environment:
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+    command:
+      - vllm
+      - serve
+      - /models/gemma-4-E4B-it
+      - --served-model-name=gemma-4-e4b
+      - --port=9000
+      - --max-model-len=8192
+      - --gpu-memory-utilization=0.3
+
+  # ── Intel Panther Lake XPU ──────────────────────────────────────────────────
+  vllm-xpu:
+    <<: *common
+    profiles: [intel-xpu]
+    image: vllm-xpu:source
+    build:
+      context: ${VLLM_SRC:-../../../vllm}
+      dockerfile: docker/Dockerfile.xpu
+      shm_size: "4gb"
+    network_mode: host
+    ipc: host
+    privileged: true
+    devices:
+      - /dev/dri:/dev/dri
+    volumes:
+      - *vol-models
+      - *vol-hf
+      - /dev/dri/by-path:/dev/dri/by-path
+    command:
+      - vllm
+      - serve
+      - /models/gemma-4-E4B-it-W4A16-AutoRound
+      - --served-model-name=gemma-4-E4B-it-W4A16-AutoRound
+      - --port=9000
+      - --max-model-len=1024
+      - --dtype=float16
+      - --gpu-memory-utilization=0.4
+      - --attention-backend=TRITON_ATTN
+      - --enforce-eager
+      - --limit-mm-per-prompt={"image": 1, "video": 0}

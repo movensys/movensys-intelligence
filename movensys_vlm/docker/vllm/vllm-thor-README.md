@@ -1,38 +1,3 @@
-# Running Gemma 4 with vLLM on Jetson AGX Thor
-
-Tested on:
-- Jetson AGX Thor Developer Kit
-- JetPack 7.0 / L4T R38.2.0
-- NVIDIA driver 580.00, CUDA 13.0
-- Base container: `nvcr.io/nvidia/vllm:26.04-py3` (vLLM 0.19.0)
-- Target vLLM: 0.20.0 (required for full Gemma 4 support, including the `gemma4` model_type)
-
-## 1. Prerequisites
-
-### Power profile
-
-Thor must be on the MAXN profile, otherwise heavy model loads can hard-reboot the box:
-
-```bash
-sudo nvpmodel -m 0
-sudo jetson_clocks
-nvidia-smi   # should show "NVIDIA Thor"
-```
-
-### Docker access
-
-Add your user to the docker group (or use `sudo` for every command):
-
-```bash
-sudo usermod -aG docker $USER
-newgrp docker
-docker info | grep -i runtime    # nvidia runtime should be listed
-```
-
-### Disk space
-
-Image build + a 9B model needs ~40 GB free under `~/`. Check with `df -h ~`.
-
 ## 2. Build the image
 
 The base NVIDIA container ships vLLM 0.19.0 + transformers 4.57.6, which doesn't recognize the `gemma4` model_type. We layer vLLM 0.20.0 + a newer transformers on top via [Dockerfile.vllm-thor](Dockerfile.vllm-thor).

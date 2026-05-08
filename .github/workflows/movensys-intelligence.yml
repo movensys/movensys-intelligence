@@ -32,10 +32,10 @@ jobs:
         run: |
           if [ "${{ matrix.ros_distro }}" = "jazzy" ]; then
             pip3 install --no-cache-dir --break-system-packages \
-              -r ${{ github.workspace }}/movensys_vlm/requirements.txt
+              fastapi "uvicorn[standard]" pydantic "openai>=1.30.0" Pillow
           else
             pip3 install --no-cache-dir \
-              -r ${{ github.workspace }}/movensys_vlm/requirements.txt
+              fastapi "uvicorn[standard]" pydantic "openai>=1.30.0" Pillow
           fi
 
       - name: Test Python syntax
