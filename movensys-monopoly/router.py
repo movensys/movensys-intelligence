@@ -17,7 +17,6 @@ from pydantic import BaseModel, Field
 ws_log = logging.getLogger("monopoly.ws")
 
 from game import RuleError
-from utils.logging import current_event_id, new_event_id
 
 api_router = APIRouter(prefix="/api")
 
@@ -51,7 +50,6 @@ async def ros2_health(request: Request) -> dict[str, object]:
     return {
         "enabled": bridge.enabled,
         "cameras_enabled": getattr(bridge, "cameras_enabled", False),
-        "isaac_topic": bridge.isaac_card_spawn_topic,
     }
 
 
@@ -70,38 +68,8 @@ async def modes(request: Request) -> dict[str, dict[str, object]]:
         "ros2": {
             "enabled": bridge.enabled,
             "cameras_enabled": getattr(bridge, "cameras_enabled", False),
-            "isaac_topic": bridge.isaac_card_spawn_topic,
         },
     }
-
-
-@api_router.get("/_event_id")
-async def current_event() -> dict[str, str | None]:
-    return {"event_id": current_event_id()}
-
-
-# ---- error mapping --------------------------------------------------------
-
-
-def _error_response(exc: RuleError) -> JSONResponse:
-    eid = current_event_id() or new_event_id()
-    status = 409 if exc.code in ("TILE_MISMATCH", "INVALID_STATE", "PROPERTY_OWNED",
-                                  "NOT_OWNER", "INSUFFICIENT_FUNDS", "MONOPOLY_REQUIRED",
-                                  "JAIL_EXIT_UNAVAILABLE") else 400
-    if exc.code == "NOT_FOUND":
-        status = 404
-    return JSONResponse(
-        status_code=status,
-        headers={"X-Event-Id": eid},
-        content={
-            "error": {
-                "code": exc.code,
-                "message": str(exc),
-                "details": exc.details,
-                "event_id": eid,
-            }
-        },
-    )
 
 
 # ---- request models --------------------------------------------------------

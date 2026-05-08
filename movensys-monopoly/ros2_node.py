@@ -1,24 +1,9 @@
-"""ROS 2 node (PRD §11.5).
-
-- Subscribes to 6 camera topics (/image_{top,hand}/{rgb,depth,camera_info})
-  and caches the latest frame as a base64 JPEG dict for WS proxies.
-- Publishes to ${MONOPOLY_ISAAC_TOPIC_CARD_SPAWN} (std_msgs/String JSON)
-  whenever a Chance/Community Chest card is drawn (PRD §7.3.6).
-
-Design notes:
-- rclpy / cv2 / numpy / sensor_msgs are imported lazily inside start() so
-  `uvicorn main:app` starts cleanly on dev machines without a ROS 2
-  install. On any failure the bridge stays disabled and logs a single
-  warning — behaviour verified by /api/ros2/health.
-- Camera encoding mirrors movensys_vlm (§B.2 of the M4 audit) for wire
-  compatibility with the shared cameras.html UI.
-"""
+"""ROS 2 node — subscribes to camera topics, caches latest frames."""
 
 from __future__ import annotations
 
 import base64
 import ctypes
-import json
 import logging
 import os
 import threading
@@ -127,14 +112,7 @@ def _camera_info_dict(msg: Any) -> dict[str, Any]:
 
 
 class Ros2Bridge:
-    """FastAPI-side wrapper around the rclpy node lifecycle.
-
-    Public surface consumed by router.py / game/manager.py:
-      - enabled                        — bridge is spinning
-      - isaac_card_spawn_topic         — current env-configured topic
-      - latest_frame(stream)           — cached dict or None
-      - publish_card_spawn(payload)    — fire-and-forget, True on success
-    """
+    """FastAPI-side wrapper around the rclpy node lifecycle."""
 
     def __init__(self) -> None:
         self._rclpy: Any = None
@@ -145,7 +123,6 @@ class Ros2Bridge:
         self._cameras_enabled: bool = False
         # Latest encoded frames keyed by stream id; populated by callbacks.
         self._frames: dict[str, Any] = {k: None for k in _STREAM_ATTRS}
-        self._card_pub: Any = None
 
     # ---- lifecycle -----------------------------------------------------
 
@@ -156,10 +133,6 @@ class Ros2Bridge:
     @property
     def cameras_enabled(self) -> bool:
         return self._cameras_enabled
-
-    @property
-    def isaac_card_spawn_topic(self) -> str:
-        return os.environ.get("MONOPOLY_ISAAC_TOPIC_CARD_SPAWN", "/isaac/card_spawn")
 
     def start(self) -> None:
         rmw = os.environ.get("RMW_IMPLEMENTATION", "").strip()
@@ -190,7 +163,6 @@ class Ros2Bridge:
         self._executor.add_node(self._node)
 
         self._setup_camera_subscriptions(ReentrantCallbackGroup)
-        self._setup_card_spawn_publisher()
 
         self._thread = threading.Thread(
             target=self._executor.spin, name="monopoly-ros2-spin", daemon=True
@@ -199,10 +171,7 @@ class Ros2Bridge:
         self._enabled = True
         log.info(
             "ros2_bridge_started",
-            extra={
-                "isaac_topic": self.isaac_card_spawn_topic,
-                "cameras_enabled": self._cameras_enabled,
-            },
+            extra={"cameras_enabled": self._cameras_enabled},
         )
 
     def stop(self) -> None:
@@ -261,38 +230,3 @@ class Ros2Bridge:
         streams."""
         return self._frames.get(stream)
 
-    # ---- isaac card-spawn publisher ------------------------------------
-
-    def _setup_card_spawn_publisher(self) -> None:
-        try:
-            from std_msgs.msg import String  # type: ignore
-        except Exception as exc:
-            log.warning("isaac publisher disabled (std_msgs missing): %s", exc)
-            return
-        try:
-            self._card_pub = self._node.create_publisher(
-                String, self.isaac_card_spawn_topic, 10
-            )
-        except Exception as exc:
-            log.warning("isaac publisher create failed: %s", exc)
-            self._card_pub = None
-
-    def publish_card_spawn(self, payload: dict[str, Any]) -> bool:
-        """Publish a card-spawn event to Isaac. No-op when the bridge or
-        publisher is disabled. Returns True on success. The topic accepts
-        drops when no Isaac subscriber is attached — that's handled by
-        rclpy/DDS, not by this method."""
-        if not self._enabled or self._card_pub is None:
-            return False
-        try:
-            from std_msgs.msg import String  # type: ignore
-        except Exception:
-            return False
-        msg = String()
-        msg.data = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
-        try:
-            self._card_pub.publish(msg)
-            return True
-        except Exception as exc:
-            log.warning("isaac publish failed: %s", exc)
-            return False
