@@ -9,7 +9,7 @@
 <body>
   <header>
     <h1>movensys-monopoly</h1>
-    <span class="badge" id="milestone">M2 board 1/2/3</span>
+    <span class="badge" id="milestone">Movensys board</span>
     <div class="spacer"></div>
     <div class="money-bar">
       <div class="money-player" id="money-user">
@@ -28,6 +28,11 @@
 
   <main class="grid">
     <aside class="sidebar sidebar-left">
+      <div class="card">
+        <h2>robot properties</h2>
+        <div class="property-groups" id="props-robot"></div>
+      </div>
+
       <div class="card">
         <h2>user properties</h2>
         <div class="property-groups" id="props-user"></div>
@@ -48,31 +53,18 @@
       <div class="card">
         <h2>Game state</h2>
         <dl>
-          <dt>FSM</dt>     <dd id="st-fsm">IDLE</dd>
-          <dt>Turn</dt>    <dd id="st-turn">—</dd>
-          <dt>Turn #</dt>  <dd id="st-num">0</dd>
-          <dt>Dice</dt>    <dd id="st-dice">—</dd>
-          <dt>Winner</dt>  <dd id="st-winner">—</dd>
+          <dt>Turn</dt>      <dd id="st-turn">—</dd>
+          <dt>Dice</dt>      <dd id="st-dice">—</dd>
+          <dt>User pos</dt>  <dd id="st-pos-user">—</dd>
+          <dt>Robot pos</dt> <dd id="st-pos-robot">—</dd>
         </dl>
       </div>
 
       <div class="card">
-        <h2>Manual controls</h2>
+        <h2>Dice Status</h2>
+        <div class="dice-face empty" id="dice-face"></div>
         <div class="row">
-          <label>Board
-            <select id="board-select">
-              <option value="3" selected>3 — blank (12)</option>
-              <option value="1">1 — short (20)</option>
-              <option value="2">2 — full (40)</option>
-            </select>
-          </label>
-          <button id="btn-start">Start</button>
-        </div>
-        <div class="row">
-          <label>Dice
-            <input id="dice-input" type="number" min="1" max="6" value="3">
-          </label>
-          <button id="btn-submit-dice">Submit dice</button>
+          <button id="btn-roll-dice">Roll dice</button>
         </div>
         <div class="row">
           <button id="btn-apply-move" title="Applies the move the server is expecting">Apply move</button>
@@ -84,29 +76,122 @@
       </div>
 
       <div class="card">
-        <h2>robot properties</h2>
-        <div class="property-groups" id="props-robot"></div>
-      </div>
-
-      <div class="card">
         <h2>Events</h2>
         <ol id="event-log"></ol>
       </div>
     </aside>
   </main>
 
-  <div class="camera-dock">
-    <div class="camera-thumb">
-      <div class="camera-label">top</div>
-      <img id="cam-top-thumb" class="camera-img" alt="Top camera">
-      <div class="camera-status" id="cam-top-status">No stream</div>
+  <hr class="section-divider">
+
+  <section class="cam-feeds">
+    <div class="vlm-section">
+      <div class="vlm-header">
+        <h2>Ask VLM</h2>
+        <span class="stream-dot" id="vlm-loop-dot" style="margin-left:auto"></span>
+        <span class="vlm-loop-status" id="vlm-loop-status">idle</span>
+      </div>
+      <div class="vlm-split">
+        <div class="vlm-col vlm-col-query">
+          <div class="vlm-col-header">
+            <span class="vlm-col-title">Query &amp; response</span>
+          </div>
+          <div class="vlm-controls">
+            <select id="vlm-camera" title="Source camera">
+              <option value="top">top camera</option>
+              <option value="hand">hand camera</option>
+            </select>
+            <input id="vlm-prompt" type="text"
+                   placeholder="Ask about the board… (empty = default description)">
+            <button id="vlm-ask" class="vlm-btn">Ask</button>
+          </div>
+          <div class="vlm-controls">
+            <label class="vlm-check">
+              <input id="vlm-repeat" type="checkbox">
+              <span>Repeat every</span>
+            </label>
+            <select id="vlm-interval" title="Repeat interval">
+              <option value="5">5 s</option>
+              <option value="10" selected>10 s</option>
+              <option value="20">20 s</option>
+              <option value="30">30 s</option>
+              <option value="60">60 s</option>
+            </select>
+          </div>
+          <div id="vlm-response" class="vlm-response empty">No response yet.</div>
+          <div id="vlm-meta" class="vlm-meta"></div>
+        </div>
+
+        <div class="vlm-col vlm-col-image">
+          <div class="vlm-col-header">
+            <span class="vlm-col-title">Image sent to VLM</span>
+            <label class="vlm-check" style="margin-left:auto">
+              <input id="vlm-rotate180" type="checkbox">
+              <span>Rotate 180°</span>
+            </label>
+            <span class="vlm-meta" id="vlm-img-meta"></span>
+          </div>
+          <div class="vlm-sent-frame">
+            <img id="vlm-sent-image" class="vlm-sent-img" alt="">
+            <div class="vlm-sent-placeholder" id="vlm-img-placeholder">No image yet — click Ask to capture.</div>
+          </div>
+        </div>
+
+        <div class="vlm-col vlm-col-prompt">
+          <div class="vlm-col-header">
+            <span class="vlm-col-title">System prompt</span>
+            <span class="vlm-meta" id="vlm-sp-status"></span>
+          </div>
+          <textarea id="vlm-system-prompt" class="vlm-textarea"
+                    placeholder="Loading system prompt…" spellcheck="false"></textarea>
+          <div class="vlm-controls">
+            <button id="vlm-sp-save" class="vlm-btn">Save</button>
+            <button id="vlm-sp-reset" class="vlm-btn vlm-btn-secondary" title="Reset to default">Reset</button>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="camera-thumb">
-      <div class="camera-label">hand</div>
-      <img id="cam-hand-thumb" class="camera-img" alt="Hand camera">
-      <div class="camera-status" id="cam-hand-status">No stream</div>
+
+    <h2>Camera Feeds</h2>
+
+    <div class="cam-feed-section">
+      <div class="cam-feed-header">
+        <span class="stream-dot" id="feed-dot-top"></span>
+        <h3>/image_top</h3>
+      </div>
+      <div class="cam-feed-grid">
+        <div class="cam-feed-cell" id="feed-cell-top-rgb">
+          <div class="cam-feed-label">RGB</div>
+          <img id="feed-top-rgb" class="cam-feed-img" alt="Top RGB">
+          <div class="cam-feed-status" id="feed-top-rgb-status">Waiting for stream…</div>
+        </div>
+        <div class="cam-feed-cell" id="feed-cell-top-depth">
+          <div class="cam-feed-label">Depth (turbo, 0.1–5 m)</div>
+          <img id="feed-top-depth" class="cam-feed-img" alt="Top Depth">
+          <div class="cam-feed-status" id="feed-top-depth-status">Waiting for stream…</div>
+        </div>
+      </div>
     </div>
-  </div>
+
+    <div class="cam-feed-section">
+      <div class="cam-feed-header">
+        <span class="stream-dot" id="feed-dot-hand"></span>
+        <h3>/image_hand</h3>
+      </div>
+      <div class="cam-feed-grid">
+        <div class="cam-feed-cell" id="feed-cell-hand-rgb">
+          <div class="cam-feed-label">RGB</div>
+          <img id="feed-hand-rgb" class="cam-feed-img" alt="Hand RGB">
+          <div class="cam-feed-status" id="feed-hand-rgb-status">Waiting for stream…</div>
+        </div>
+        <div class="cam-feed-cell" id="feed-cell-hand-depth">
+          <div class="cam-feed-label">Depth (turbo, 0.1–5 m)</div>
+          <img id="feed-hand-depth" class="cam-feed-img" alt="Hand Depth">
+          <div class="cam-feed-status" id="feed-hand-depth-status">Waiting for stream…</div>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <!-- Property arrival / decision modal -->
   <div class="modal-backdrop hidden" id="decision-modal">

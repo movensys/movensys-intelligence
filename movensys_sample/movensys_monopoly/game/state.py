@@ -14,7 +14,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 Player = Literal["user", "robot"]
-BoardId = Literal["1", "2", "3"]
+BoardId = Literal["final"]
 DiceSource = Literal["manual", "rng", "robot"]
 
 
@@ -63,7 +63,7 @@ class RuntimeConfig(BaseModel):
 
 
 class GameState(BaseModel):
-    board_id: BoardId = "3"
+    board_id: BoardId = "final"
     fsm: FSM = FSM.IDLE
     turn: Player = "user"
     turn_number: int = 0

@@ -249,8 +249,6 @@ class GameManager:
             return res
 
     def list_properties(self) -> list[dict[str, Any]]:
-        if self.state.board_id not in ("1", "2"):
-            return []
         return list(_all_cards(self.state, load_board(self.state.board_id)))
 
     def money_snapshot(self) -> dict[str, int]:
