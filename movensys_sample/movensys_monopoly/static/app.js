@@ -369,12 +369,14 @@ document.getElementById("btn-buy-build").addEventListener("click", () => submitD
 
 // ---- camera thumbs --------------------------------------------------------
 
+const VLM_HOST = `${location.hostname}:8000`;
+
 function openCameraThumb(path, imgId, statusId) {
   const img = document.getElementById(imgId);
   const status = document.getElementById(statusId);
   const thumb = img.closest(".camera-thumb");
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(`${proto}//${location.host}${path}`);
+  const ws = new WebSocket(`${proto}//${VLM_HOST}${path}`);
   ws.onmessage = (ev) => {
     const payload = JSON.parse(ev.data);
     if (payload.error || !payload.data?.data) {

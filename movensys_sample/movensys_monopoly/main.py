@@ -17,7 +17,6 @@ from fastapi.staticfiles import StaticFiles
 from adapters import LLMAdapter, RobotAdapter, STTAdapter
 from game.events import EventBus
 from game.manager import GameManager
-from ros2_node import Ros2Bridge
 from router import api_router
 
 log = logging.getLogger("monopoly")
@@ -34,19 +33,15 @@ async def lifespan(app: FastAPI):
     app.state.robot_adapter = RobotAdapter.from_env()
     app.state.event_bus = EventBus()
     app.state.game = GameManager(bus=app.state.event_bus)
-    app.state.ros2 = Ros2Bridge()
-    app.state.ros2.start()
     log.info(
         "startup",
         extra={
             "stt_mode": app.state.stt_adapter.mode,
             "llm_mode": app.state.llm_adapter.mode,
             "robot_mode": app.state.robot_adapter.mode,
-            "ros2_enabled": app.state.ros2.enabled,
         },
     )
     yield
-    app.state.ros2.stop()
     log.info("shutdown")
 
 
@@ -73,7 +68,3 @@ if _static_dir.exists():
     @app.get("/")
     async def index() -> FileResponse:
         return FileResponse(_static_dir / "index.html")
-
-    @app.get("/cameras")
-    async def cameras() -> FileResponse:
-        return FileResponse(_static_dir / "cameras.html")
