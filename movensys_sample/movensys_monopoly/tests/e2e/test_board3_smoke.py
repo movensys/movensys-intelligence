@@ -89,9 +89,8 @@ async def test_tile_mismatch_returns_envelope(client: AsyncClient) -> None:
     )
     assert resp.status_code == 409
     body = resp.json()
-    assert body["error"]["code"] == "TILE_MISMATCH"
-    assert body["error"]["details"]["expected_to"] == 4
-    assert body["error"]["event_id"]
+    assert body["detail"]["code"] == "TILE_MISMATCH"
+    assert body["detail"]["details"]["expected_to"] == 4
 
 
 @pytest.mark.asyncio
@@ -104,17 +103,10 @@ async def test_stub_mode_adapter_health(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_modes_aggregate_snapshot(client: AsyncClient) -> None:
-    """The UI boots with a single /api/modes call instead of polling four
-    endpoints on an interval. Contract: one snapshot with all four keys,
-    each entry at least carries the same shape its /*/health twin does
-    so the same modeBadge() renderer can consume either."""
     resp = await client.get("/api/modes")
     assert resp.status_code == 200
     body = resp.json()
-    assert set(body) == {"stt", "llm", "robot", "ros2"}
-    # Adapters report {"mode": ...} in stub mode.
+    assert set(body) == {"stt", "llm", "robot"}
     assert body["stt"]["mode"] == "stub"
     assert body["llm"]["mode"] == "stub"
     assert body["robot"]["mode"] == "stub"
-    # ROS 2 bridge carries a different shape.
-    assert set(body["ros2"]) == {"enabled", "cameras_enabled", "isaac_topic"}

@@ -157,6 +157,49 @@ def get_tf_static():
         raise HTTPException(503, detail="No tf_static received yet")
     return data
 
+# Yolo result is published at /tf side. 
+# User can check the result using `ros2 topic echo /tf`
+@router.get("/api/topics/yolo_tf")
+def get_yolo_tf():
+    # node가 없을 때.
+    if rn.ros_node is None:
+        raise HTTPException(503, detail="ROS node not running")
+    data = rn.ros_node.latest_yolo_tf
+    # latest_yolo_tf의 값이 업데이트 되지 않았을 때.
+    if not data:
+        raise HTTPException(503, detail="No yolo /tf frames received yet")
+    return data
+
+# Subscribing green-cube position from IsaacSim 
+@router.get("/api/topics/piece_1")
+def get_piece_1_pose():
+    if rn.ros_node is None:
+        raise HTTPException(503, detail="ROS node not running")
+    data = rn.ros_node.latest_piece_1_pose
+    if data is None:
+        raise HTTPException(503, detail="No /piece_1 pose received yet")
+    return data
+
+# Subscribing red-cube position from IsaacSim 
+@router.get("/api/topics/piece_2")
+def get_piece_2_pose():
+    if rn.ros_node is None:
+        raise HTTPException(503, detail="ROS node not running")
+    data = rn.ros_node.latest_piece_2_pose
+    if data is None:
+        raise HTTPException(503, detail="No /piece_2 pose received yet")
+    return data
+
+# Subscribing dice position from IsaacSim 
+@router.get("/api/topics/dice")
+def get_piece_2_pose():
+    if rn.ros_node is None:
+        raise HTTPException(503, detail="ROS node not running")
+    data = rn.ros_node.latest_dice_pose
+    if data is None:
+        raise HTTPException(503, detail="No /piece_2 pose received yet")
+    return data
+
 @router.get("/api/topics/image_top/camera_info")
 def get_camera_info():
     if rn.ros_node is None:

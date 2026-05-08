@@ -566,7 +566,7 @@ Hasbro trade dress 회피 + 게임 정보 유지.
 | `ROS_DISTRO` | `jazzy` | ROS 2 배포판 |
 | `ROS_DOMAIN_ID` | `0` | DDS 도메인 |
 | `RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` | |
-| `MONOPOLY_PORT` | `8000` | FastAPI 포트 |
+| `MONOPOLY_PORT` | `7999` | FastAPI 포트 |
 | `MONOPOLY_LOG_LEVEL` | `INFO` | |
 | `MONOPOLY_PERSISTENCE_PATH` | (empty) | 비면 인메모리만 |
 | `MONOPOLY_DEBUG_ROUTES` | `true` | `false`면 `/api/debug/*` 404 (Production 가드) |
@@ -714,7 +714,7 @@ movensys-monopoly/
 
 **로컬 재현:** `scripts/ci_local.sh` — 워크플로 스텝과 1:1 동일. 검증용 uvicorn 기동은 pre-flight 포트 점검 + 프로세스 그룹 kill + orphan sweep으로 고스트 프로세스 누적 방지 (§1.2 #13).
 
-**Docker 런처:** `docker/run.sh` — 사전 `:8000` 포트 점유 검사, 중복 `/movensys_monopoly` ROS 노드 경고, compose `up -d --remove-orphans` (프로젝트 `name:` 격리로 형제 스택 안 건드림), healthcheck 대기, detached 상태 요약. `docker/stop.sh` — compose down 후 포트·노드 잔여 검증.
+**Docker 런처:** `docker/run.sh` — 사전 `:7999` 포트 점유 검사, 중복 `/movensys_monopoly` ROS 노드 경고, compose `up -d --remove-orphans` (프로젝트 `name:` 격리로 형제 스택 안 건드림), healthcheck 대기, detached 상태 요약. `docker/stop.sh` — compose down 후 포트·노드 잔여 검증.
 
 ---
 

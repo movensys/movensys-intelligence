@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tear down movensys-monopoly and verify nothing was left dangling:
 #   - compose down --remove-orphans removes every service container
-#   - confirm port :${MONOPOLY_PORT:-8000} is released (catches a rogue
+#   - confirm port :${MONOPOLY_PORT:-7999} is released (catches a rogue
 #     host-level uvicorn still holding the port)
 #   - confirm no /movensys_monopoly node remains in the DDS graph (after
 #     a short grace period for the announcement TTL)
@@ -9,7 +9,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PORT="${MONOPOLY_PORT:-8000}"
+PORT="${MONOPOLY_PORT:-7999}"
 
 step() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33mWARN:\033[0m %s\n' "$*"; }

@@ -102,11 +102,11 @@ CI가 녹색 = **외부 의존성 하나도 없이도 게임이 동작함**을 �
 ```bash
 cd ~/workspaces/.../movensys-monopoly
 ./docker/run.sh             # 빌드 + 실행 + 헬스 대기 + 상태 요약 (권장)
-# 브라우저: http://localhost:8000   (카메라 전체 뷰: /cameras)
+# 브라우저: http://localhost:7999   (카메라 전체 뷰: /cameras)
 ./docker/stop.sh            # 종료 + 포트·ROS 노드 잔여 검증
 ```
 
-`run.sh`는 시작 전에 **8000 포트 점유**와 **중복 ROS 노드**를 먼저 체크해 고스트 인스턴스 위에 덧붙지 않도록 막는다(v0.3 신설, PRD §14).
+`run.sh`는 시작 전에 **7999 포트 점유**와 **중복 ROS 노드**를 먼저 체크해 고스트 인스턴스 위에 덧붙지 않도록 막는다(v0.3 신설, PRD §14).
 
 외부 FastAPI 연결이 있을 때만 설정:
 ```bash

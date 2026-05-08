@@ -17,7 +17,6 @@ from pydantic import BaseModel, Field
 ws_log = logging.getLogger("monopoly.ws")
 
 from game import RuleError
-from utils.logging import current_event_id, new_event_id
 
 api_router = APIRouter(prefix="/api")
 
@@ -45,63 +44,13 @@ async def llm_health(request: Request) -> dict[str, object]:
     return request.app.state.llm_adapter.health()
 
 
-@api_router.get("/ros2/health")
-async def ros2_health(request: Request) -> dict[str, object]:
-    bridge = request.app.state.ros2
-    return {
-        "enabled": bridge.enabled,
-        "cameras_enabled": getattr(bridge, "cameras_enabled", False),
-        "isaac_topic": bridge.isaac_card_spawn_topic,
-    }
-
-
 @api_router.get("/modes")
 async def modes(request: Request) -> dict[str, dict[str, object]]:
-    """Aggregate adapter status. Fetched once by the UI at page load
-    instead of polling each /*/health endpoint on an interval — the
-    values are set in lifespan() from env and don't change during a
-    session, so periodic polling just burns log lines and sockets.
-    Individual /*/health endpoints are kept for curl-level drill-down."""
-    bridge = request.app.state.ros2
     return {
         "stt":   request.app.state.stt_adapter.health(),
         "llm":   request.app.state.llm_adapter.health(),
         "robot": request.app.state.robot_adapter.health(),
-        "ros2": {
-            "enabled": bridge.enabled,
-            "cameras_enabled": getattr(bridge, "cameras_enabled", False),
-            "isaac_topic": bridge.isaac_card_spawn_topic,
-        },
     }
-
-
-@api_router.get("/_event_id")
-async def current_event() -> dict[str, str | None]:
-    return {"event_id": current_event_id()}
-
-
-# ---- error mapping --------------------------------------------------------
-
-
-def _error_response(exc: RuleError) -> JSONResponse:
-    eid = current_event_id() or new_event_id()
-    status = 409 if exc.code in ("TILE_MISMATCH", "INVALID_STATE", "PROPERTY_OWNED",
-                                  "NOT_OWNER", "INSUFFICIENT_FUNDS", "MONOPOLY_REQUIRED",
-                                  "JAIL_EXIT_UNAVAILABLE") else 400
-    if exc.code == "NOT_FOUND":
-        status = 404
-    return JSONResponse(
-        status_code=status,
-        headers={"X-Event-Id": eid},
-        content={
-            "error": {
-                "code": exc.code,
-                "message": str(exc),
-                "details": exc.details,
-                "event_id": eid,
-            }
-        },
-    )
 
 
 # ---- request models --------------------------------------------------------
@@ -384,106 +333,6 @@ async def stream_properties(ws: WebSocket) -> None:
     await _stream_events(ws, "properties", {"property_bought", "property_built",
                                              "property_mortgaged", "property_unmortgaged",
                                              "building_sold"})
-
-
-# ---- Camera proxies (PRD §5.8, §11.5) -------------------------------------
-
-
-async def _ws_camera_stream(ws: WebSocket, stream: str, interval: float = 0.1) -> None:
-    """Poll the ROS bridge at `interval` seconds and ship the latest
-    encoded frame. Envelope matches movensys_vlm so the shared cameras.html
-    renders without changes: `{data, error}` with error set to a short
-    string when no frame has arrived yet."""
-    import json
-    await ws.accept()
-    bridge = ws.app.state.ros2
-    try:
-        while True:
-            data = bridge.latest_frame(stream) if bridge.enabled else None
-            await ws.send_text(json.dumps(
-                {"data": data, "error": None if data is not None else "No data"}
-            ))
-            await asyncio.sleep(interval)
-    except WebSocketDisconnect:
-        ws_log.info("stream_%s_disconnect", stream)
-    except asyncio.CancelledError:
-        raise
-    except Exception:
-        ws_log.exception("stream_%s_error", stream)
-
-
-@api_router.websocket("/stream/image_top/rgb")
-async def ws_top_rgb(ws: WebSocket) -> None:
-    await _ws_camera_stream(ws, "top_rgb")
-
-
-@api_router.websocket("/stream/image_top/depth")
-async def ws_top_depth(ws: WebSocket) -> None:
-    await _ws_camera_stream(ws, "top_depth")
-
-
-@api_router.websocket("/stream/image_top/camera_info")
-async def ws_top_info(ws: WebSocket) -> None:
-    await _ws_camera_stream(ws, "top_camera_info", interval=1.0)
-
-
-@api_router.websocket("/stream/image_hand/rgb")
-async def ws_hand_rgb(ws: WebSocket) -> None:
-    await _ws_camera_stream(ws, "hand_rgb")
-
-
-@api_router.websocket("/stream/image_hand/depth")
-async def ws_hand_depth(ws: WebSocket) -> None:
-    await _ws_camera_stream(ws, "hand_depth")
-
-
-@api_router.websocket("/stream/image_hand/camera_info")
-async def ws_hand_info(ws: WebSocket) -> None:
-    await _ws_camera_stream(ws, "hand_camera_info", interval=1.0)
-
-
-def _topic_snapshot(request: Request, stream: str) -> dict[str, Any]:
-    bridge = request.app.state.ros2
-    if not bridge.enabled:
-        raise HTTPException(status_code=503,
-                            detail={"code": "ADAPTER_UNAVAILABLE",
-                                    "message": "ROS 2 bridge not running"})
-    data = bridge.latest_frame(stream)
-    if data is None:
-        raise HTTPException(status_code=503,
-                            detail={"code": "ADAPTER_UNAVAILABLE",
-                                    "message": f"no frame yet for {stream}"})
-    return data
-
-
-@api_router.get("/topics/image_top/rgb")
-async def topic_top_rgb(request: Request) -> dict[str, Any]:
-    return _topic_snapshot(request, "top_rgb")
-
-
-@api_router.get("/topics/image_top/depth")
-async def topic_top_depth(request: Request) -> dict[str, Any]:
-    return _topic_snapshot(request, "top_depth")
-
-
-@api_router.get("/topics/image_top/camera_info")
-async def topic_top_info(request: Request) -> dict[str, Any]:
-    return _topic_snapshot(request, "top_camera_info")
-
-
-@api_router.get("/topics/image_hand/rgb")
-async def topic_hand_rgb(request: Request) -> dict[str, Any]:
-    return _topic_snapshot(request, "hand_rgb")
-
-
-@api_router.get("/topics/image_hand/depth")
-async def topic_hand_depth(request: Request) -> dict[str, Any]:
-    return _topic_snapshot(request, "hand_depth")
-
-
-@api_router.get("/topics/image_hand/camera_info")
-async def topic_hand_info(request: Request) -> dict[str, Any]:
-    return _topic_snapshot(request, "hand_camera_info")
 
 
 # ---- HTTPException helper --------------------------------------------------

@@ -20,7 +20,7 @@ services:
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
       - RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
       # FastAPI
-      - MONOPOLY_PORT=${MONOPOLY_PORT:-8000}
+      - MONOPOLY_PORT=${MONOPOLY_PORT:-7999}
       - MONOPOLY_LOG_LEVEL=${MONOPOLY_LOG_LEVEL:-INFO}
       - MONOPOLY_DEBUG_ROUTES=${MONOPOLY_DEBUG_ROUTES:-true}
       # External FastAPI adapters (empty -> stub mode, PRD 8.x)
@@ -37,7 +37,7 @@ services:
     # "healthy"/"starting"/"unhealthy". Wrapper scripts (docker/run.sh)
     # wait on this before declaring the container up.
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${MONOPOLY_PORT:-8000}/api/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${MONOPOLY_PORT:-7999}/api/health || exit 1"]
       interval: 5s
       timeout: 3s
       start_period: 10s
