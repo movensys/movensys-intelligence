@@ -15,6 +15,12 @@ x-common: &common
   volumes:
     - &models-vol ../models:/models
 
+x-common-env: &common-env
+  HF_TOKEN: ${HF_TOKEN}
+  HF_REPO_NAME: ${HF_REPO_NAME}
+  VLM_MODEL_NAME: ${VLM_MODEL_NAME}
+  VLM_TIMEOUT: ${VLM_TIMEOUT}
+
 services:
   # ── NVIDIA Jetson AGX Thor ──────────────────────────────────────────────────
   vllm-nvidia:
@@ -22,12 +28,13 @@ services:
     profiles: [nvidia-gpu]
     runtime: nvidia
     environment:
+      <<: *common-env
       FLASHINFER_DISABLE_VERSION_CHECK: "1"
     command:
       - vllm
       - serve
-      - /models/gemma-4-E4B-it
-      - --served-model-name=gemma-4-e4b-it
+      - /models/${VLM_MODEL_NAME}
+      - --served-model-name=${VLM_MODEL_NAME}
       - --port=9000
       - --max-model-len=8192
       - --gpu-memory-utilization=0.6
@@ -39,11 +46,12 @@ services:
     volumes:
       - *models-vol
       - /dev/dri/by-path:/dev/dri/by-path
+    environment: *common-env
     command:
       - vllm
       - serve
-      - /models/gemma-4-E4B-it
-      - --served-model-name=gemma-4-e4b-it
+      - /models/${VLM_MODEL_NAME}
+      - --served-model-name=${VLM_MODEL_NAME}
       - --port=9000
       - --max-model-len=1024
       - --dtype=float16

@@ -60,9 +60,9 @@ def reset_system_prompt() -> str:
 def get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        base_url = os.environ.get("VLM_BASE_URL", "http://localhost:9000/v1")
-        api_key = os.environ.get("VLM_API_KEY", "none")
-        timeout = float(os.environ.get("VLM_TIMEOUT", "60"))
+        base_url = os.environ.get("VLLM_BASE_URL")
+        api_key = os.environ.get("HF_TOKEN")
+        timeout = float(os.environ.get("VLM_TIMEOUT"))
         _client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
     return _client
 

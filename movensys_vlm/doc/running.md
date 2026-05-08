@@ -1,5 +1,5 @@
 # Running Movensys-Manipulator
-check `doc/` number 1,2,3 and 6
+check `doc/` number 1,2 and 6
 
 # ~/.bashrc setup
 ```
@@ -20,9 +20,9 @@ COMPOSE_PROFILES=$VLM_CORE docker compose -f vllm.yaml up -d
 # Setup movensys_vlm
 ```
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
-COMPOSE_PROFILES=$VLM_CORE docker compose -f movensys_vlm.yaml down                                                                     
-COMPOSE_PROFILES=$VLM_CORE docker compose -f movensys_vlm.yaml build
-COMPOSE_PROFILES=$VLM_CORE docker compose -f movensys_vlm.yaml up -d
+docker compose -f movensys_vlm.yaml down                                                                     
+docker compose -f movensys_vlm.yaml build
+docker compose -f movensys_vlm.yaml up -d
 ```
 
 # Running

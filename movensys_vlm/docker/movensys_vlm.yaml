@@ -1,40 +1,25 @@
-x-common: &common
-  build:
-    context: ..
-    dockerfile: docker/movensys_vlm.Dockerfile
-    args:
-      - ROS_DISTRO=${ROS_DISTRO}
-  image: movensys_vlm_image:latest
-  container_name: movensys_vlm_container
-  volumes:
-    - ${MOVENSYS_MANIPULATOR_PACKAGES}:/app/movensys_ws/src/movensys-manipulator:ro
-    - movensys_ws_build:/app/movensys_ws/build
-    - movensys_ws_install:/app/movensys_ws/install
-  restart: unless-stopped
-  network_mode: host
-
-x-common-env: &common-env
-  ROS_DISTRO: ${ROS_DISTRO}
-  ROS_DOMAIN_ID: ${ROS_DOMAIN_ID}
-  RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION}
-  MOVENSYS_MANIPULATOR_PACKAGES: ${MOVENSYS_MANIPULATOR_PACKAGES}
-  VLM_BASE_URL: "${VLM_BASE_URL:-http://localhost:9000/v1}"
-  VLM_API_KEY: "${VLM_API_KEY:-none}"
-
 services:
-  movensys_vlm-nvidia:
-    <<: *common
-    profiles: [nvidia-gpu]
+  movensys_vlm:
+    build:
+      context: ..
+      dockerfile: docker/movensys_vlm.Dockerfile
+      args:
+        - ROS_DISTRO=${ROS_DISTRO}
+    image: movensys_vlm_image:latest
+    container_name: movensys_vlm_container
+    volumes:
+      - ${MOVENSYS_MANIPULATOR_PACKAGES}:/app/movensys_ws/src/movensys-manipulator:ro
+      - movensys_ws_build:/app/movensys_ws/build
+      - movensys_ws_install:/app/movensys_ws/install
+    restart: unless-stopped
+    network_mode: host
     environment:
-      <<: *common-env
-      VLM_MODEL: gemma-4-e4b
-
-  movensys_vlm-xpu:
-    <<: *common
-    profiles: [intel-xpu]
-    environment:
-      <<: *common-env
-      VLM_MODEL: gemma-4-E4B-it-W4A16-AutoRound
+      ROS_DISTRO: ${ROS_DISTRO}
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID}
+      RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION}
+      MOVENSYS_MANIPULATOR_PACKAGES: ${MOVENSYS_MANIPULATOR_PACKAGES}
+      VLLM_BASE_URL: ${VLLM_BASE_URL}
+      VLM_MODEL_NAME: ${VLM_MODEL_NAME}
 
 volumes:
   movensys_ws_build:
