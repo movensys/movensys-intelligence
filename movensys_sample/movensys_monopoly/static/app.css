@@ -7,8 +7,8 @@
   --accent: #4caf50;
   --off: #555;
   --warn: #ff9800;
-  --user: #E53935;
-  --robot: #1E88E5;
+  --user: #EF5350;
+  --robot: #1565C0;
   --border: #333;
 }
 * { box-sizing: border-box; }
@@ -130,12 +130,18 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   background: var(--panel);
   border-radius: 10px;
   padding: 12px;
-  display: flex; align-items: center; justify-content: center;
+  display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start;
+  gap: 8px;
   align-self: start;
+}
+.board-pane-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
 }
 .board-wrap {
   position: relative;
-  width: 100%; max-width: 900px;
+  width: 100%;
   aspect-ratio: 3461/2028;
 }
 #board-host {
@@ -232,10 +238,16 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
   color: var(--muted);
 }
+.cam-feed-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
 .cam-feed-section {
   background: var(--panel);
   border-radius: 10px;
   padding: 12px 14px;
+  min-width: 0;
 }
 .cam-feed-header {
   display: flex; align-items: center; gap: 8px;
@@ -251,6 +263,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+.cam-feed-grid-single {
+  grid-template-columns: 1fr;
 }
 .cam-feed-cell {
   position: relative;

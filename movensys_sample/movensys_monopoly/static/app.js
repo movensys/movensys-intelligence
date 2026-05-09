@@ -100,7 +100,7 @@ function movePiece(player, tileIndex, boardId) {
   const half = parseFloat(el.getAttribute("width")) / 2;
   el.setAttribute("x", cx - half);
   el.setAttribute("y", cy - half);
-  if (player === "robot") el.setAttribute("transform", "translate(-18 0)");
+  if (player === "robot") el.setAttribute("transform", "translate(-33 0)");
 }
 
 // ---- money widget ---------------------------------------------------------
@@ -555,8 +555,6 @@ function setupVlm() {
   await refreshState();
   openStream();
   openCameraFeed("/api/stream/image_top/rgb",   "feed-top-rgb",   "feed-top-rgb-status",   "feed-cell-top-rgb",   "feed-dot-top");
-  openCameraFeed("/api/stream/image_top/depth", "feed-top-depth", "feed-top-depth-status", "feed-cell-top-depth", "feed-dot-top");
   openCameraFeed("/api/stream/image_hand/rgb",  "feed-hand-rgb",  "feed-hand-rgb-status",  "feed-cell-hand-rgb",  "feed-dot-hand");
-  openCameraFeed("/api/stream/image_hand/depth","feed-hand-depth","feed-hand-depth-status","feed-cell-hand-depth","feed-dot-hand");
   setupVlm();
 })();
