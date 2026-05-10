@@ -155,7 +155,15 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   width: 100%; height: 100%;
   pointer-events: none;
 }
-#pieces rect { transition: x 500ms ease-out, y 500ms ease-out; }
+#pieces rect { transition: x 500ms ease-out, y 500ms ease-out; pointer-events: auto; cursor: grab; }
+#pieces rect.dragging { cursor: grabbing; transition: none; }
+.board-coords {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+  user-select: text;
+}
 
 /* property sidebar */
 .property-groups { display: flex; flex-direction: column; gap: 6px; }

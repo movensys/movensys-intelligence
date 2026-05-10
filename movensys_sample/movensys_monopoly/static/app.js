@@ -13,22 +13,22 @@
 const BOARD_FINAL_LAYOUT = {
   viewBox: { w: 1000, h: 586 },
   centers: {
-    0:  [125,    512.75],  // GO (BL)
-    1:  [125,    390.67],  // SUWON (left, bottom)
-    2:  [125,    293],     // SEOUL (left, middle)
-    3:  [125,    195.33],  // INCHEON AIRPORT (left, top)
-    4:  [125,    73.25],   // IN JAIL (TL)
-    5:  [333.33, 73.25],   // ELECTRIC COMPANY (top)
-    6:  [500,    73.25],   // JEONJU (top)
-    7:  [666.67, 73.25],   // DAEJEON (top)
-    8:  [875,    73.25],   // NON-FREE PARKING (TR)
-    9:  [875,    195.33],  // BUSAN (right, top)
-    10: [875,    293],     // GYEONGJU (right, middle)
-    11: [875,    390.67],  // GANGNEUNG (right, bottom)
-    12: [875,    512.75],  // GO TO JAIL (BR)
-    13: [666.67, 512.75],  // DAEGU (bottom)
-    14: [500,    512.75],  // CHANCE (bottom)
-    15: [333.33, 512.75],  // BUNDANG (bottom)
+    0:  { user: [39.7,  540.0], robot: [99.0,  540.0] },  // GO (BL)
+    1:  { user: [39.7,  430.0], robot: [99.0,  430.0] },  // SUWON (left, bottom)
+    2:  { user: [39.7,  310.0], robot: [99.0,  310.0] },  // SEOUL (left, middle)
+    3:  { user: [39.7,  205.5], robot: [99.0,  205.5] },  // INCHEON AIRPORT (left, top)
+    4:  { user: [39.7,  86.0],  robot: [99.0,  86.0]  },  // IN JAIL (TL)
+    5:  { user: [235.5, 86.0],  robot: [291.0, 86.0]  },  // ELECTRIC COMPANY (top)
+    6:  { user: [438.0, 86.0],  robot: [491.6, 86.0]  },  // JEONJU (top)
+    7:  { user: [639.0, 86.0],  robot: [693.0, 86.0]  },  // DAEJEON (top)
+    8:  { user: [839.0, 86.0],  robot: [890.0, 86.0]  },  // NON-FREE PARKING (TR)
+    9:  { user: [839.0, 205.5], robot: [890.0, 205.5] },  // BUSAN (right, top)
+    10: { user: [839.0, 310.0], robot: [890.0, 310.0] },  // GYEONGJU (right, middle)
+    11: { user: [839.0, 430.0], robot: [890.0, 430.0] },  // GANGNEUNG (right, bottom)
+    12: { user: [839.0, 540.0], robot: [890.0, 540.0] },  // GO TO JAIL (BR)
+    13: { user: [639.0, 540.0], robot: [693.0, 540.0] },  // DAEGU (bottom)
+    14: { user: [438.0, 540.0], robot: [491.6, 540.0] },  // CHANCE (bottom)
+    15: { user: [235.5, 540.0], robot: [291.0, 540.0] },  // BUNDANG (bottom)
   },
 };
 
@@ -93,14 +93,98 @@ async function loadBoardVisual(boardId) {
 
 function movePiece(player, tileIndex, boardId) {
   const layout = BOARD_LAYOUTS[boardId];
-  const coords = layout?.centers?.[tileIndex];
+  const tile = layout?.centers?.[tileIndex];
+  const coords = tile?.[player];
   if (!coords) return;
   const [cx, cy] = coords;
   const el = document.getElementById(`piece-${player}`);
   const half = parseFloat(el.getAttribute("width")) / 2;
   el.setAttribute("x", cx - half);
   el.setAttribute("y", cy - half);
-  if (player === "robot") el.setAttribute("transform", "translate(-33 0)");
+  el.removeAttribute("transform");
+  updatePieceReadout();
+}
+
+// ---- piece drag calibration ----------------------------------------------
+
+let updatePieceReadout = () => {};
+
+function setupPieceDragging() {
+  const pieces = document.getElementById("pieces");
+  const userRect = document.getElementById("piece-user");
+  const robotRect = document.getElementById("piece-robot");
+  const readout = document.getElementById("board-coords");
+  if (!pieces || !userRect || !robotRect || !readout) return;
+
+  const transformOffset = (rect) => {
+    const tr = rect.getAttribute("transform");
+    if (!tr) return [0, 0];
+    const m = tr.match(/translate\(\s*(-?[\d.]+)[\s,]+(-?[\d.]+)/);
+    return m ? [parseFloat(m[1]), parseFloat(m[2])] : [0, 0];
+  };
+
+  const visualCenter = (rect) => {
+    const x = parseFloat(rect.getAttribute("x"));
+    const y = parseFloat(rect.getAttribute("y"));
+    const w = parseFloat(rect.getAttribute("width"));
+    const h = parseFloat(rect.getAttribute("height"));
+    const [tx, ty] = transformOffset(rect);
+    return [x + w / 2 + tx, y + h / 2 + ty];
+  };
+
+  const fmt = (n) => n.toFixed(2);
+
+  updatePieceReadout = () => {
+    const [ux, uy] = visualCenter(userRect);
+    const [rx, ry] = visualCenter(robotRect);
+    readout.textContent =
+      `user: (${fmt(ux)}, ${fmt(uy)})  |  robot: (${fmt(rx)}, ${fmt(ry)})`;
+  };
+
+  const svgPoint = (evt) => {
+    const pt = pieces.createSVGPoint();
+    pt.x = evt.clientX;
+    pt.y = evt.clientY;
+    return pt.matrixTransform(pieces.getScreenCTM().inverse());
+  };
+
+  let dragging = null;
+  let dragOffset = { x: 0, y: 0 };
+
+  for (const rect of [userRect, robotRect]) {
+    rect.addEventListener("pointerdown", (evt) => {
+      dragging = rect;
+      rect.classList.add("dragging");
+      const pt = svgPoint(evt);
+      const [cx, cy] = visualCenter(rect);
+      dragOffset.x = pt.x - cx;
+      dragOffset.y = pt.y - cy;
+      rect.setPointerCapture(evt.pointerId);
+      evt.preventDefault();
+    });
+    rect.addEventListener("pointermove", (evt) => {
+      if (dragging !== rect) return;
+      const pt = svgPoint(evt);
+      const newCx = pt.x - dragOffset.x;
+      const newCy = pt.y - dragOffset.y;
+      const w = parseFloat(rect.getAttribute("width"));
+      const h = parseFloat(rect.getAttribute("height"));
+      const [tx, ty] = transformOffset(rect);
+      rect.setAttribute("x", newCx - w / 2 - tx);
+      rect.setAttribute("y", newCy - h / 2 - ty);
+      updatePieceReadout();
+    });
+    const stop = (evt) => {
+      if (dragging !== rect) return;
+      dragging = null;
+      rect.classList.remove("dragging");
+      try { rect.releasePointerCapture(evt.pointerId); } catch (_) {}
+    };
+    rect.addEventListener("pointerup", stop);
+    rect.addEventListener("pointercancel", stop);
+  }
+
+  updatePieceReadout();
 }
 
 // ---- money widget ---------------------------------------------------------
@@ -552,6 +636,7 @@ function setupVlm() {
 (async () => {
   await loadBadges();
   await loadBoardVisual("final");
+  setupPieceDragging();
   await refreshState();
   openStream();
   openCameraFeed("/api/stream/image_top/rgb",   "feed-top-rgb",   "feed-top-rgb-status",   "feed-cell-top-rgb",   "feed-dot-top");

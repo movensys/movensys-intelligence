@@ -6,6 +6,168 @@ import requests
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+board_positions = {
+    "GO": {
+        "red_cube": {
+            "pos": [-0.3781, -0.17065, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        },
+        "green_cube": {
+            "pos": [-0.32786, -0.17065, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        }
+    },
+    "SUWON": {
+        "red_cube": {
+            "pos": [0.39947, -0.10900, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        },
+        "green_cube": {
+            "pos": [0.35347, -0.10900, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        }
+    },
+    "SEOUL": {
+        "red_cube": {
+            "pos": [0.39947, -0.04000, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        },
+        "green_cube": {
+            "pos": [0.35347, -0.04000, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        }
+    },
+    "INCHEON_AIRPORT": {
+        "red_cube": {
+            "pos": [0.39947, 0.02000, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        },
+        "green_cube": {
+            "pos": [0.35347, 0.02000, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        }
+    },
+    "IN_JAIL": {
+        "red_cube": {
+            "pos": [0.39947, 0.09000, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        },
+        "green_cube": {
+            "pos": [0.35347, 0.09000, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        }
+    },
+    "ELECTRIC_COMPANY": {
+        "red_cube": {
+            "pos": [-0.29037, 0.09000, 0.29],
+            "ori": [3.14, 0.0, 3.14]
+        },
+        "green_cube": {
+            "pos": [-0.2437, 0.09000, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        }
+    },
+    "JEONJU": {
+        "red_cube": {
+            "pos": [-0.17128, 0.09000, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        },
+        "green_cube": {
+            "pos": [-0.12547, 0.09000, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        }
+    },
+    "DAEJEON": {
+        "red_cube": {
+            "pos": [-0.0516, 0.09000, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        },
+        "green_cube": {
+            "pos": [-0.00237, 0.09000, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        }
+    },
+    "NON-FREE_PARKING": {
+        "red_cube": {
+            "pos": [0.06635, 0.09000, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        },
+        "green_cube": {
+            "pos": [0.11472, 0.09000, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        }
+    },
+    "BUSAN": {
+        "red_cube": {
+            "pos": [0.06635, 0.03000, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        },
+        "green_cube": {
+            "pos": [0.11472, 0.03000, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        }
+    },
+    "GYEONGJU": {
+        "red_cube": {
+            "pos": [0.06635, -0.04000, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        },
+        "green_cube": {
+            "pos": [0.11472, -0.04000, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        }
+    },
+    "GANGNEUNG": {
+        "red_cube": {
+            "pos": [0.06635, -0.10600, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        },
+        "green_cube": {
+            "pos": [0.11472, -0.10600, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        }
+    },
+    "GO_TO_JAIL": {
+        "red_cube": {
+            "pos": [0.06635, -0.17353, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        },
+        "green_cube": {
+            "pos": [0.11472, 0.09000, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        }
+    },
+    "DAEGU": {
+        "red_cube": {
+            "pos": [-0.0516, -0.17353, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        },
+        "green_cube": {
+            "pos": [-0.00237, -0.17353, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        }
+    },
+    "CHANCE": {
+        "red_cube": {
+            "pos": [-0.17128, -0.17353, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        },
+        "green_cube": {
+            "pos": [-0.12547, -0.17353, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        }
+    },
+    "BUNDANG": {
+        "red_cube": {
+            "pos": [-0.29037, -0.17353, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        },
+        "green_cube": {
+            "pos": [-0.24370, -0.17353, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        }
+    }
+}
 
 URL = "http://localhost:8000"
 
@@ -78,16 +240,20 @@ class PnP:
         if target_object == "dice":
             absolute_cartesian_base([0.32040, -0.01058, 0.35], [3.141, 0.0, -3.141])
         else:
-            absolute_cartesian_base([-0.24, -0.1, 0.47], [3.141, 0.0, -3.141])
+            absolute_cartesian_base([-0.12857, 0.0, 0.43093], [3.141, 0.0, -3.141])
+            
 
     @staticmethod
-    def _dest_move(target_object: str = "dice"):
+    def _dest_move(target_object: str = "dice", delay_exec: float = 0.2, board_pos: str = "GO"):
         if target_object == "dice":
             # There is an vibrating in dice picking.
             relative_cartesian_tool([0.0,0.0,-0.12], [0.0,0.0,0.0])
         else:
-            # Need to define 16 types of position in IsaacSim.
-            time.sleep(0.01)
+            PnP._init_move("cube")
+            time.sleep(delay_exec)
+            absolute_cartesian_base(board_positions[board_pos][target_object]["pos"], board_positions[board_pos][target_object]["ori"])
+
+
 
     def get_piece_info(self) -> bool:
         _target_object = self.TARGET_STR[self.target_num]
@@ -125,7 +291,10 @@ class PnP:
         self.yaw = round(self._quaternion_to_yaw(self.ori["w"], self.ori["x"], self.ori["y"], self.ori["z"]), 5)
         return True
 
-    def pick_and_place(self):
+    def pick_and_place(self, board_pos: str = "GO"):
+        if board_pos not in board_positions:
+            raise ValueError(f"Unknown board_pos '{board_pos}'. Choose one of: {list(board_positions)}")
+
         gripper(close=False)
         # move to initial position
         self._init_move(self.target_object)
@@ -138,15 +307,16 @@ class PnP:
         logger.info(f"{self.target_object}: x={self.pos['x']}, y={self.pos['y']}, z={self.pos['z']}, yaw={self.yaw}")
 
         # move toward target
-        absolute_cartesian_base([self.pos['y'], -self.pos['x'], 0.29],[3.14, 0.0, -3.14])
+        # 여기서 허용하는 yaw의 각도를 제한을 해주어야 될 것으로 보인다.
+        absolute_cartesian_base([self.pos['y'], -self.pos['x'], 0.29],[3.14, 0.0, self.yaw])
         time.sleep(self.delay_exec)
 
         # grasp
         gripper(close=True)
         time.sleep(self.delay_exec)
-        
+
         # move to destination
-        self._dest_move(self.target_object)
+        self._dest_move(self.target_object, self.delay_exec, board_pos)
         time.sleep(self.delay_exec)
         
         # place
@@ -161,13 +331,13 @@ def main():
     # init
     move_base()
     time.sleep(2.0)
-    pnp = PnP(target_object = sys.argv[1], is_YOLO=False, delay_exec=2.0)
-    
+    pnp = PnP(target_object=sys.argv[1], is_YOLO=False, delay_exec=2.0)
+
     # pick and place
     if not pnp.get_piece_info():
         logger.error("Failed to get piece info, aborting.")
         return
-    pnp.pick_and_place()
+    pnp.pick_and_place(board_pos=sys.argv[2])
 
 
 if __name__ == "__main__":
