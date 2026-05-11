@@ -40,12 +40,16 @@ services:
       - --gpu-memory-utilization=0.6
 
   # ── Intel Panther Lake XPU ──────────────────────────────────────────────────
+  # Builds vLLM from upstream source inside the image (no host clone needed).
+  # See docker/vllm/vllm-xpu-README.md for prerequisites and known Panther Lake
+  # limitations.
   vllm-xpu:
     <<: *common
     profiles: [intel-xpu]
     build:
       context: .
       dockerfile: vllm-intel.Dockerfile
+      shm_size: "4gb"
     volumes:
       - *models-vol
       - /dev/dri/by-path:/dev/dri/by-path

@@ -74,6 +74,11 @@ CMD ["bash", "-c", "source /root/.bashrc && exec bash"]
 
 WORKDIR /workspace/vllm
 
+# Clone vLLM source into the image (pinned for reproducibility).
+ARG VLLM_VERSION=v0.20.0
+RUN git clone https://github.com/vllm-project/vllm.git . && \
+    git checkout ${VLLM_VERSION}
+
 ENV UV_HTTP_TIMEOUT=500
 
 # Configure package index for XPU
@@ -83,9 +88,6 @@ ENV UV_INDEX_STRATEGY="unsafe-best-match"
 ENV UV_LINK_MODE="copy"
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,src=requirements/common.txt,target=/workspace/vllm/requirements/common.txt \
-    --mount=type=bind,src=requirements/xpu.txt,target=/workspace/vllm/requirements/xpu.txt \
-    --mount=type=bind,src=requirements/test/xpu.txt,target=/workspace/vllm/requirements/test/xpu.txt \
     uv pip install --upgrade pip && \
     uv pip install -r requirements/xpu.txt && \
     uv pip install grpcio-tools protobuf nanobind && \
@@ -94,20 +96,15 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     export CMAKE_PREFIX_PATH="$(python3 -c 'import site; print(site.getsitepackages()[0])'):${CMAKE_PREFIX_PATH}" && \
     uv pip install --no-build-isolation -r /workspace/vllm/requirements/test/xpu.txt
 
-
-
 ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/local/lib/"
 
-COPY . .
 ARG GIT_REPO_CHECK=0
-RUN --mount=type=bind,source=.git,target=.git \
-    if [ "$GIT_REPO_CHECK" != 0 ]; then bash tools/check_repo.sh; fi
+RUN if [ "$GIT_REPO_CHECK" != 0 ]; then bash tools/check_repo.sh; fi
 
 ENV VLLM_TARGET_DEVICE=xpu
 ENV VLLM_WORKER_MULTIPROC_METHOD=spawn
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=.git,target=.git \
     uv pip install --no-build-isolation .
 
 CMD ["/bin/bash"]
@@ -179,4 +176,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip uninstall oneccl oneccl-devel
 
-ENTRYPOINT ["vllm", "serve"]
+# Install hf CLI so the entrypoint can pull the model on first start
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install "huggingface_hub[cli]"
+
+COPY vllm-entrypoint.sh /vllm-entrypoint.sh
+RUN chmod +x /vllm-entrypoint.sh
+
+ENTRYPOINT ["/vllm-entrypoint.sh"]
