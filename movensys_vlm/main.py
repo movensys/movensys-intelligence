@@ -114,6 +114,11 @@ def cameras_page():
     return FileResponse("/app/static/cameras.html")
 
 
+@app.get("/vlm", include_in_schema=False)
+def vlm_page():
+    return FileResponse("/app/static/vlm.html")
+
+
 @app.on_event("startup")
 def startup():
     start_ros_node()

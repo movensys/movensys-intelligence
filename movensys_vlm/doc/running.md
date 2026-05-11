@@ -34,10 +34,9 @@ docker compose -f movensys_vlm.yaml up -d
 ```
 
 # Running
-open `localhost:8000`
-
-# Check API
-open `localhost:8000/docs`
+open `localhost:8000` for robot controller
+open `localhost:8000/vlm` for VLM
+open `localhost:8000/docs` for checking APIs
 
 ---
 
