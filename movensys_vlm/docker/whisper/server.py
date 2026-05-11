@@ -37,6 +37,7 @@ from typing import Optional, Protocol
 import librosa
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from huggingface_hub import snapshot_download
 
@@ -187,6 +188,12 @@ def _load_backend() -> _Backend:
 
 
 app = FastAPI(title=f"whisper-{BACKEND}", version="0.1")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 backend: _Backend = _load_backend()
 
 

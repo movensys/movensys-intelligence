@@ -311,6 +311,20 @@ header a:hover { color: #e2e8f0; border-color: #64748b; }
 .vlm-btn:hover:not(:disabled) { background: #1d4ed8; }
 .vlm-btn:disabled { background: #334155; cursor: not-allowed; }
 
+#vlm-mic { padding: 8px 12px; font-size: 1rem; line-height: 1; }
+#vlm-mic.recording {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+  animation: vlm-mic-pulse 1s ease-in-out infinite;
+}
+#vlm-mic.recording:hover:not(:disabled) { background: #b91c1c; border-color: #b91c1c; }
+@keyframes vlm-mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.5); }
+  50%      { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
+}
+#vlm-stt-url { flex: 1; min-width: 200px; }
+
 .vlm-response {
   background: #0a111e;
   border: 1px solid #1e3a5f;
