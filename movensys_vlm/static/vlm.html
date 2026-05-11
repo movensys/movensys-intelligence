@@ -33,6 +33,7 @@
           <select id="vlm-camera" title="Source camera">
             <option value="top">top camera</option>
             <option value="hand">hand camera</option>
+            <option value="none">no image (chat only)</option>
           </select>
           <input id="vlm-prompt" type="text"
                  placeholder="Ask about the board… (empty = default description)" />
@@ -164,6 +165,12 @@ async function askVlmOnce() {
       vlmSentImage.classList.add('has-image');
       vlmImgPlaceholder.classList.add('hidden');
       vlmImgMeta.textContent = `${wh} · ${ts}`;
+    } else {
+      vlmSentImage.removeAttribute('src');
+      vlmSentImage.classList.remove('has-image');
+      vlmImgPlaceholder.classList.remove('hidden');
+      vlmImgPlaceholder.textContent = 'no image';
+      vlmImgMeta.textContent = `chat only · ${ts}`;
     }
   } catch (err) {
     vlmResponse.className = 'vlm-response error';

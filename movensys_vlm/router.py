@@ -346,19 +346,20 @@ async def vlm_infer(body: VlmInferRequest):
         img = rn.ros_node.latest_hand_rgb_image
     elif body.camera == "top":
         img = rn.ros_node.latest_top_rgb_image
+    elif body.camera == "none":
+        img = None
     else:
-        raise HTTPException(400, detail="camera must be 'top' or 'hand'")
+        raise HTTPException(400, detail="camera must be 'top', 'hand', or 'none'")
 
-    if img is None:
-        raise HTTPException(503, detail=f"No RGB image available for camera '{body.camera}'")
-
-    image_b64 = img["data"]
-    if body.rotate180:
-        pil_img = Image.open(io.BytesIO(base64.b64decode(image_b64)))
-        pil_img = pil_img.rotate(180)
-        buf = io.BytesIO()
-        pil_img.save(buf, format="JPEG")
-        image_b64 = base64.b64encode(buf.getvalue()).decode()
+    image_b64: Optional[str] = None
+    if img is not None:
+        image_b64 = img["data"]
+        if body.rotate180:
+            pil_img = Image.open(io.BytesIO(base64.b64decode(image_b64)))
+            pil_img = pil_img.rotate(180)
+            buf = io.BytesIO()
+            pil_img.save(buf, format="JPEG")
+            image_b64 = base64.b64encode(buf.getvalue()).decode()
 
     user_prompt = body.prompt or "Report the tokens on the board."
 
@@ -377,10 +378,10 @@ async def vlm_infer(body: VlmInferRequest):
 
     return {
         "camera": body.camera,
-        "width": img.get("width"),
-        "height": img.get("height"),
+        "width": img.get("width") if img else None,
+        "height": img.get("height") if img else None,
         "image": image_b64,
-        "encoding": img.get("encoding"),
+        "encoding": img.get("encoding") if img else None,
         "user_prompt": user_prompt,
         "response": result if result is not None else (error or ""),
         "error": error,
