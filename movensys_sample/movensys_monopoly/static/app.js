@@ -1,34 +1,41 @@
 /**
  * movensys-monopoly UI.
  *
- * Single board: 16-tile rectangular perimeter (5 wide × 5 tall grid).
- * Indexing is counter-clockwise from GO at the bottom-left corner.
- * The viewBox aspect matches board_final.png (3461×2028 ≈ 1.706:1).
+ * Single board: 16-tile JSON model rendered on a 14-cell rectangular
+ * perimeter (5 wide × 4 tall grid). Indexing is counter-clockwise from
+ * GO at the bottom-left corner.
+ * The viewBox matches board.png (1261×584 ≈ 2.16:1).
+ *
+ * NOTE: the new board.png omits two cells the JSON still defines —
+ * INCHEON AIRPORT (3) and GANGNEUNG (11) — so those pieces visually
+ * collapse onto the adjacent corner. The right column also shows
+ * GYEONGJU above BUSAN, opposite of the old image; coords below
+ * follow the image labels so pieces land on the correctly-named cell.
  */
 
-// Tile centers for board_final. Width 1000 / height 586 matches image aspect.
-// Corner tiles use 1.5× the side-tile dimension on each axis.
-//   width:  3 side + 2 corners = 3 + 3 = 6 units → side = 1000/6 ≈ 166.67
-//   height: 3 side + 2 corners = 6 units → side = 586/6 ≈ 97.67
+// Cell geometry, corners 1.5× side cells:
+//   width  units: 1.5 + 1 + 1 + 1 + 1.5 = 6 → unit ≈ 210.17
+//   height units: 1.5 + 1 + 1 + 1.5     = 5 → unit ≈ 116.8
+//   corner ≈ 315×175, top/bot side ≈ 210×175, left/right side ≈ 315×117
 const BOARD_FINAL_LAYOUT = {
-  viewBox: { w: 1000, h: 586 },
+  viewBox: { w: 1261, h: 584 },
   centers: {
-    0:  { user: [39.7,  540.0], robot: [99.0,  540.0] },  // GO (BL)
-    1:  { user: [39.7,  430.0], robot: [99.0,  430.0] },  // SUWON (left, bottom)
-    2:  { user: [39.7,  310.0], robot: [99.0,  310.0] },  // SEOUL (left, middle)
-    3:  { user: [39.7,  205.5], robot: [99.0,  205.5] },  // INCHEON AIRPORT (left, top)
-    4:  { user: [39.7,  86.0],  robot: [99.0,  86.0]  },  // IN JAIL (TL)
-    5:  { user: [235.5, 86.0],  robot: [291.0, 86.0]  },  // ELECTRIC COMPANY (top)
-    6:  { user: [438.0, 86.0],  robot: [491.6, 86.0]  },  // JEONJU (top)
-    7:  { user: [639.0, 86.0],  robot: [693.0, 86.0]  },  // DAEJEON (top)
-    8:  { user: [839.0, 86.0],  robot: [890.0, 86.0]  },  // NON-FREE PARKING (TR)
-    9:  { user: [839.0, 205.5], robot: [890.0, 205.5] },  // BUSAN (right, top)
-    10: { user: [839.0, 310.0], robot: [890.0, 310.0] },  // GYEONGJU (right, middle)
-    11: { user: [839.0, 430.0], robot: [890.0, 430.0] },  // GANGNEUNG (right, bottom)
-    12: { user: [839.0, 540.0], robot: [890.0, 540.0] },  // GO TO JAIL (BR)
-    13: { user: [639.0, 540.0], robot: [693.0, 540.0] },  // DAEGU (bottom)
-    14: { user: [438.0, 540.0], robot: [491.6, 540.0] },  // CHANCE (bottom)
-    15: { user: [235.5, 540.0], robot: [291.0, 540.0] },  // BUNDANG (bottom)
+    0:  { user: [61.70,   531.05], robot: [135.03,  531.05] },  // GO (BL)
+    1:  { user: [54.10,   384.18], robot: [123.63,  383.32] },  // SUWON (left, lower mid)
+    2:  { user: [51.57,   242.38], robot: [119.83,  242.78] },  // SEOUL (left, upper mid)
+    3:  { user: [52.20,   170.85], robot: [119.20,  170.62] },  // INCHEON AIRPORT (no visible cell — placed between SEOUL and IN JAIL)
+    4:  { user: [52.83,   99.32],  robot: [118.57,  98.45]  },  // IN JAIL (TL)
+    5:  { user: [298.45,  106.91], robot: [365.45,  106.05] },  // ELECTRIC COMPANY (top)
+    6:  { user: [546.61,  105.65], robot: [611.07,  104.78] },  // JEONJU (top)
+    7:  { user: [803.62,  105.65], robot: [870.62,  104.78] },  // DAEJEON (top)
+    8:  { user: [1049.24, 108.18], robot: [1114.97, 107.31] },  // NON-FREE PARKING (TR)
+    9:  { user: [1051.77, 385.45], robot: [1114.97, 384.58] },  // BUSAN (right, lower mid — per image)
+    10: { user: [1050.51, 243.65], robot: [1114.97, 244.05] },  // GYEONGJU (right, upper mid — per image)
+    11: { user: [1051.77, 460.78], robot: [1116.24, 460.55] },  // GANGNEUNG (no visible cell — placed between BUSAN and GO TO JAIL)
+    12: { user: [1051.77, 536.11], robot: [1117.51, 536.51] },  // GO TO JAIL (BR)
+    13: { user: [801.09,  536.11], robot: [865.56,  536.51] },  // DAEGU (bottom)
+    14: { user: [554.20,  537.38], robot: [619.94,  537.78] },  // CHANCE (bottom)
+    15: { user: [300.99,  537.38], robot: [366.72,  537.78] },  // BUNDANG (bottom)
   },
 };
 

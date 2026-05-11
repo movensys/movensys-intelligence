@@ -142,11 +142,11 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .board-wrap {
   position: relative;
   width: 100%;
-  aspect-ratio: 3461/2028;
+  aspect-ratio: 1261/584;
 }
 #board-host {
   width: 100%; height: 100%;
-  background: #fff; border-radius: 6px; overflow: hidden;
+  background: var(--panel); border-radius: 6px; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
 }
 #board-host svg, #board-host img { width: 100%; height: 100%; object-fit: contain; display: block; }

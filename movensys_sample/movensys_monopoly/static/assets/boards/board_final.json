@@ -4,8 +4,8 @@
   "seed_money": 1000,
   "start_bonus": 100,
   "monopoly_bonus_multiplier": 2,
-  "physical_image": "board_final.png",
-  "layout": { "shape": "rectangle", "columns": 5, "rows": 5 },
+  "physical_image": "board.png",
+  "layout": { "shape": "rectangle", "columns": 5, "rows": 4 },
   "_note": "Movensys Korea-themed Monopoly. 16 tiles, counter-clockwise from GO (bottom-left).",
   "tiles": [
     { "index": 0,  "kind": "start",        "name": "GO" },
