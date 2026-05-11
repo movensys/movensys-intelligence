@@ -1,0 +1,61 @@
+x-common: &common
+  container_name: vllm_container
+  image: vllm_image
+  restart: unless-stopped
+  build:
+    context: .
+    dockerfile: vllm.Dockerfile
+  network_mode: host
+  ipc: host
+  privileged: true
+  ports:
+      - "9000:9000"
+  devices:
+      - /dev/dri:/dev/dri
+  volumes:
+    - &models-vol ../models:/models
+
+x-common-env: &common-env
+  HF_TOKEN: ${HF_TOKEN}
+  HF_REPO_NAME: ${HF_REPO_NAME}
+  VLM_MODEL_NAME: ${VLM_MODEL_NAME}
+  VLM_TIMEOUT: ${VLM_TIMEOUT}
+
+services:
+  # ── NVIDIA Jetson AGX Thor ──────────────────────────────────────────────────
+  vllm-nvidia:
+    <<: *common
+    profiles: [nvidia-gpu]
+    runtime: nvidia
+    environment:
+      <<: *common-env
+      FLASHINFER_DISABLE_VERSION_CHECK: "1"
+    command:
+      - vllm
+      - serve
+      - /models/${VLM_MODEL_NAME}
+      - --served-model-name=${VLM_MODEL_NAME}
+      - --port=9000
+      - --max-model-len=8192
+      - --gpu-memory-utilization=0.6
+
+  # ── Intel Panther Lake XPU ──────────────────────────────────────────────────
+  vllm-xpu:
+    <<: *common
+    profiles: [intel-xpu]
+    volumes:
+      - *models-vol
+      - /dev/dri/by-path:/dev/dri/by-path
+    environment: *common-env
+    command:
+      - vllm
+      - serve
+      - /models/${VLM_MODEL_NAME}
+      - --served-model-name=${VLM_MODEL_NAME}
+      - --port=9000
+      - --max-model-len=1024
+      - --dtype=float16
+      - --gpu-memory-utilization=0.4
+      - --attention-backend=TRITON_ATTN
+      - --enforce-eager
+      - '--limit-mm-per-prompt={"image": 1, "video": 0}'

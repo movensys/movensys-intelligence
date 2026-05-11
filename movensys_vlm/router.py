@@ -14,7 +14,6 @@ from pydantic import BaseModel
 
 import ros2_node as rn
 import vlm_client
-import monopoly_geometry as mg
 
 router = APIRouter()
 

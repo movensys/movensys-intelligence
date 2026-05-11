@@ -3,15 +3,26 @@ check `doc/` number 1, 2, and 6
 
 # Bashrc Setup
 ```
-export VLM_CORE=nvidia-gpu              #support{nvidia-gpu, intel-xpu} 
+export XPU_CORE=nvidia-gpu              #support{nvidia-gpu, intel-xpu} 
+```
+```
+source ~/.bashrc
 ```
 
 # Setup Vllm
 ```
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
-COMPOSE_PROFILES=$VLM_CORE docker compose -f vllm.yaml down
-COMPOSE_PROFILES=$VLM_CORE docker compose -f vllm.yaml build
-COMPOSE_PROFILES=$VLM_CORE docker compose -f vllm.yaml up -d  
+COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml down
+COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml build
+COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml up -d  
+```
+
+# Setup whispher
+```
+cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
+COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml down
+COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml build
+COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml up -d  
 ```
 
 # Setup movensys_vlm
