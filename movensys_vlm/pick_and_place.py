@@ -13,157 +13,157 @@ board_positions = {
             "ori": [3.14, 0.0, -1.57]
         },
         "green_cube": {
-            "pos": [-0.32786, -0.17065, 0.29],
+            "pos": [-0.32786, -0.16726, 0.29],
             "ori": [3.14, 0.0, -1.57]
         }
     },
     "SUWON": {
         "red_cube": {
-            "pos": [0.39947, -0.10900, 0.29],
+            "pos": [-0.38338, -0.09155, 0.29],
             "ori": [3.14, 0.0, -1.57]
         },
         "green_cube": {
-            "pos": [0.35347, -0.10900, 0.29],
+            "pos": [-0.32786, -0.09155, 0.29],
             "ori": [3.14, 0.0, -1.57]
         }
     },
     "SEOUL": {
         "red_cube": {
-            "pos": [0.39947, -0.04000, 0.29],
+            "pos": [-0.38338, -0.02342, 0.29],
             "ori": [3.14, 0.0, -1.57]
         },
         "green_cube": {
-            "pos": [0.35347, -0.04000, 0.29],
+            "pos": [-0.32786, -0.02396, 0.29],
             "ori": [3.14, 0.0, -1.57]
         }
     },
     "INCHEON_AIRPORT": {
         "red_cube": {
-            "pos": [0.39947, 0.02000, 0.29],
+            "pos": [-0.38338, 0.03822, 0.29],
             "ori": [3.14, 0.0, -1.57]
         },
         "green_cube": {
-            "pos": [0.35347, 0.02000, 0.29],
+            "pos": [-0.32786, 0.03857, 0.29],
             "ori": [3.14, 0.0, -1.57]
         }
     },
     "IN_JAIL": {
         "red_cube": {
-            "pos": [0.39947, 0.09000, 0.29],
+            "pos": [-0.38338, 0.11101, 0.29],
             "ori": [3.14, 0.0, -1.57]
         },
         "green_cube": {
-            "pos": [0.35347, 0.09000, 0.29],
+            "pos": [-0.32786, 0.10905, 0.29],
             "ori": [3.14, 0.0, -1.57]
         }
     },
     "ELECTRIC_COMPANY": {
         "red_cube": {
-            "pos": [-0.29037, 0.09000, 0.29],
+            "pos": [-0.26635, 0.10844, 0.29],
             "ori": [3.14, 0.0, 3.14]
         },
         "green_cube": {
-            "pos": [-0.2437, 0.09000, 0.29],
+            "pos": [-0.21752, 0.10905, 0.29],
             "ori": [3.14, 0.0, -3.14]
         }
     },
     "JEONJU": {
         "red_cube": {
-            "pos": [-0.17128, 0.09000, 0.29],
+            "pos": [-0.15167, 0.10844, 0.29],
             "ori": [3.14, 0.0, -3.14]
         },
         "green_cube": {
-            "pos": [-0.12547, 0.09000, 0.29],
+            "pos": [-0.09896, 0.10905, 0.29],
             "ori": [3.14, 0.0, -3.14]
         }
     },
     "DAEJEON": {
         "red_cube": {
-            "pos": [-0.0516, 0.09000, 0.29],
+            "pos": [-0.03404, 0.10844, 0.29],
             "ori": [3.14, 0.0, -3.14]
         },
         "green_cube": {
-            "pos": [-0.00237, 0.09000, 0.29],
+            "pos": [0.01564, 0.10905, 0.29],
             "ori": [3.14, 0.0, -3.14]
         }
     },
     "NON-FREE_PARKING": {
         "red_cube": {
-            "pos": [0.06635, 0.09000, 0.29],
+            "pos": [0.07997, 0.10844, 0.29],
             "ori": [3.14, 0.0, 1.57]
         },
         "green_cube": {
-            "pos": [0.11472, 0.09000, 0.29],
+            "pos": [0.13045, 0.10905, 0.29],
             "ori": [3.14, 0.0, 1.57]
         }
     },
     "BUSAN": {
         "red_cube": {
-            "pos": [0.06635, 0.03000, 0.29],
+            "pos": [0.07997, 0.04156, 0.29],
             "ori": [3.14, 0.0, 1.57]
         },
         "green_cube": {
-            "pos": [0.11472, 0.03000, 0.29],
+            "pos": [0.13045, 0.0405, 0.29],
             "ori": [3.14, 0.0, 1.57]
         }
     },
     "GYEONGJU": {
         "red_cube": {
-            "pos": [0.06635, -0.04000, 0.29],
+            "pos": [0.07997, -0.02357, 0.29],
             "ori": [3.14, 0.0, 1.57]
         },
         "green_cube": {
-            "pos": [0.11472, -0.04000, 0.29],
+            "pos": [0.13045, -0.02465, 0.29],
             "ori": [3.14, 0.0, 1.57]
         }
     },
     "GANGNEUNG": {
         "red_cube": {
-            "pos": [0.06635, -0.10600, 0.29],
+            "pos": [0.07997, -0.08898, 0.29],
             "ori": [3.14, 0.0, 1.57]
         },
         "green_cube": {
-            "pos": [0.11472, -0.10600, 0.29],
+            "pos": [0.13045, -0.08996, 0.29],
             "ori": [3.14, 0.0, 1.57]
         }
     },
     "GO_TO_JAIL": {
         "red_cube": {
-            "pos": [0.06635, -0.17353, 0.29],
+            "pos": [0.07997, -0.1572, 0.29],
             "ori": [3.14, 0.0, 1.57]
         },
         "green_cube": {
-            "pos": [0.11472, 0.09000, 0.29],
+            "pos": [0.13045, -0.15732, 0.29],
             "ori": [3.14, 0.0, 1.57]
         }
     },
     "DAEGU": {
         "red_cube": {
-            "pos": [-0.0516, -0.17353, 0.29],
+            "pos": [-0.03036, -0.1572, 0.29],
             "ori": [3.14, 0.0, -3.14]
         },
         "green_cube": {
-            "pos": [-0.00237, -0.17353, 0.29],
+            "pos": [0.02351, -0.15732, 0.29],
             "ori": [3.14, 0.0, -3.14]
         }
     },
     "CHANCE": {
         "red_cube": {
-            "pos": [-0.17128, -0.17353, 0.29],
+            "pos": [-0.14805, -0.1572, 0.29],
             "ori": [3.14, 0.0, -3.14]
         },
         "green_cube": {
-            "pos": [-0.12547, -0.17353, 0.29],
+            "pos": [-0.09401, -0.15732, 0.29],
             "ori": [3.14, 0.0, -3.14]
         }
     },
     "BUNDANG": {
         "red_cube": {
-            "pos": [-0.29037, -0.17353, 0.29],
+            "pos": [-0.26453, -0.1572, 0.29],
             "ori": [3.14, 0.0, -3.14]
         },
         "green_cube": {
-            "pos": [-0.24370, -0.17353, 0.29],
+            "pos": [-0.21345, -0.15732, 0.29],
             "ori": [3.14, 0.0, -3.14]
         }
     }
@@ -261,7 +261,12 @@ class PnP:
     @staticmethod
     def _dest_move(target_object: str = "dice", delay_exec: float = 0.2, board_pos: str = "GO"):
         if target_object == "dice":
-            relative_cartesian_tool([0.0,0.0,-0.04], [0.0,0.0,0.0])
+            # Go up
+            relative_cartesian_tool([0.0,0.0,-0.1], [0.0,0.0,0.0])
+            time.sleep(delay_exec)
+
+            # place
+            gripper(close=False)
             time.sleep(delay_exec)
         else:
             # Go up
@@ -358,24 +363,32 @@ class PnP:
             self.pos['x'] += self.YOLO_offset_x
             self.pos['y'] += self.YOLO_offset_y
         else:
-            yaw_status = self._checking_yaw(self.yaw)
-            # clockwisely rotate 90 degree.
-            if board_pos in ("GO", "SUWON", "SEOUL", "INCHEON_AIRPORT", "IN_JAIL"):
-                self.converting_yaw(yaw_status=yaw_status, target_yaw_status=1)
-
-            # Counter clockwisely rotate -90 degree.
-            elif board_pos in ("NON-FREE_PARKING", "BUSAN", "GYEONGJU", "GANGNEUNG", "GO_TO_JAIL"):
-                self.converting_yaw(yaw_status=yaw_status, target_yaw_status=3)
-
-            # Rotate 180 degree. Looking front side.
-            else:
+            # This is for dice.
+            if self.target_object == "dice":
+                yaw_status = self._checking_yaw(self.yaw)
+                print(self.yaw)
                 self.converting_yaw(yaw_status=yaw_status, target_yaw_status=2)
+            # This is for piece pnp.
+            else:
+                yaw_status = self._checking_yaw(self.yaw)
+                # clockwisely rotate 90 degree.
+                if board_pos in ("GO", "SUWON", "SEOUL", "INCHEON_AIRPORT", "IN_JAIL"):
+                    self.converting_yaw(yaw_status=yaw_status, target_yaw_status=1)
+
+                # Counter clockwisely rotate -90 degree.
+                elif board_pos in ("NON-FREE_PARKING", "BUSAN", "GYEONGJU", "GANGNEUNG", "GO_TO_JAIL"):
+                    self.converting_yaw(yaw_status=yaw_status, target_yaw_status=3)
+
+                # Rotate 180 degree. Looking front side.
+                else:
+                    self.converting_yaw(yaw_status=yaw_status, target_yaw_status=2)
 
         logger.info(f"{self.target_object}: x={self.pos['x']}, y={self.pos['y']}, z={self.pos['z']}, yaw={self.yaw}")
 
         # move toward target
         target_pos = [self.pos['y'], -self.pos['x'], 0.29]
         target_ori = [3.14, 0.0, self.yaw]
+        print(self.yaw)
         self._toward_target(self.target_object, self.delay_exec, target_pos, target_ori)
         time.sleep(self.delay_exec)
 
