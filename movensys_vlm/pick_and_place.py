@@ -9,161 +9,141 @@ logger = logging.getLogger(__name__)
 board_positions = {
     "GO": {
         "red_cube": {
-            "pos": [-0.3781, -0.16726, 0.29],
+            "pos": [-0.38973, -0.14509, 0.3],
             "ori": [3.14, 0.0, -1.57]
         },
         "green_cube": {
-            "pos": [-0.32786, -0.16726, 0.29],
+            "pos": [-0.32786, -0.14509, 0.3],
             "ori": [3.14, 0.0, -1.57]
         }
     },
     "SUWON": {
         "red_cube": {
-            "pos": [-0.38338, -0.09155, 0.29],
+            "pos": [-0.38973, -0.07005, 0.3],
             "ori": [3.14, 0.0, -1.57]
         },
         "green_cube": {
-            "pos": [-0.32786, -0.09155, 0.29],
+            "pos": [-0.32786, -0.07005, 0.3],
             "ori": [3.14, 0.0, -1.57]
         }
     },
     "SEOUL": {
         "red_cube": {
-            "pos": [-0.38338, -0.02342, 0.29],
+            "pos": [-0.38973, -0.00499, 0.3],
             "ori": [3.14, 0.0, -1.57]
         },
         "green_cube": {
-            "pos": [-0.32786, -0.02396, 0.29],
-            "ori": [3.14, 0.0, -1.57]
-        }
-    },
-    "INCHEON_AIRPORT": {
-        "red_cube": {
-            "pos": [-0.38338, 0.03822, 0.29],
-            "ori": [3.14, 0.0, -1.57]
-        },
-        "green_cube": {
-            "pos": [-0.32786, 0.03857, 0.29],
+            "pos": [-0.32786, -0.00499, 0.3],
             "ori": [3.14, 0.0, -1.57]
         }
     },
     "IN_JAIL": {
         "red_cube": {
-            "pos": [-0.38338, 0.11101, 0.29],
+            "pos": [-0.38973, 0.05505, 0.3],
             "ori": [3.14, 0.0, -1.57]
         },
         "green_cube": {
-            "pos": [-0.32786, 0.10905, 0.29],
+            "pos": [-0.32786, 0.05505, 0.3],
             "ori": [3.14, 0.0, -1.57]
         }
     },
     "ELECTRIC_COMPANY": {
         "red_cube": {
-            "pos": [-0.26635, 0.10844, 0.29],
+            "pos": [-0.28, 0.05505, 0.3],
             "ori": [3.14, 0.0, 3.14]
         },
         "green_cube": {
-            "pos": [-0.21752, 0.10905, 0.29],
+            "pos": [-0.22, 0.05505, 0.3],
             "ori": [3.14, 0.0, -3.14]
         }
     },
     "JEONJU": {
         "red_cube": {
-            "pos": [-0.15167, 0.10844, 0.29],
+            "pos": [-0.17, 0.05505, 0.3],
             "ori": [3.14, 0.0, -3.14]
         },
         "green_cube": {
-            "pos": [-0.09896, 0.10905, 0.29],
+            "pos": [-0.11, 0.05505, 0.3],
             "ori": [3.14, 0.0, -3.14]
         }
     },
     "DAEJEON": {
         "red_cube": {
-            "pos": [-0.03404, 0.10844, 0.29],
+            "pos": [-0.06, 0.05505, 0.3],
             "ori": [3.14, 0.0, -3.14]
         },
         "green_cube": {
-            "pos": [0.01564, 0.10905, 0.29],
+            "pos": [0.0, 0.05505, 0.3],
             "ori": [3.14, 0.0, -3.14]
         }
     },
     "NON-FREE_PARKING": {
         "red_cube": {
-            "pos": [0.07997, 0.10844, 0.29],
+            "pos": [0.05, 0.055, 0.3],
             "ori": [3.14, 0.0, 1.57]
         },
         "green_cube": {
-            "pos": [0.13045, 0.10905, 0.29],
-            "ori": [3.14, 0.0, 1.57]
-        }
-    },
-    "BUSAN": {
-        "red_cube": {
-            "pos": [0.07997, 0.04156, 0.29],
-            "ori": [3.14, 0.0, 1.57]
-        },
-        "green_cube": {
-            "pos": [0.13045, 0.0405, 0.29],
+            "pos": [-0.01, 0.055, 0.3],
             "ori": [3.14, 0.0, 1.57]
         }
     },
     "GYEONGJU": {
         "red_cube": {
-            "pos": [0.07997, -0.02357, 0.29],
+            "pos": [0.05, -0.005, 0.3],
             "ori": [3.14, 0.0, 1.57]
         },
         "green_cube": {
-            "pos": [0.13045, -0.02465, 0.29],
+            "pos": [-0.01, -0.005, 0.3],
             "ori": [3.14, 0.0, 1.57]
         }
     },
-    "GANGNEUNG": {
+    "BUSAN": {
         "red_cube": {
-            "pos": [0.07997, -0.08898, 0.29],
+            "pos": [0.05, -0.07005, 0.3],
             "ori": [3.14, 0.0, 1.57]
         },
         "green_cube": {
-            "pos": [0.13045, -0.08996, 0.29],
+            "pos": [-0.01, -0.07005, 0.3],
             "ori": [3.14, 0.0, 1.57]
         }
     },
     "GO_TO_JAIL": {
         "red_cube": {
-            "pos": [0.07997, -0.1572, 0.29],
+            "pos": [0.05, -0.14509, 0.3],
             "ori": [3.14, 0.0, 1.57]
         },
         "green_cube": {
-            "pos": [0.13045, -0.15732, 0.29],
+            "pos": [-0.01, -0.14509, 0.3],
             "ori": [3.14, 0.0, 1.57]
         }
     },
     "DAEGU": {
         "red_cube": {
-            "pos": [-0.03036, -0.1572, 0.29],
+            "pos": [-0.03036, -0.14509, 0.3],
             "ori": [3.14, 0.0, -3.14]
         },
         "green_cube": {
-            "pos": [0.02351, -0.15732, 0.29],
+            "pos": [0.02351, -0.14509, 0.3],
             "ori": [3.14, 0.0, -3.14]
         }
     },
     "CHANCE": {
         "red_cube": {
-            "pos": [-0.14805, -0.1572, 0.29],
+            "pos": [-0.14805, -0.14509, 0.3],
             "ori": [3.14, 0.0, -3.14]
         },
         "green_cube": {
-            "pos": [-0.09401, -0.15732, 0.29],
+            "pos": [-0.09401, -0.14509, 0.3],
             "ori": [3.14, 0.0, -3.14]
         }
     },
     "BUNDANG": {
         "red_cube": {
-            "pos": [-0.26453, -0.1572, 0.29],
+            "pos": [-0.26453, -0.14509, 0.29],
             "ori": [3.14, 0.0, -3.14]
         },
         "green_cube": {
-            "pos": [-0.21345, -0.15732, 0.29],
+            "pos": [-0.21345, -0.14509, 0.29],
             "ori": [3.14, 0.0, -3.14]
         }
     }
@@ -224,8 +204,11 @@ class PnP:
             self.TARGET_STR = ("piece_2", "piece_1", "dice")
         
         # This offset is dependent for cube size.
-        self.YOLO_offset_x: float = 0.009  # [m]
-        self.YOLO_offset_y: float = -0.1   # [m]
+        self.YOLO_dice_offset_x: float = 0.015  # [m]
+        self.YOLO_dice_offset_y: float = -0.075  # [m]
+        self.YOLO_piece_offset_x: float = 0.015  # [m]
+        self.YOLO_piece_offset_y: float = -0.075  # [m]
+        
 
         self.pos: Optional[dict] = None
         self.ori: Optional[dict] = None
@@ -240,29 +223,41 @@ class PnP:
     @staticmethod
     def _init_move(target_object: str = "dice"):
         if target_object == "dice":
-            absolute_cartesian_base([0.32040, -0.01058, 0.35], [3.141, 0.0, -3.141])
+            absolute_cartesian_base([0.32040, -0.01058, 0.42], [3.141, 0.0, -3.141])
         else:
             # absolute_cartesian_base([-0.12857, 0.0, 0.3500], [3.141, 0.0, -3.141])
-            absolute_cartesian_base([-0.12857, 0.035, 0.430], [3.141, 0.0, -3.141])
+            absolute_cartesian_base([-0.18, 0.035, 0.52], [3.141, 0.0, -3.141])
 
-    @staticmethod
-    def _toward_target(target_object: str = "dice", delay_exec: float = 0.2, target_pos: list = [0.0, 0.0, 0.0], target_ori: list = [0.0, 0.0, 0.0]):
+    def _toward_target(self, target_object: str = "dice", delay_exec: float = 0.2, target_pos: list = [0.0, 0.0, 0.0], target_ori: list = [0.0, 0.0, 0.0]):
         if target_object == "dice":
-            absolute_cartesian_base(target_pos, target_ori)
+            if self.is_YOLO:
+                relative_cartesian_tool(target_pos, target_ori)
+                time.sleep(delay_exec)
+            else:
+                absolute_cartesian_base(target_pos, target_ori)
+            
+            # Go down
+            relative_cartesian_tool([0.0,0.0,0.01], [0.0,0.0,0.0])
         else:
             # Go upside of the piece
-            target_pos[2] = target_pos[2] + 0.035
-            absolute_cartesian_base(target_pos, target_ori)
-            time.sleep(delay_exec)
+            if self.is_YOLO:
+                relative_cartesian_tool(target_pos, target_ori)
+                time.sleep(delay_exec)
+            else:
+                target_pos[2] = target_pos[2] + 0.035
+                absolute_cartesian_base(target_pos, target_ori)
+                time.sleep(delay_exec)
 
             # Go down
-            relative_cartesian_tool([0.0,0.0,0.05], [0.0,0.0,0.0])
+            relative_cartesian_tool([0.0,0.0,0.03], [0.0,0.0,0.0])
+
+        
     
     @staticmethod
     def _dest_move(target_object: str = "dice", delay_exec: float = 0.2, board_pos: str = "GO"):
         if target_object == "dice":
             # Go up
-            relative_cartesian_tool([0.0,0.0,-0.1], [0.0,0.0,0.0])
+            relative_cartesian_tool([0.0,0.0,-0.08], [0.0,0.0,0.0])
             time.sleep(delay_exec)
 
             # place
@@ -270,11 +265,7 @@ class PnP:
             time.sleep(delay_exec)
         else:
             # Go up
-            relative_cartesian_tool([0.0,0.0,-0.055], [0.0,0.0,0.0])
-            time.sleep(delay_exec)
-
-            # Go init move
-            PnP._init_move("cube")
+            relative_cartesian_tool([0.0,0.0,-0.08], [0.0,0.0,0.0])
             time.sleep(delay_exec)
 
             # Go upper side of target pos.
@@ -284,7 +275,7 @@ class PnP:
             time.sleep(delay_exec)
 
             # Go down
-            relative_cartesian_tool([0.0,0.0,0.035], [0.0,0.0,0.0])
+            relative_cartesian_tool([0.0,0.0,0.06], [0.0,0.0,0.0])
             time.sleep(delay_exec)
 
             # place
@@ -292,7 +283,7 @@ class PnP:
             time.sleep(delay_exec)
 
             # Go up and prepare to go init pos
-            relative_cartesian_tool([0.0,0.0,-0.035], [0.0,0.0,0.0])
+            relative_cartesian_tool([0.0,0.0,-0.06], [0.0,0.0,0.0])
             time.sleep(delay_exec)
 
     def get_piece_info(self) -> bool:
@@ -353,41 +344,51 @@ class PnP:
             raise ValueError(f"Unknown board_pos '{board_pos}'. Choose one of: {list(board_positions)}")
 
         gripper(close=False)
-        # move to initial position
-
-        self._init_move(self.target_object)
         time.sleep(self.delay_exec)
+        # move to initial position
         
         # For YOLO, we need to set offset
         if self.is_YOLO:
-            self.pos['x'] += self.YOLO_offset_x
-            self.pos['y'] += self.YOLO_offset_y
-        else:
-            # This is for dice.
             if self.target_object == "dice":
-                yaw_status = self._checking_yaw(self.yaw)
-                print(self.yaw)
-                self.converting_yaw(yaw_status=yaw_status, target_yaw_status=2)
-            # This is for piece pnp.
+                self.pos['x'] += self.YOLO_dice_offset_x
+                self.pos['y'] += self.YOLO_dice_offset_y
             else:
-                yaw_status = self._checking_yaw(self.yaw)
-                # clockwisely rotate 90 degree.
-                if board_pos in ("GO", "SUWON", "SEOUL", "INCHEON_AIRPORT", "IN_JAIL"):
-                    self.converting_yaw(yaw_status=yaw_status, target_yaw_status=1)
+                self.pos['x'] += self.YOLO_piece_offset_x
+                self.pos['y'] += self.YOLO_piece_offset_y
 
-                # Counter clockwisely rotate -90 degree.
-                elif board_pos in ("NON-FREE_PARKING", "BUSAN", "GYEONGJU", "GANGNEUNG", "GO_TO_JAIL"):
-                    self.converting_yaw(yaw_status=yaw_status, target_yaw_status=3)
+        # This is for dice.
+        if self.target_object == "dice":
+            yaw_status = self._checking_yaw(self.yaw)
+            print(self.yaw)
+            self.converting_yaw(yaw_status=yaw_status, target_yaw_status=1)
+        # This is for piece pnp.
+        else:
+            yaw_status = self._checking_yaw(self.yaw)
+            # clockwisely rotate 90 degree.
+            if board_pos in ("GO", "SUWON", "SEOUL", "INCHEON_AIRPORT", "IN_JAIL"):
+                self.converting_yaw(yaw_status=yaw_status, target_yaw_status=1)
 
-                # Rotate 180 degree. Looking front side.
-                else:
-                    self.converting_yaw(yaw_status=yaw_status, target_yaw_status=2)
+            # Counter clockwisely rotate -90 degree.
+            elif board_pos in ("NON-FREE_PARKING", "BUSAN", "GYEONGJU", "GANGNEUNG", "GO_TO_JAIL"):
+                self.converting_yaw(yaw_status=yaw_status, target_yaw_status=1)
+
+            # Rotate 180 degree. Looking front side.
+            else:
+                self.converting_yaw(yaw_status=yaw_status, target_yaw_status=1)
 
         logger.info(f"{self.target_object}: x={self.pos['x']}, y={self.pos['y']}, z={self.pos['z']}, yaw={self.yaw}")
 
         # move toward target
-        target_pos = [self.pos['y'], -self.pos['x'], 0.29]
-        target_ori = [3.14, 0.0, self.yaw]
+        if self.is_YOLO:
+            if self.target_object == "dice":
+                target_pos = [self.pos['x'], self.pos['y'], 0.12]
+            else:
+                target_pos = [self.pos['x'], self.pos['y'], 0.22]
+            target_ori = [0.0, 0.0, self.yaw]
+        else:
+            target_pos = [self.pos['y'], -self.pos['x'], 0.3]
+            target_ori = [3.14, 0.0, self.yaw]
+        
         print(self.yaw)
         self._toward_target(self.target_object, self.delay_exec, target_pos, target_ori)
         time.sleep(self.delay_exec)
@@ -407,10 +408,12 @@ class PnP:
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     
+    
+    pnp = PnP(target_object=sys.argv[1], is_YOLO=True, delay_exec=2.0)
+
     # init
-    move_base()
+    pnp._init_move(sys.argv[1])
     time.sleep(2.0)
-    pnp = PnP(target_object=sys.argv[1], is_YOLO=False, delay_exec=2.0)
 
     # pick and place
     if not pnp.get_piece_info():
