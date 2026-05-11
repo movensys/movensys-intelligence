@@ -17,14 +17,6 @@ COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml build
 COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml up -d  
 ```
 
-# Setup whispher
-```
-cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
-COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml down
-COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml build
-COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml up -d  
-```
-
 # Setup movensys_vlm
 ```
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
