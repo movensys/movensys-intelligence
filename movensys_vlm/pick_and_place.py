@@ -6,6 +6,168 @@ import requests
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+board_positions = {
+    "GO": {
+        "red_cube": {
+            "pos": [-0.3781, -0.16726, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        },
+        "green_cube": {
+            "pos": [-0.32786, -0.16726, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        }
+    },
+    "SUWON": {
+        "red_cube": {
+            "pos": [-0.38338, -0.09155, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        },
+        "green_cube": {
+            "pos": [-0.32786, -0.09155, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        }
+    },
+    "SEOUL": {
+        "red_cube": {
+            "pos": [-0.38338, -0.02342, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        },
+        "green_cube": {
+            "pos": [-0.32786, -0.02396, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        }
+    },
+    "INCHEON_AIRPORT": {
+        "red_cube": {
+            "pos": [-0.38338, 0.03822, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        },
+        "green_cube": {
+            "pos": [-0.32786, 0.03857, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        }
+    },
+    "IN_JAIL": {
+        "red_cube": {
+            "pos": [-0.38338, 0.11101, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        },
+        "green_cube": {
+            "pos": [-0.32786, 0.10905, 0.29],
+            "ori": [3.14, 0.0, -1.57]
+        }
+    },
+    "ELECTRIC_COMPANY": {
+        "red_cube": {
+            "pos": [-0.26635, 0.10844, 0.29],
+            "ori": [3.14, 0.0, 3.14]
+        },
+        "green_cube": {
+            "pos": [-0.21752, 0.10905, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        }
+    },
+    "JEONJU": {
+        "red_cube": {
+            "pos": [-0.15167, 0.10844, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        },
+        "green_cube": {
+            "pos": [-0.09896, 0.10905, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        }
+    },
+    "DAEJEON": {
+        "red_cube": {
+            "pos": [-0.03404, 0.10844, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        },
+        "green_cube": {
+            "pos": [0.01564, 0.10905, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        }
+    },
+    "NON-FREE_PARKING": {
+        "red_cube": {
+            "pos": [0.07997, 0.10844, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        },
+        "green_cube": {
+            "pos": [0.13045, 0.10905, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        }
+    },
+    "BUSAN": {
+        "red_cube": {
+            "pos": [0.07997, 0.04156, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        },
+        "green_cube": {
+            "pos": [0.13045, 0.0405, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        }
+    },
+    "GYEONGJU": {
+        "red_cube": {
+            "pos": [0.07997, -0.02357, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        },
+        "green_cube": {
+            "pos": [0.13045, -0.02465, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        }
+    },
+    "GANGNEUNG": {
+        "red_cube": {
+            "pos": [0.07997, -0.08898, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        },
+        "green_cube": {
+            "pos": [0.13045, -0.08996, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        }
+    },
+    "GO_TO_JAIL": {
+        "red_cube": {
+            "pos": [0.07997, -0.1572, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        },
+        "green_cube": {
+            "pos": [0.13045, -0.15732, 0.29],
+            "ori": [3.14, 0.0, 1.57]
+        }
+    },
+    "DAEGU": {
+        "red_cube": {
+            "pos": [-0.03036, -0.1572, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        },
+        "green_cube": {
+            "pos": [0.02351, -0.15732, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        }
+    },
+    "CHANCE": {
+        "red_cube": {
+            "pos": [-0.14805, -0.1572, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        },
+        "green_cube": {
+            "pos": [-0.09401, -0.15732, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        }
+    },
+    "BUNDANG": {
+        "red_cube": {
+            "pos": [-0.26453, -0.1572, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        },
+        "green_cube": {
+            "pos": [-0.21345, -0.15732, 0.29],
+            "ori": [3.14, 0.0, -3.14]
+        }
+    }
+}
 
 URL = "http://localhost:8000"
 
@@ -42,6 +204,8 @@ def set_scales(vel, acc):
     return requests.post(f"{URL}/api/config/scales", json={"vel_scale": vel, "acc_scale": acc}).json()
 
 class PnP:
+    _BIN_CENTERS = (0.0, -math.pi / 2, -math.pi, math.pi / 2)
+
     def __init__(self, target_object: str = "red_cube", is_YOLO: bool = True, delay_exec: float = 2.0):
         self.delay_exec = delay_exec
         self.is_YOLO = is_YOLO
@@ -78,16 +242,58 @@ class PnP:
         if target_object == "dice":
             absolute_cartesian_base([0.32040, -0.01058, 0.35], [3.141, 0.0, -3.141])
         else:
-            absolute_cartesian_base([-0.24, -0.1, 0.47], [3.141, 0.0, -3.141])
+            # absolute_cartesian_base([-0.12857, 0.0, 0.3500], [3.141, 0.0, -3.141])
+            absolute_cartesian_base([-0.12857, 0.035, 0.430], [3.141, 0.0, -3.141])
 
     @staticmethod
-    def _dest_move(target_object: str = "dice"):
+    def _toward_target(target_object: str = "dice", delay_exec: float = 0.2, target_pos: list = [0.0, 0.0, 0.0], target_ori: list = [0.0, 0.0, 0.0]):
         if target_object == "dice":
-            # There is an vibrating in dice picking.
-            relative_cartesian_tool([0.0,0.0,-0.12], [0.0,0.0,0.0])
+            absolute_cartesian_base(target_pos, target_ori)
         else:
-            # Need to define 16 types of position in IsaacSim.
-            time.sleep(0.01)
+            # Go upside of the piece
+            target_pos[2] = target_pos[2] + 0.035
+            absolute_cartesian_base(target_pos, target_ori)
+            time.sleep(delay_exec)
+
+            # Go down
+            relative_cartesian_tool([0.0,0.0,0.05], [0.0,0.0,0.0])
+    
+    @staticmethod
+    def _dest_move(target_object: str = "dice", delay_exec: float = 0.2, board_pos: str = "GO"):
+        if target_object == "dice":
+            # Go up
+            relative_cartesian_tool([0.0,0.0,-0.1], [0.0,0.0,0.0])
+            time.sleep(delay_exec)
+
+            # place
+            gripper(close=False)
+            time.sleep(delay_exec)
+        else:
+            # Go up
+            relative_cartesian_tool([0.0,0.0,-0.055], [0.0,0.0,0.0])
+            time.sleep(delay_exec)
+
+            # Go init move
+            PnP._init_move("cube")
+            time.sleep(delay_exec)
+
+            # Go upper side of target pos.
+            target_pos = board_positions[board_pos][target_object]["pos"]
+            target_pos[2] = target_pos[2] + 0.035
+            absolute_cartesian_base(target_pos, board_positions[board_pos][target_object]["ori"])
+            time.sleep(delay_exec)
+
+            # Go down
+            relative_cartesian_tool([0.0,0.0,0.035], [0.0,0.0,0.0])
+            time.sleep(delay_exec)
+
+            # place
+            gripper(close=False)
+            time.sleep(delay_exec)
+
+            # Go up and prepare to go init pos
+            relative_cartesian_tool([0.0,0.0,-0.035], [0.0,0.0,0.0])
+            time.sleep(delay_exec)
 
     def get_piece_info(self) -> bool:
         _target_object = self.TARGET_STR[self.target_num]
@@ -124,34 +330,77 @@ class PnP:
 
         self.yaw = round(self._quaternion_to_yaw(self.ori["w"], self.ori["x"], self.ori["y"], self.ori["z"]), 5)
         return True
+    
+    @staticmethod
+    def _checking_yaw(yaw: float) -> int:
+        if -math.pi / 4 <= yaw < math.pi / 4:
+            return 0
+        elif -3 * math.pi / 4 <= yaw < -math.pi / 4:
+            return 1
+        elif math.pi / 4 <= yaw < 3 * math.pi / 4:
+            return 3
+        else:
+            return 2
 
-    def pick_and_place(self):
+    def converting_yaw(self, yaw_status: int, target_yaw_status: int) -> None:
+        # Shift yaw by the bin-center delta (multiple of pi/2)
+        delta = self._BIN_CENTERS[target_yaw_status] - self._BIN_CENTERS[yaw_status]
+        # Then wrap to (-pi, pi].
+        self.yaw = (self.yaw + delta + math.pi) % (2 * math.pi) - math.pi
+
+    def pick_and_place(self, board_pos: str = "GO"):
+        if board_pos not in board_positions:
+            raise ValueError(f"Unknown board_pos '{board_pos}'. Choose one of: {list(board_positions)}")
+
         gripper(close=False)
         # move to initial position
+
         self._init_move(self.target_object)
         time.sleep(self.delay_exec)
-
+        
         # For YOLO, we need to set offset
         if self.is_YOLO:
             self.pos['x'] += self.YOLO_offset_x
             self.pos['y'] += self.YOLO_offset_y
+        else:
+            # This is for dice.
+            if self.target_object == "dice":
+                yaw_status = self._checking_yaw(self.yaw)
+                print(self.yaw)
+                self.converting_yaw(yaw_status=yaw_status, target_yaw_status=2)
+            # This is for piece pnp.
+            else:
+                yaw_status = self._checking_yaw(self.yaw)
+                # clockwisely rotate 90 degree.
+                if board_pos in ("GO", "SUWON", "SEOUL", "INCHEON_AIRPORT", "IN_JAIL"):
+                    self.converting_yaw(yaw_status=yaw_status, target_yaw_status=1)
+
+                # Counter clockwisely rotate -90 degree.
+                elif board_pos in ("NON-FREE_PARKING", "BUSAN", "GYEONGJU", "GANGNEUNG", "GO_TO_JAIL"):
+                    self.converting_yaw(yaw_status=yaw_status, target_yaw_status=3)
+
+                # Rotate 180 degree. Looking front side.
+                else:
+                    self.converting_yaw(yaw_status=yaw_status, target_yaw_status=2)
+
         logger.info(f"{self.target_object}: x={self.pos['x']}, y={self.pos['y']}, z={self.pos['z']}, yaw={self.yaw}")
 
         # move toward target
-        absolute_cartesian_base([self.pos['y'], -self.pos['x'], 0.29],[3.14, 0.0, -3.14])
+        target_pos = [self.pos['y'], -self.pos['x'], 0.29]
+        target_ori = [3.14, 0.0, self.yaw]
+        print(self.yaw)
+        self._toward_target(self.target_object, self.delay_exec, target_pos, target_ori)
         time.sleep(self.delay_exec)
 
         # grasp
         gripper(close=True)
         time.sleep(self.delay_exec)
-        
+
         # move to destination
-        self._dest_move(self.target_object)
+        self._dest_move(self.target_object, self.delay_exec, board_pos)
         time.sleep(self.delay_exec)
-        
-        # place
-        gripper(close=False)
-        time.sleep(self.delay_exec)
+
+
 
 
 
@@ -161,13 +410,13 @@ def main():
     # init
     move_base()
     time.sleep(2.0)
-    pnp = PnP(target_object = sys.argv[1], is_YOLO=False, delay_exec=2.0)
-    
+    pnp = PnP(target_object=sys.argv[1], is_YOLO=False, delay_exec=2.0)
+
     # pick and place
     if not pnp.get_piece_info():
         logger.error("Failed to get piece info, aborting.")
         return
-    pnp.pick_and_place()
+    pnp.pick_and_place(board_pos=sys.argv[2])
 
 
 if __name__ == "__main__":

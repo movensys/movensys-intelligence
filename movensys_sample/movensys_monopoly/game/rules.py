@@ -61,7 +61,7 @@ def start_game(state: GameState, board_id: str) -> Board:
     # Singleton-game model: pressing "Start" always begins a fresh game
     # even mid-play. The reset below clobbers every in-memory field, so
     # there's nothing to protect from a second /game/start call.
-    if board_id not in ("1", "2", "3"):
+    if board_id != "final":
         raise RuleError("BAD_REQUEST", f"unknown board_id: {board_id!r}")
     board = load_board(board_id)
     state.board_id = board_id  # type: ignore[assignment]
@@ -151,17 +151,9 @@ def apply_move(state: GameState, player: Player, from_tile: int, to_tile: int) -
     bonus = 0
     if wrapped:
         state.lap_count[player] = state.lap_count.get(player, 0) + 1
-        # Board 3 rule: first to complete a full lap wins.
-        if board.board_id == "3":
-            lap_completed = True
-            winner = player
-            state.winner = player
-            state.fsm = FSM.GAME_OVER
-        else:
-            # Boards 1 and 2: collect the start bonus for passing GO.
-            bonus = board.start_bonus
-            if bonus > 0:
-                state.players[player].balance += bonus
+        bonus = board.start_bonus
+        if bonus > 0:
+            state.players[player].balance += bonus
 
     return MoveResult(
         player=player,
