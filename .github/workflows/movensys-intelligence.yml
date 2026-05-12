@@ -23,6 +23,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Pre-install ros2-apt-source pinned to a known release so setup-ros
+      # skips its unauthenticated api.github.com call (rate-limited on
+      # shared runner IPs → empty version → 404 → curl exit 22).
+      - name: Pre-install ros2-apt-source
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends curl ca-certificates lsb-release
+          codename=$(. /etc/os-release && echo "${UBUNTU_CODENAME:-${VERSION_CODENAME}}")
+          version=1.2.0
+          deb="ros2-apt-source_${version}.${codename}_all.deb"
+          curl --fail --location --retry 5 --retry-delay 3 \
+            -o "/tmp/${deb}" \
+            "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${version}/${deb}"
+          sudo dpkg -i "/tmp/${deb}"
+          rm -f "/tmp/${deb}"
+          sudo apt-get update
+
       - name: Setup ROS ${{ matrix.ros_distro }}
         uses: ros-tooling/setup-ros@v0.7
         with:
