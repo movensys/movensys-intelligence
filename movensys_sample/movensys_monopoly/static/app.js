@@ -636,6 +636,115 @@ function setupVlm() {
   spSave.addEventListener("click", saveSp);
   spReset.addEventListener("click", resetSp);
   loadSp();
+
+  // Speech-to-text via OpenAI-compatible Whisper server
+  const mic       = document.getElementById("vlm-mic");
+  const sttUrl    = document.getElementById("vlm-stt-url");
+  const sttStatus = document.getElementById("vlm-stt-status");
+
+  const STT_URL_KEY = "vlm-stt-url";
+  const savedSttUrl = localStorage.getItem(STT_URL_KEY);
+  if (savedSttUrl) sttUrl.value = savedSttUrl;
+  sttUrl.addEventListener("change", () => {
+    localStorage.setItem(STT_URL_KEY, sttUrl.value.trim());
+  });
+
+  let sttRecorder = null;
+  let sttChunks   = [];
+  let sttStream   = null;
+
+  function setSttStatus(text, isError = false) {
+    sttStatus.textContent = text;
+    sttStatus.style.color = isError ? "#fca5a5" : "#64748b";
+  }
+  function stopSttTracks() {
+    if (sttStream) {
+      sttStream.getTracks().forEach(t => t.stop());
+      sttStream = null;
+    }
+  }
+  async function transcribeBlob(blob) {
+    const base = sttUrl.value.trim().replace(/\/+$/, "");
+    if (!base) { setSttStatus("Whisper URL is empty", true); return; }
+    const url = `${base}/v1/audio/transcriptions`;
+    const form = new FormData();
+    const ext = (blob.type.includes("webm") ? "webm"
+               : blob.type.includes("ogg")  ? "ogg"
+               : blob.type.includes("mp4")  ? "mp4"
+               : "wav");
+    form.append("file", blob, `speech.${ext}`);
+    form.append("model", "whisper");
+    form.append("response_format", "json");
+
+    setSttStatus("transcribing…");
+    const started = performance.now();
+    try {
+      const r = await fetch(url, { method: "POST", body: form });
+      const elapsedMs = Math.round(performance.now() - started);
+      if (!r.ok) {
+        let detail = `HTTP ${r.status}`;
+        try { const j = await r.json(); if (j.detail) detail = j.detail; } catch {}
+        setSttStatus(`${detail} (${elapsedMs} ms)`, true);
+        return;
+      }
+      const body = await r.json();
+      const text = (body.text || "").trim();
+      if (text) {
+        prompt.value = prompt.value
+          ? `${prompt.value.trimEnd()} ${text}`
+          : text;
+        prompt.focus();
+      }
+      setSttStatus(text ? `transcribed (${elapsedMs} ms)` : `empty result (${elapsedMs} ms)`);
+    } catch (err) {
+      setSttStatus(`failed: ${err}`, true);
+    }
+  }
+  async function startRecording() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setSttStatus("mic not available in this browser", true);
+      return;
+    }
+    try {
+      sttStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      setSttStatus(`mic denied: ${err.name || err}`, true);
+      return;
+    }
+    sttChunks = [];
+    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : (MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "");
+    sttRecorder = mime ? new MediaRecorder(sttStream, { mimeType: mime })
+                       : new MediaRecorder(sttStream);
+    sttRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) sttChunks.push(e.data); };
+    sttRecorder.onstop = async () => {
+      stopSttTracks();
+      mic.classList.remove("recording");
+      mic.textContent = "🎤";
+      mic.title = "Record speech and transcribe via Whisper";
+      if (sttChunks.length === 0) { setSttStatus("no audio captured", true); return; }
+      const blob = new Blob(sttChunks, { type: sttRecorder.mimeType || "audio/webm" });
+      sttChunks = [];
+      await transcribeBlob(blob);
+    };
+    sttRecorder.start();
+    mic.classList.add("recording");
+    mic.textContent = "⏹";
+    mic.title = "Stop recording";
+    setSttStatus("recording…");
+  }
+  function stopRecording() {
+    if (sttRecorder && sttRecorder.state !== "inactive") {
+      sttRecorder.stop();
+    } else {
+      stopSttTracks();
+    }
+  }
+  mic.addEventListener("click", () => {
+    if (sttRecorder && sttRecorder.state === "recording") stopRecording();
+    else startRecording();
+  });
 }
 
 // ---- boot -----------------------------------------------------------------
