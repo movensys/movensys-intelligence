@@ -14,7 +14,7 @@ x-common: &common
 
 x-common-env: &common-env
   HF_TOKEN: ${HF_TOKEN}
-  HF_REPO_NAME: ${HF_REPO_NAME}
+  HF_VLM_REPO: ${HF_VLM_REPO}
   VLM_MODEL_NAME: ${VLM_MODEL_NAME}
   VLM_TIMEOUT: ${VLM_TIMEOUT}
 

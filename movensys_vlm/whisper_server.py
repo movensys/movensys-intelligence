@@ -22,7 +22,7 @@ Why one server file: the two backends differ only in (a) how the model is
 loaded and (b) the single transcribe call. Splitting the FastAPI plumbing,
 audio decoding, and request validation across two files would invite drift.
 A small if/else at module scope keeps both paths visible and lets the same
-deployment knobs (`WHISPER_MODEL_REPO`, `WHISPER_MODEL_DIR`,
+deployment knobs (`HF_WHISPER_REPO`, `WHISPER_MODEL_DIR`,
 `WHISPER_DEFAULT_LANGUAGE`) apply uniformly.
 """
 
@@ -60,7 +60,7 @@ elif BACKEND == "transformers":
 else:
     raise RuntimeError(f"unknown WHISPER_BACKEND={BACKEND!r}; expected 'openvino' or 'transformers'")
 
-MODEL_REPO = os.environ.get("WHISPER_MODEL_REPO", _DEFAULT_REPO)
+MODEL_REPO = os.environ.get("HF_WHISPER_REPO", _DEFAULT_REPO)
 MODEL_DIR = os.environ.get("WHISPER_MODEL_DIR", _DEFAULT_DIR)
 DEVICE = os.environ.get("WHISPER_DEVICE", _DEFAULT_DEVICE)
 DEFAULT_LANGUAGE = os.environ.get("WHISPER_DEFAULT_LANGUAGE", "")

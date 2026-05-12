@@ -24,7 +24,7 @@ async def transcribe(
     response_format: str = "json",
 ) -> str:
     client = get_client()
-    model = os.environ.get("WHISPER_MODEL_REPO") or "whisper"
+    model = os.environ.get("HF_WHISPER_REPO") or "whisper"
     kwargs: dict = {
         "file": (filename, audio_bytes, content_type),
         "model": model,
