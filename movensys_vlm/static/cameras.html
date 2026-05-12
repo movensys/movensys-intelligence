@@ -36,7 +36,18 @@
           </select>
           <input id="vlm-prompt" type="text"
                  placeholder="Ask about the board… (empty = default description)" />
+          <button id="vlm-mic" class="vlm-btn vlm-btn-secondary" type="button"
+                  title="Record speech and transcribe via Whisper">🎤</button>
           <button id="vlm-ask" class="vlm-btn">Ask</button>
+        </div>
+        <div class="vlm-controls">
+          <label class="vlm-check" for="vlm-stt-url" style="white-space:nowrap">
+            <span>Whisper URL</span>
+          </label>
+          <input id="vlm-stt-url" type="text" spellcheck="false"
+                 value="http://localhost:9010"
+                 title="Base URL of the Whisper STT server (OpenAI-compatible)" />
+          <span class="vlm-meta" id="vlm-stt-status"></span>
         </div>
         <div class="vlm-controls">
           <label class="vlm-check">
@@ -362,6 +373,120 @@ vlmInterval.addEventListener('change', () => {
     if (vlmLoopTimer !== null) { clearTimeout(vlmLoopTimer); vlmLoopTimer = null; }
     if (!vlmInFlight) scheduleNextVlm();
   }
+});
+
+// Speech-to-text via OpenAI-compatible Whisper server
+const vlmMic       = document.getElementById('vlm-mic');
+const vlmSttUrl    = document.getElementById('vlm-stt-url');
+const vlmSttStatus = document.getElementById('vlm-stt-status');
+
+const STT_URL_KEY = 'vlm-stt-url';
+const savedSttUrl = localStorage.getItem(STT_URL_KEY);
+if (savedSttUrl) vlmSttUrl.value = savedSttUrl;
+vlmSttUrl.addEventListener('change', () => {
+  localStorage.setItem(STT_URL_KEY, vlmSttUrl.value.trim());
+});
+
+let sttRecorder = null;
+let sttChunks   = [];
+let sttStream   = null;
+
+function setSttStatus(text, isError = false) {
+  vlmSttStatus.textContent = text;
+  vlmSttStatus.style.color = isError ? '#fca5a5' : '#64748b';
+}
+
+function stopSttTracks() {
+  if (sttStream) {
+    sttStream.getTracks().forEach(t => t.stop());
+    sttStream = null;
+  }
+}
+
+async function transcribeBlob(blob) {
+  const base = vlmSttUrl.value.trim().replace(/\/+$/, '');
+  if (!base) { setSttStatus('Whisper URL is empty', true); return; }
+  const url = `${base}/v1/audio/transcriptions`;
+  const form = new FormData();
+  const ext = (blob.type.includes('webm') ? 'webm'
+             : blob.type.includes('ogg')  ? 'ogg'
+             : blob.type.includes('mp4')  ? 'mp4'
+             : 'wav');
+  form.append('file', blob, `speech.${ext}`);
+  form.append('model', 'whisper');
+  form.append('response_format', 'json');
+
+  setSttStatus('transcribing…');
+  const started = performance.now();
+  try {
+    const r = await fetch(url, { method: 'POST', body: form });
+    const elapsedMs = Math.round(performance.now() - started);
+    if (!r.ok) {
+      let detail = `HTTP ${r.status}`;
+      try { const j = await r.json(); if (j.detail) detail = j.detail; } catch {}
+      setSttStatus(`${detail} (${elapsedMs} ms)`, true);
+      return;
+    }
+    const body = await r.json();
+    const text = (body.text || '').trim();
+    if (text) {
+      vlmPrompt.value = vlmPrompt.value
+        ? `${vlmPrompt.value.trimEnd()} ${text}`
+        : text;
+      vlmPrompt.focus();
+    }
+    setSttStatus(text ? `transcribed (${elapsedMs} ms)` : `empty result (${elapsedMs} ms)`);
+  } catch (err) {
+    setSttStatus(`failed: ${err}`, true);
+  }
+}
+
+async function startRecording() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setSttStatus('mic not available in this browser', true);
+    return;
+  }
+  try {
+    sttStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    setSttStatus(`mic denied: ${err.name || err}`, true);
+    return;
+  }
+  sttChunks = [];
+  const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+    ? 'audio/webm;codecs=opus'
+    : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '');
+  sttRecorder = mime ? new MediaRecorder(sttStream, { mimeType: mime })
+                     : new MediaRecorder(sttStream);
+  sttRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) sttChunks.push(e.data); };
+  sttRecorder.onstop = async () => {
+    stopSttTracks();
+    vlmMic.classList.remove('recording');
+    vlmMic.textContent = '🎤';
+    vlmMic.title = 'Record speech and transcribe via Whisper';
+    if (sttChunks.length === 0) { setSttStatus('no audio captured', true); return; }
+    const blob = new Blob(sttChunks, { type: sttRecorder.mimeType || 'audio/webm' });
+    sttChunks = [];
+    await transcribeBlob(blob);
+  };
+  sttRecorder.start();
+  vlmMic.classList.add('recording');
+  vlmMic.textContent = '⏹';
+  vlmMic.title = 'Stop recording';
+  setSttStatus('recording…');
+}
+
+function stopRecording() {
+  if (sttRecorder && sttRecorder.state !== 'inactive') {
+    sttRecorder.stop();
+  } else {
+    stopSttTracks();
+  }
+}
+
+vlmMic.addEventListener('click', () => {
+  if (sttRecorder && sttRecorder.state === 'recording') stopRecording();
+  else startRecording();
 });
 
 // VLM system prompt (editable)
