@@ -62,7 +62,7 @@ services:
       - --port=9000
       - --max-model-len=1024
       - --dtype=float16
-      - --gpu-memory-utilization=0.85
+      - --gpu-memory-utilization=0.30
       - --attention-backend=TRITON_ATTN
       - --enforce-eager
       - '--limit-mm-per-prompt={"image": 1, "video": 0, "audio": 0}'
