@@ -67,6 +67,6 @@ def _assets_dir() -> Path:
 
 @lru_cache(maxsize=4)
 def load_board(board_id: str) -> Board:
-    path = _assets_dir() / f"board{board_id}.json"
+    path = _assets_dir() / f"board_{board_id}.json"
     data = path.read_text()
     return Board.model_validate_json(data)

@@ -57,7 +57,7 @@ async def modes(request: Request) -> dict[str, dict[str, object]]:
 
 
 class StartGameRequest(BaseModel):
-    board: Literal["1", "2", "3"]
+    board: Literal["final"]
 
 
 class DiceSubmitRequest(BaseModel):

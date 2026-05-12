@@ -11,7 +11,7 @@
 ### 실행
 
 ```bash
-cd movensys-monopoly
+cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_monopoly
 python3 -m uvicorn main:app --host 0.0.0.0 --port 7999
 ```
 
@@ -42,7 +42,7 @@ pgrep -fa 'uvicorn main:app' || echo "no uvicorn running"
 ### 실행
 
 ```bash
-cd movensys-monopoly/docker
+cd docker
 docker compose down
 docker compose up -d --build
 docker compose up

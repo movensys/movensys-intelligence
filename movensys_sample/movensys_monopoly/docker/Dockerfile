@@ -35,7 +35,6 @@ RUN if [ "${ROS_DISTRO}" = "jazzy" ]; then \
 
 COPY *.py ./
 COPY adapters/ ./adapters/
-COPY utils/ ./utils/
 COPY game/ ./game/
 COPY static/ ./static/
 COPY docker/entrypoint.sh /entrypoint.sh
