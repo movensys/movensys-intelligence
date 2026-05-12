@@ -1,37 +1,35 @@
 {
   "board_id": "final",
-  "tile_count": 16,
+  "tile_count": 14,
   "seed_money": 1000,
   "start_bonus": 100,
   "monopoly_bonus_multiplier": 2,
   "physical_image": "board.png",
   "layout": { "shape": "rectangle", "columns": 5, "rows": 4 },
-  "_note": "Movensys Korea-themed Monopoly. 16 tiles, counter-clockwise from GO (bottom-left).",
+  "_note": "Movensys Korea-themed Monopoly. 14 tiles, counter-clockwise from GO (bottom-left).",
   "tiles": [
     { "index": 0,  "kind": "start",        "name": "GO" },
     { "index": 1,  "kind": "property",     "name": "Suwon",            "color_group": "brown",      "price_buy": 60,  "price_building": 50,  "rent_table": [4, 20, 60, 180, 320, 450] },
     { "index": 2,  "kind": "property",     "name": "Seoul",            "color_group": "light_blue", "price_buy": 150, "price_building": 50,  "rent_table": [8, 40, 100, 300, 450, 600] },
-    { "index": 3,  "kind": "railroad",     "name": "Incheon Airport",                                                  "price_buy": 200 },
-    { "index": 4,  "kind": "jail_visit",   "name": "In Jail / Just Visiting" },
-    { "index": 5,  "kind": "utility",      "name": "Electric Company",                                                 "price_buy": 150 },
-    { "index": 6,  "kind": "property",     "name": "Jeonju",           "color_group": "pink",       "price_buy": 200, "price_building": 100, "rent_table": [12, 60, 180, 500, 700, 900] },
-    { "index": 7,  "kind": "property",     "name": "Daejeon",          "color_group": "orange",     "price_buy": 220, "price_building": 100, "rent_table": [14, 70, 200, 550, 750, 950] },
-    { "index": 8,  "kind": "tax",          "name": "Non-Free Parking",                                                 "amount": 100 },
+    { "index": 3,  "kind": "jail_visit",   "name": "In Jail / Just Visiting" },
+    { "index": 4,  "kind": "utility",      "name": "Electric Company",                                                 "price_buy": 150 },
+    { "index": 5,  "kind": "property",     "name": "Jeonju",           "color_group": "pink",       "price_buy": 200, "price_building": 100, "rent_table": [12, 60, 180, 500, 700, 900] },
+    { "index": 6,  "kind": "property",     "name": "Daejeon",          "color_group": "orange",     "price_buy": 220, "price_building": 100, "rent_table": [14, 70, 200, 550, 750, 950] },
+    { "index": 7,  "kind": "tax",          "name": "Non-Free Parking",                                                 "amount": 100 },
+    { "index": 8,  "kind": "property",     "name": "Gyeongju",         "color_group": "yellow",     "price_buy": 300, "price_building": 150, "rent_table": [22, 110, 330, 800, 975, 1150] },
     { "index": 9,  "kind": "property",     "name": "Busan",            "color_group": "red",        "price_buy": 280, "price_building": 150, "rent_table": [20, 100, 300, 750, 925, 1100] },
-    { "index": 10, "kind": "property",     "name": "Gyeongju",         "color_group": "yellow",     "price_buy": 300, "price_building": 150, "rent_table": [22, 110, 330, 800, 975, 1150] },
-    { "index": 11, "kind": "property",     "name": "Gangneung",        "color_group": "green",      "price_buy": 320, "price_building": 200, "rent_table": [28, 150, 450, 1000, 1200, 1400] },
-    { "index": 12, "kind": "go_to_jail",   "name": "Go To Jail" },
-    { "index": 13, "kind": "property",     "name": "Daegu",            "color_group": "dark_blue",  "price_buy": 400, "price_building": 200, "rent_table": [50, 200, 600, 1400, 1700, 2000] },
-    { "index": 14, "kind": "chance",       "name": "Chance" },
-    { "index": 15, "kind": "property",     "name": "Bundang",          "color_group": "brown",      "price_buy": 80,  "price_building": 50,  "rent_table": [6, 30, 90, 270, 400, 550] }
+    { "index": 10, "kind": "go_to_jail",   "name": "Go To Jail" },
+    { "index": 11, "kind": "property",     "name": "Daegu",            "color_group": "dark_blue",  "price_buy": 400, "price_building": 200, "rent_table": [50, 200, 600, 1400, 1700, 2000] },
+    { "index": 12, "kind": "chance",       "name": "Chance" },
+    { "index": 13, "kind": "property",     "name": "Bundang",          "color_group": "brown",      "price_buy": 80,  "price_building": 50,  "rent_table": [6, 30, 90, 270, 400, 550] }
   ],
   "color_group_sizes": {
     "brown": 2, "light_blue": 1, "pink": 1, "orange": 1,
-    "red": 1, "yellow": 1, "green": 1, "dark_blue": 1
+    "red": 1, "yellow": 1, "dark_blue": 1
   },
   "color_group_hex": {
     "brown": "#8B4513", "light_blue": "#87CEEB", "pink": "#E91E63",
     "orange": "#FF9800", "red": "#D32F2F", "yellow": "#FDD835",
-    "green": "#388E3C", "dark_blue": "#1A237E"
+    "dark_blue": "#1A237E"
   }
 }

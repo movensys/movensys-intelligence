@@ -190,7 +190,7 @@ def get_piece_2_pose():
         raise HTTPException(503, detail="No /piece_2 pose received yet")
     return data
 
-# Subscribing dice position from IsaacSim 
+# Subscribing dice position from IsaacSim
 @router.get("/api/topics/dice")
 def get_piece_2_pose():
     if rn.ros_node is None:
@@ -198,6 +198,16 @@ def get_piece_2_pose():
     data = rn.ros_node.latest_dice_pose
     if data is None:
         raise HTTPException(503, detail="No /piece_2 pose received yet")
+    return data
+
+# YOLO-detected dice face value, published on /yolo_dice_detector/dice_number
+@router.get("/api/topics/dice_number")
+def get_dice_number():
+    if rn.ros_node is None:
+        raise HTTPException(503, detail="ROS node not running")
+    data = rn.ros_node.latest_dice_number
+    if data is None:
+        raise HTTPException(503, detail="No dice number received yet")
     return data
 
 @router.get("/api/topics/image_top/camera_info")

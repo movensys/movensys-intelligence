@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import re
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -149,6 +152,124 @@ async def dice_request(request: Request) -> dict[str, Any]:
         raise HTTPException(**_http_kwargs(exc))
 
 
+# Default location of the robot pick-and-place script. The monopoly server
+# lives at movensys_sample/movensys_monopoly/, and the script at
+# movensys_vlm/, both under the same project root — so walk two parents up.
+_DEFAULT_PNP_SCRIPT = (
+    Path(__file__).resolve().parents[2] / "movensys_vlm" / "pick_and_place.py"
+)
+_DICE_LINE_RE = re.compile(rb"DICE_NUMBER=(\d+)")
+
+# Board tile index → pick_and_place.py board_positions key. 14-tile board,
+# counter-clockwise from GO at bottom-left.
+_TILE_INDEX_TO_BOARD_POS: dict[int, str] = {
+    0:  "GO",
+    1:  "SUWON",
+    2:  "SEOUL",
+    3:  "IN_JAIL",
+    4:  "ELECTRIC_COMPANY",
+    5:  "JEONJU",
+    6:  "DAEJEON",
+    7:  "NON-FREE_PARKING",
+    8:  "GYEONGJU",
+    9:  "BUSAN",
+    10: "GO_TO_JAIL",
+    11: "DAEGU",
+    12: "CHANCE",
+    13: "BUNDANG",
+}
+_PLAYER_TO_CUBE: dict[str, str] = {"user": "red_cube", "robot": "green_cube"}
+
+
+@api_router.post("/dice/roll_robot")
+async def dice_roll_robot(request: Request) -> dict[str, Any]:
+    # Spawn pick_and_place.py dice GO, return as soon as the script prints
+    # DICE_NUMBER=<n> (emitted right after get_piece_info). The physical
+    # motion keeps running in the background after we respond.
+    script = Path(os.environ.get("MONOPOLY_PNP_SCRIPT", _DEFAULT_PNP_SCRIPT))
+    if not script.exists():
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "SCRIPT_NOT_FOUND",
+                    "message": f"pick_and_place.py not found at {script}"},
+        )
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "python3", str(script), "dice", "GO",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500,
+                            detail={"code": "SCRIPT_NOT_FOUND", "message": str(exc)})
+
+    dice_value: int | None = None
+    captured: list[bytes] = []
+    assert proc.stdout is not None
+    while True:
+        line = await proc.stdout.readline()
+        if not line:
+            break
+        captured.append(line)
+        m = _DICE_LINE_RE.search(line)
+        if m:
+            dice_value = int(m.group(1))
+            break
+
+    if dice_value is None:
+        # Script finished without ever emitting DICE_NUMBER.
+        await proc.wait()
+        stderr = b""
+        if proc.stderr is not None:
+            try:
+                stderr = await proc.stderr.read()
+            except Exception:
+                pass
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "DICE_NOT_DETECTED",
+                "message": "robot did not report a dice number",
+                "stdout": b"".join(captured).decode("utf-8", "replace"),
+                "stderr": stderr.decode("utf-8", "replace"),
+            },
+        )
+
+    if not 1 <= dice_value <= 6:
+        # Drain & wait so we don't leak the subprocess on bad data.
+        asyncio.create_task(_drain_subprocess(proc))
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "DICE_INVALID",
+                    "message": f"invalid dice value {dice_value} from robot"},
+        )
+
+    # Detach: let the physical pick-and-place finish in the background while
+    # we return the rolled value to the caller.
+    asyncio.create_task(_drain_subprocess(proc))
+
+    try:
+        result = await request.app.state.game.submit_dice(dice_value, "robot")
+    except RuleError as exc:
+        raise HTTPException(**_http_kwargs(exc))
+    result["dice_number"] = dice_value
+    return result
+
+
+async def _drain_subprocess(proc: asyncio.subprocess.Process) -> None:
+    """Consume any remaining stdout/stderr and reap the process."""
+    try:
+        if proc.stdout is not None:
+            while await proc.stdout.readline():
+                pass
+        if proc.stderr is not None:
+            await proc.stderr.read()
+        await proc.wait()
+    except Exception:
+        ws_log.exception("drain pick_and_place subprocess failed")
+
+
 @api_router.post("/dice/submit")
 async def dice_submit(request: Request, body: DiceSubmitRequest) -> dict[str, Any]:
     if isinstance(body.value, list):
@@ -169,6 +290,59 @@ async def move_apply(request: Request, body: MoveApplyRequest) -> dict[str, Any]
         return await request.app.state.game.apply_move(body.player, body.from_tile, body.to_tile)
     except RuleError as exc:
         raise HTTPException(**_http_kwargs(exc))
+
+
+@api_router.post("/move/apply_robot")
+async def move_apply_robot(request: Request, body: MoveApplyRequest) -> dict[str, Any]:
+    # Spawn pick_and_place.py <cube> <board_pos> in the background, then apply
+    # the game move. The HTTP response doesn't wait for the physical motion.
+    board_pos = _TILE_INDEX_TO_BOARD_POS.get(body.to_tile)
+    cube = _PLAYER_TO_CUBE.get(body.player)
+    if board_pos is None or cube is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "TILE_UNMAPPED",
+                    "message": f"no board_pos mapping for tile {body.to_tile} / player {body.player}"},
+        )
+
+    script = Path(os.environ.get("MONOPOLY_PNP_SCRIPT", _DEFAULT_PNP_SCRIPT))
+    if not script.exists():
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "SCRIPT_NOT_FOUND",
+                    "message": f"pick_and_place.py not found at {script}"},
+        )
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "python3", str(script), cube, board_pos,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500,
+                            detail={"code": "SCRIPT_NOT_FOUND", "message": str(exc)})
+
+    # Wait for the physical pick_and_place to finish before updating the game
+    # state. The frontend piece only moves once the robot is on its new tile.
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "PNP_FAILED",
+                "message": f"pick_and_place exited with code {proc.returncode}",
+                "stdout": stdout.decode("utf-8", "replace"),
+                "stderr": stderr.decode("utf-8", "replace"),
+            },
+        )
+
+    try:
+        result = await request.app.state.game.apply_move(body.player, body.from_tile, body.to_tile)
+    except RuleError as exc:
+        raise HTTPException(**_http_kwargs(exc))
+    result["robot"] = {"cube": cube, "board_pos": board_pos}
+    return result
 
 
 # ---- property -------------------------------------------------------------

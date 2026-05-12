@@ -105,7 +105,18 @@
             </select>
             <input id="vlm-prompt" type="text"
                    placeholder="Ask about the board… (empty = default description)">
+            <button id="vlm-mic" class="vlm-btn vlm-btn-secondary" type="button"
+                    title="Record speech and transcribe via Whisper">🎤</button>
             <button id="vlm-ask" class="vlm-btn">Ask</button>
+          </div>
+          <div class="vlm-controls">
+            <label class="vlm-check" for="vlm-stt-url" style="white-space:nowrap">
+              <span>Whisper URL</span>
+            </label>
+            <input id="vlm-stt-url" type="text" spellcheck="false"
+                   value="http://localhost:9010"
+                   title="Base URL of the Whisper STT server (OpenAI-compatible)">
+            <span class="vlm-meta" id="vlm-stt-status"></span>
           </div>
           <div class="vlm-controls">
             <label class="vlm-check">

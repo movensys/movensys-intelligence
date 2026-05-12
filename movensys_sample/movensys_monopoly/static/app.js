@@ -1,16 +1,9 @@
 /**
  * movensys-monopoly UI.
  *
- * Single board: 16-tile JSON model rendered on a 14-cell rectangular
- * perimeter (5 wide × 4 tall grid). Indexing is counter-clockwise from
- * GO at the bottom-left corner.
- * The viewBox matches board.png (1261×584 ≈ 2.16:1).
- *
- * NOTE: the new board.png omits two cells the JSON still defines —
- * INCHEON AIRPORT (3) and GANGNEUNG (11) — so those pieces visually
- * collapse onto the adjacent corner. The right column also shows
- * GYEONGJU above BUSAN, opposite of the old image; coords below
- * follow the image labels so pieces land on the correctly-named cell.
+ * 14-tile JSON model rendered on a 14-cell rectangular perimeter (5 wide × 4
+ * tall grid). Indexing is counter-clockwise from GO at the bottom-left
+ * corner. The viewBox matches board.png (1261×584 ≈ 2.16:1).
  */
 
 // Cell geometry, corners 1.5× side cells:
@@ -23,19 +16,17 @@ const BOARD_FINAL_LAYOUT = {
     0:  { user: [61.70,   531.05], robot: [135.03,  531.05] },  // GO (BL)
     1:  { user: [54.10,   384.18], robot: [123.63,  383.32] },  // SUWON (left, lower mid)
     2:  { user: [51.57,   242.38], robot: [119.83,  242.78] },  // SEOUL (left, upper mid)
-    3:  { user: [52.20,   170.85], robot: [119.20,  170.62] },  // INCHEON AIRPORT (no visible cell — placed between SEOUL and IN JAIL)
-    4:  { user: [52.83,   99.32],  robot: [118.57,  98.45]  },  // IN JAIL (TL)
-    5:  { user: [298.45,  106.91], robot: [365.45,  106.05] },  // ELECTRIC COMPANY (top)
-    6:  { user: [546.61,  105.65], robot: [611.07,  104.78] },  // JEONJU (top)
-    7:  { user: [803.62,  105.65], robot: [870.62,  104.78] },  // DAEJEON (top)
-    8:  { user: [1049.24, 108.18], robot: [1114.97, 107.31] },  // NON-FREE PARKING (TR)
-    9:  { user: [1051.77, 385.45], robot: [1114.97, 384.58] },  // BUSAN (right, lower mid — per image)
-    10: { user: [1050.51, 243.65], robot: [1114.97, 244.05] },  // GYEONGJU (right, upper mid — per image)
-    11: { user: [1051.77, 460.78], robot: [1116.24, 460.55] },  // GANGNEUNG (no visible cell — placed between BUSAN and GO TO JAIL)
-    12: { user: [1051.77, 536.11], robot: [1117.51, 536.51] },  // GO TO JAIL (BR)
-    13: { user: [801.09,  536.11], robot: [865.56,  536.51] },  // DAEGU (bottom)
-    14: { user: [554.20,  537.38], robot: [619.94,  537.78] },  // CHANCE (bottom)
-    15: { user: [300.99,  537.38], robot: [366.72,  537.78] },  // BUNDANG (bottom)
+    3:  { user: [52.83,   99.32],  robot: [118.57,  98.45]  },  // IN JAIL (TL)
+    4:  { user: [298.45,  106.91], robot: [365.45,  106.05] },  // ELECTRIC COMPANY (top)
+    5:  { user: [546.61,  105.65], robot: [611.07,  104.78] },  // JEONJU (top)
+    6:  { user: [803.62,  105.65], robot: [870.62,  104.78] },  // DAEJEON (top)
+    7:  { user: [1049.24, 108.18], robot: [1114.97, 107.31] },  // NON-FREE PARKING (TR)
+    8:  { user: [1050.51, 243.65], robot: [1114.97, 244.05] },  // GYEONGJU (right, upper mid)
+    9:  { user: [1051.77, 385.45], robot: [1114.97, 384.58] },  // BUSAN (right, lower mid)
+    10: { user: [1051.77, 536.11], robot: [1117.51, 536.51] },  // GO TO JAIL (BR)
+    11: { user: [801.09,  536.11], robot: [865.56,  536.51] },  // DAEGU (bottom)
+    12: { user: [554.20,  537.38], robot: [619.94,  537.78] },  // CHANCE (bottom)
+    13: { user: [300.99,  537.38], robot: [366.72,  537.78] },  // BUNDANG (bottom)
   },
 };
 
@@ -400,9 +391,29 @@ function openStream() {
 // ---- manual controls ------------------------------------------------------
 
 document.getElementById("btn-roll-dice").addEventListener("click", async () => {
-  const value = 1 + Math.floor(Math.random() * 6);
-  renderDiceFace(value);
-  await postJson("/api/dice/submit", { value, source: "manual" });
+  // The robot runs pick_and_place.py dice GO; after pnp.get_piece_info() the
+  // server reads the face value from /yolo_dice_detector/dice_number and
+  // submits it as the dice roll. Disable the button while we wait.
+  const btn = document.getElementById("btn-roll-dice");
+  const prevText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Rolling…";
+  let rolled = false;
+  try {
+    const result = await postJson("/api/dice/roll_robot", {});
+    if (result && typeof result.dice_number === "number") {
+      renderDiceFace(result.dice_number);
+      rolled = true;
+    }
+  } catch (err) {
+    console.warn("roll_robot:", err);
+  } finally {
+    btn.textContent = prevText;
+    // On success the WS fsm_transition event will set disabled correctly via
+    // renderState. On failure no event fires, so re-enable here so the user
+    // can retry.
+    if (!rolled) btn.disabled = false;
+  }
 });
 document.getElementById("btn-apply-move").addEventListener("click", async () => {
   if (!currentState || !currentState.last_dice_sum) return;
@@ -412,8 +423,26 @@ document.getElementById("btn-apply-move").addEventListener("click", async () => 
     ? Object.keys(BOARD_LAYOUTS[currentState.board_id].centers).length
     : 40;
   const to = (from + currentState.last_dice_sum) % size;
-  try { await postJson("/api/move/apply", { player, from_tile: from, to_tile: to }); }
-  catch (err) { console.warn("apply_move:", err); }
+  // /api/move/apply_robot runs pick_and_place.py (red_cube for user,
+  // green_cube for robot) and only applies the game-state move once the
+  // physical motion finishes — so the on-screen piece moves at the same
+  // moment the robot arrives at the new tile.
+  const btn = document.getElementById("btn-apply-move");
+  const prevText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Moving…";
+  let moved = false;
+  try {
+    await postJson("/api/move/apply_robot", { player, from_tile: from, to_tile: to });
+    moved = true;
+  } catch (err) {
+    console.warn("apply_move:", err);
+  } finally {
+    btn.textContent = prevText;
+    // On success the WS fsm_transition event drives renderState which sets
+    // disabled correctly. On failure no event fires, so re-enable here.
+    if (!moved) btn.disabled = false;
+  }
 });
 document.getElementById("btn-end-turn").addEventListener("click", async () => {
   await postJson("/api/game/end_turn");
@@ -636,6 +665,115 @@ function setupVlm() {
   spSave.addEventListener("click", saveSp);
   spReset.addEventListener("click", resetSp);
   loadSp();
+
+  // Speech-to-text via OpenAI-compatible Whisper server
+  const mic       = document.getElementById("vlm-mic");
+  const sttUrl    = document.getElementById("vlm-stt-url");
+  const sttStatus = document.getElementById("vlm-stt-status");
+
+  const STT_URL_KEY = "vlm-stt-url";
+  const savedSttUrl = localStorage.getItem(STT_URL_KEY);
+  if (savedSttUrl) sttUrl.value = savedSttUrl;
+  sttUrl.addEventListener("change", () => {
+    localStorage.setItem(STT_URL_KEY, sttUrl.value.trim());
+  });
+
+  let sttRecorder = null;
+  let sttChunks   = [];
+  let sttStream   = null;
+
+  function setSttStatus(text, isError = false) {
+    sttStatus.textContent = text;
+    sttStatus.style.color = isError ? "#fca5a5" : "#64748b";
+  }
+  function stopSttTracks() {
+    if (sttStream) {
+      sttStream.getTracks().forEach(t => t.stop());
+      sttStream = null;
+    }
+  }
+  async function transcribeBlob(blob) {
+    const base = sttUrl.value.trim().replace(/\/+$/, "");
+    if (!base) { setSttStatus("Whisper URL is empty", true); return; }
+    const url = `${base}/v1/audio/transcriptions`;
+    const form = new FormData();
+    const ext = (blob.type.includes("webm") ? "webm"
+               : blob.type.includes("ogg")  ? "ogg"
+               : blob.type.includes("mp4")  ? "mp4"
+               : "wav");
+    form.append("file", blob, `speech.${ext}`);
+    form.append("model", "whisper");
+    form.append("response_format", "json");
+
+    setSttStatus("transcribing…");
+    const started = performance.now();
+    try {
+      const r = await fetch(url, { method: "POST", body: form });
+      const elapsedMs = Math.round(performance.now() - started);
+      if (!r.ok) {
+        let detail = `HTTP ${r.status}`;
+        try { const j = await r.json(); if (j.detail) detail = j.detail; } catch {}
+        setSttStatus(`${detail} (${elapsedMs} ms)`, true);
+        return;
+      }
+      const body = await r.json();
+      const text = (body.text || "").trim();
+      if (text) {
+        prompt.value = prompt.value
+          ? `${prompt.value.trimEnd()} ${text}`
+          : text;
+        prompt.focus();
+      }
+      setSttStatus(text ? `transcribed (${elapsedMs} ms)` : `empty result (${elapsedMs} ms)`);
+    } catch (err) {
+      setSttStatus(`failed: ${err}`, true);
+    }
+  }
+  async function startRecording() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setSttStatus("mic not available in this browser", true);
+      return;
+    }
+    try {
+      sttStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      setSttStatus(`mic denied: ${err.name || err}`, true);
+      return;
+    }
+    sttChunks = [];
+    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : (MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "");
+    sttRecorder = mime ? new MediaRecorder(sttStream, { mimeType: mime })
+                       : new MediaRecorder(sttStream);
+    sttRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) sttChunks.push(e.data); };
+    sttRecorder.onstop = async () => {
+      stopSttTracks();
+      mic.classList.remove("recording");
+      mic.textContent = "🎤";
+      mic.title = "Record speech and transcribe via Whisper";
+      if (sttChunks.length === 0) { setSttStatus("no audio captured", true); return; }
+      const blob = new Blob(sttChunks, { type: sttRecorder.mimeType || "audio/webm" });
+      sttChunks = [];
+      await transcribeBlob(blob);
+    };
+    sttRecorder.start();
+    mic.classList.add("recording");
+    mic.textContent = "⏹";
+    mic.title = "Stop recording";
+    setSttStatus("recording…");
+  }
+  function stopRecording() {
+    if (sttRecorder && sttRecorder.state !== "inactive") {
+      sttRecorder.stop();
+    } else {
+      stopSttTracks();
+    }
+  }
+  mic.addEventListener("click", () => {
+    if (sttRecorder && sttRecorder.state === "recording") stopRecording();
+    else startRecording();
+  });
 }
 
 // ---- boot -----------------------------------------------------------------

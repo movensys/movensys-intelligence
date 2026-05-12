@@ -11,6 +11,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 import geometry_msgs.msg
 import sensor_msgs.msg
+import std_msgs.msg
 import std_srvs.srv
 import tf2_msgs.msg
 from rcl_interfaces.srv import SetParameters, GetParameters
@@ -77,6 +78,7 @@ class ManipulatorNode(Node):
         self.latest_piece_2_pose: Optional[dict] = None
         self.latest_dice_pose: Optional[dict] = None
         self.latest_yolo_tf: Optional[dict] = None
+        self.latest_dice_number: Optional[dict] = None
 
         _transient_local = QoSProfile(
             depth=1,
@@ -99,6 +101,7 @@ class ManipulatorNode(Node):
         self.create_subscription(geometry_msgs.msg.Pose,           "/piece_1",                self._cb_piece_1_pose,      10, callback_group=cb)
         self.create_subscription(geometry_msgs.msg.Pose,           "/piece_2",                self._cb_piece_2_pose,      10, callback_group=cb)
         self.create_subscription(geometry_msgs.msg.Pose,           "/dice",                self._cb_dice_pose,      10, callback_group=cb)
+        self.create_subscription(std_msgs.msg.Int32,               "/yolo_dice_detector/dice_number", self._cb_dice_number, 10, callback_group=cb)
 
         self.cli_get_eef_pose   = self.create_client(GetEefPose,           "/wmx/moveit2/get_eef_pose",                     callback_group=cb)
         self.cli_gripper        = self.create_client(std_srvs.srv.SetBool, "/wmx/set_gripper",                              callback_group=cb)
@@ -187,6 +190,9 @@ class ManipulatorNode(Node):
 
     def _cb_dice_pose(self, msg: geometry_msgs.msg.Pose):
         self.latest_dice_pose = self._pose_to_dict(msg)
+
+    def _cb_dice_number(self, msg: std_msgs.msg.Int32):
+        self.latest_dice_number = {"value": int(msg.data), "received_at": time.time()}
 
     _TF_PARENT = "world_manipulator"
     _TF_CHILD  = "camera_top_color_optical_frame"
