@@ -8,6 +8,22 @@
 
 ## 1. 로컬 개발 (uvicorn)
 
+### 의존성 설치 (최초 1회)
+
+Ubuntu 24.04 (Python 3.12, PEP 668):
+
+```bash
+cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_monopoly
+pip3 install --break-system-packages -r requirements.txt
+```
+
+또는 venv 사용:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+```
+
 ### 실행
 
 ```bash
