@@ -9,11 +9,12 @@ from PIL import Image
 import std_srvs.srv
 from movensys_manipulator_moveit_config.srv import GetEefPose, MovePose, MoveJoints
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 import ros2_node as rn
 import vlm_client
+import whisper_client
 
 router = APIRouter()
 
@@ -416,6 +417,28 @@ def vlm_set_system_prompt(body: VlmSystemPromptRequest):
 @router.delete("/api/vlm/system_prompt")
 def vlm_reset_system_prompt():
     return {"system_prompt": vlm_client.reset_system_prompt()}
+
+
+# ---------------------------------------------------------------------------
+# Whisper STT
+# ---------------------------------------------------------------------------
+
+@router.post("/api/whisper/transcribe")
+async def whisper_transcribe(
+    file: UploadFile = File(...),
+    language: Optional[str] = None,
+):
+    audio_bytes = await file.read()
+    try:
+        text = await whisper_client.transcribe(
+            audio_bytes,
+            filename=file.filename or "audio.wav",
+            content_type=file.content_type or "audio/wav",
+            language=language,
+        )
+        return {"text": text, "error": None}
+    except Exception as exc:
+        return {"text": None, "error": f"transcription failed: {exc}"}
 
 
 # ---------------------------------------------------------------------------

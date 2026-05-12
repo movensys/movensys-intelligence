@@ -1,0 +1,65 @@
+x-common: &common
+  container_name: whisper_container
+  image: whisper_image
+  restart: unless-stopped
+  ports:
+    - "9010:9010"
+  volumes:
+    - &models-vol ../models/${WHISPER_MODEL_NAME}:/models/${WHISPER_MODEL_NAME}
+    - &hf-cache ~/.cache/huggingface:/root/.cache/huggingface
+
+x-common-env: &common-env
+  HF_TOKEN: ${HF_TOKEN}
+  WHISPER_MODEL_NAME: ${WHISPER_MODEL_NAME}
+  WHISPER_MODEL_DIR: /models/${WHISPER_MODEL_NAME}
+  WHISPER_MODEL_REPO: ${WHISPER_MODEL_REPO}
+  WHISPER_DEFAULT_LANGUAGE: ${WHISPER_DEFAULT_LANGUAGE:-}
+
+services:
+  # ── NVIDIA Jetson AGX Thor ──────────────────────────────────────────────────
+  whisper-nvidia:
+    <<: *common
+    profiles: [nvidia-gpu]
+    runtime: nvidia
+    build:
+      context: ..
+      dockerfile: docker/whisper-nvidia.Dockerfile
+    environment:
+      <<: *common-env
+      WHISPER_BACKEND: transformers
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
+      WHISPER_TORCH_DTYPE: ${WHISPER_TORCH_DTYPE:-float16}
+      WHISPER_CHUNK_LENGTH_S: ${WHISPER_CHUNK_LENGTH_S:-30}
+    command:
+      - uvicorn
+      - whisper_server:app
+      - --host=0.0.0.0
+      - --port=9010
+
+  # ── Intel Panther Lake NPU ──────────────────────────────────────────────────
+  # /dev/accel/accel0 is the kernel handle for the NPU on 6.x kernels and is
+  # owned by the `render` group on Ubuntu 24.04. Resolve the host's render GID
+  # with `getent group render | cut -d: -f3` and override RENDER_GID via .env
+  # if it isn't 992.
+  whisper-intel:
+    <<: *common
+    profiles: [intel-xpu]
+    build:
+      context: ..
+      dockerfile: docker/whisper-intel.Dockerfile
+    devices:
+      - /dev/accel:/dev/accel
+    group_add:
+      - "${RENDER_GID:-992}"
+    volumes:
+      - *models-vol
+      - *hf-cache
+      - ~/.cache/ze_intel_npu_cache:/root/.cache/ze_intel_npu_cache
+    environment:
+      <<: *common-env
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-NPU}
+    command:
+      - uvicorn
+      - whisper_server:app
+      - --host=0.0.0.0
+      - --port=9010

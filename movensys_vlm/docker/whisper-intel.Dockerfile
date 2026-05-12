@@ -1,0 +1,45 @@
+# Whisper STT on Intel NPU (Panther Lake) via OpenVINO GenAI.
+#
+# Strategy: use Intel's published OpenVINO 2026 runtime image as the base — it
+# already ships the user-space pieces needed to talk to /dev/accel (level-zero
+# loader + NPU plugin). On top of that we add a tiny FastAPI server that wraps
+# openvino_genai.WhisperPipeline and exposes an OpenAI-compatible
+# /v1/audio/transcriptions endpoint, so callers can use the same client they
+# point at vLLM.
+#
+# The host still needs the Intel NPU kernel driver (intel_vpu) loaded and
+# /dev/accel/accel0 visible — the container only provides user space.
+
+FROM openvino/ubuntu24_runtime:2026.0.0
+
+USER root
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3-pip python3-venv \
+        ffmpeg libsndfile1 \
+        ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PIP_BREAK_SYSTEM_PACKAGES=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/root/.cache/huggingface \
+    WHISPER_BACKEND=openvino
+
+RUN pip install \
+        "openvino==2026.0.*" \
+        "openvino-genai==2026.0.*" \
+        "huggingface_hub[cli]>=0.24" \
+        "librosa>=0.10" \
+        "soundfile>=0.12" \
+        "fastapi>=0.110" \
+        "uvicorn[standard]>=0.30" \
+        "python-multipart>=0.0.9"
+
+WORKDIR /app
+COPY whisper_server.py /app/whisper_server.py
+COPY docker/whisper-entrypoint.sh /whisper-entrypoint.sh
+RUN chmod +x /whisper-entrypoint.sh
+
+EXPOSE 9010
+
+ENTRYPOINT ["/whisper-entrypoint.sh"]
