@@ -50,101 +50,101 @@ board_positions = {
     "ELECTRIC_COMPANY": {
         "red_cube": {
             "pos": [-0.26, 0.05505, 0.3],
-            "ori": [3.14, 0.0, 3.14]
+            "ori": [3.14, 0.0, -1.57]
         },
         "green_cube": {
             "pos": [-0.215, 0.05505, 0.3],
-            "ori": [3.14, 0.0, -3.14]
+            "ori": [3.14, 0.0, -1.57]
         }
     },
     "JEONJU": {
         "red_cube": {
             "pos": [-0.15, 0.05505, 0.3],
-            "ori": [3.14, 0.0, -3.14]
+            "ori": [3.14, 0.0, -1.57]
         },
         "green_cube": {
             "pos": [-0.11, 0.05505, 0.3],
-            "ori": [3.14, 0.0, -3.14]
+            "ori": [3.14, 0.0, -1.57]
         }
     },
     "DAEJEON": {
         "red_cube": {
             "pos": [-0.035, 0.05505, 0.3],
-            "ori": [3.14, 0.0, -3.14]
+            "ori": [3.14, 0.0, -1.57]
         },
         "green_cube": {
             "pos": [0.012, 0.05505, 0.3],
-            "ori": [3.14, 0.0, -3.14]
+            "ori": [3.14, 0.0, -1.57]
         }
     },
     "NON-FREE_PARKING": {
         "red_cube": {
             "pos": [0.082, 0.055, 0.3],
-            "ori": [3.14, 0.0, 1.57]
+            "ori": [3.14, 0.0, -1.57]
         },
         "green_cube": {
             "pos": [0.124, 0.055, 0.3],
-            "ori": [3.14, 0.0, 1.57]
+            "ori": [3.14, 0.0, -1.57]
         }
     },
     "GYEONGJU": {
         "red_cube": {
             "pos": [0.082, -0.005, 0.3],
-            "ori": [3.14, 0.0, 1.57]
+            "ori": [3.14, 0.0, -1.57]
         },
         "green_cube": {
             "pos": [0.124, -0.005, 0.3],
-            "ori": [3.14, 0.0, 1.57]
+            "ori": [3.14, 0.0, -1.57]
         }
     },
     "BUSAN": {
         "red_cube": {
             "pos": [0.082, -0.07005, 0.3],
-            "ori": [3.14, 0.0, 1.57]
+            "ori": [3.14, 0.0, -1.57]
         },
         "green_cube": {
             "pos": [0.124, -0.07005, 0.3],
-            "ori": [3.14, 0.0, 1.57]
+            "ori": [3.14, 0.0, -1.57]
         }
     },
     "GO_TO_JAIL": {
         "red_cube": {
             "pos": [0.082, -0.14509, 0.3],
-            "ori": [3.14, 0.0, 1.57]
+            "ori": [3.14, 0.0, -1.57]
         },
         "green_cube": {
             "pos": [0.124, -0.14509, 0.3],
-            "ori": [3.14, 0.0, 1.57]
+            "ori": [3.14, 0.0, -1.57]
         }
     },
     "DAEGU": {
         "red_cube": {
             "pos": [-0.035, -0.14509, 0.3],
-            "ori": [3.14, 0.0, -3.14]
+            "ori": [3.14, 0.0, -1.57]
         },
         "green_cube": {
             "pos": [0.012, -0.14509, 0.3],
-            "ori": [3.14, 0.0, -3.14]
+            "ori": [3.14, 0.0, -1.57]
         }
     },
     "CHANCE": {
         "red_cube": {
             "pos": [-0.15, -0.14509, 0.3],
-            "ori": [3.14, 0.0, -3.14]
+            "ori": [3.14, 0.0, -1.57]
         },
         "green_cube": {
             "pos": [-0.11, -0.14509, 0.3],
-            "ori": [3.14, 0.0, -3.14]
+            "ori": [3.14, 0.0, -1.57]
         }
     },
     "BUNDANG": {
         "red_cube": {
             "pos": [-0.26, -0.14509, 0.29],
-            "ori": [3.14, 0.0, -3.14]
+            "ori": [3.14, 0.0, -1.57]
         },
         "green_cube": {
             "pos": [-0.215, -0.14509, 0.29],
-            "ori": [3.14, 0.0, -3.14]
+            "ori": [3.14, 0.0, -1.57]
         }
     }
 }
@@ -206,7 +206,7 @@ class PnP:
         # This offset is dependent for cube size.
         self.YOLO_dice_offset_x: float = 0.015  # [m]
         self.YOLO_dice_offset_y: float = -0.075  # [m]
-        self.YOLO_piece_offset_x: float = 0.015  # [m]
+        self.YOLO_piece_offset_x: float = 0.011  # [m]
         self.YOLO_piece_offset_y: float = -0.08 # [m]
         
 
@@ -250,7 +250,7 @@ class PnP:
                 time.sleep(delay_exec)
 
             # Go down
-            relative_cartesian_tool([0.0,0.0,0.03], [0.0,0.0,0.0])
+            relative_cartesian_tool([0.0,0.0,0.025], [0.0,0.0,0.0])
 
         
     
@@ -420,7 +420,25 @@ def main():
     if not pnp.get_piece_info():
         logger.error("Failed to get piece info, aborting.")
         return
+    
     pnp.pick_and_place(board_pos=sys.argv[2])
+
+    # When rolling the dice, emit the YOLO-detected face value so the caller
+    # (e.g. the monopoly server) can pick it up before the motion finishes.
+    if sys.argv[1] == "dice":
+        try:
+            resp = requests.get(f"{URL}/api/topics/dice_number", timeout=2.0)
+            if resp.ok:
+                value = resp.json().get("value")
+                if value is not None:
+                    print(f"DICE_NUMBER={int(value)}", flush=True)
+                    logger.info("Detected dice number: %s", value)
+                else:
+                    logger.warning("dice_number response missing 'value': %s", resp.text)
+            else:
+                logger.warning("dice_number fetch returned %s: %s", resp.status_code, resp.text)
+        except Exception as exc:
+            logger.warning("Failed to fetch dice number: %s", exc)
 
 
 if __name__ == "__main__":
