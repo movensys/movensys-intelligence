@@ -54,6 +54,13 @@
         </div>
         <div id="vlm-response" class="vlm-response empty">No response yet.</div>
         <div id="vlm-meta" class="vlm-meta"></div>
+        <div class="vlm-mic-bay">
+          <select id="vlm-mic-device" class="vlm-mic-select" title="Microphone device">
+            <option value="">Default microphone</option>
+          </select>
+          <button id="vlm-mic" class="vlm-mic-circle"
+                  title="Record voice and transcribe via Whisper">Rec</button>
+        </div>
       </div>
 
       <!-- Middle: image sent to VLM -->
@@ -91,6 +98,8 @@
 </div>
 
 <script>
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+
 async function checkHealth() {
   try {
     const r = await fetch('/api/health');
@@ -160,18 +169,9 @@ async function askVlmOnce() {
     const wh = (body.width && body.height) ? `${body.width}×${body.height}` : '—';
     const ts = new Date().toLocaleTimeString();
     vlmMeta.textContent = `camera=${body.camera} · frame=${wh} · ${elapsedMs} ms · ${ts}`;
-    if (body.image) {
-      vlmSentImage.src = `data:image/jpeg;base64,${body.image}`;
-      vlmSentImage.classList.add('has-image');
-      vlmImgPlaceholder.classList.add('hidden');
-      vlmImgMeta.textContent = `${wh} · ${ts}`;
-    } else {
-      vlmSentImage.removeAttribute('src');
-      vlmSentImage.classList.remove('has-image');
-      vlmImgPlaceholder.classList.remove('hidden');
-      vlmImgPlaceholder.textContent = 'no image';
-      vlmImgMeta.textContent = `chat only · ${ts}`;
-    }
+    vlmImgMeta.textContent = body.image
+      ? `sent ${wh} · ${ts}`
+      : `chat only · ${ts}`;
   } catch (err) {
     vlmResponse.className = 'vlm-response error';
     vlmResponse.textContent = String(err);
@@ -207,6 +207,131 @@ function startVlmLoop() {
 
 vlmAsk.addEventListener('click', () => {
   if (vlmRepeat.checked) startVlmLoop(); else askVlmOnce();
+});
+
+// Live camera preview — middle panel mirrors the selected camera via WebSocket
+let cameraWs = null;
+function setActiveCameraStream(cam) {
+  if (cameraWs) { try { cameraWs.close(); } catch {} cameraWs = null; }
+  if (cam === 'none') {
+    vlmSentImage.removeAttribute('src');
+    vlmSentImage.classList.remove('has-image');
+    vlmImgPlaceholder.classList.remove('hidden');
+    vlmImgPlaceholder.textContent = 'no camera selected';
+    vlmImgMeta.textContent = '';
+    return;
+  }
+  const path = cam === 'top' ? '/api/stream/image_top/rgb' : '/api/stream/image_hand/rgb';
+  const ws = new WebSocket(`${proto}//${location.host}${path}`);
+  cameraWs = ws;
+  ws.onmessage = (evt) => {
+    const payload = JSON.parse(evt.data);
+    if (payload.error || !payload.data?.data) return;
+    const d = payload.data;
+    vlmSentImage.src = `data:image/jpeg;base64,${d.data}`;
+    vlmSentImage.classList.add('has-image');
+    vlmImgPlaceholder.classList.add('hidden');
+    if (!vlmImgMeta.textContent.startsWith('sent ')) {
+      vlmImgMeta.textContent = `${d.width}×${d.height} · live`;
+    }
+  };
+  ws.onclose = () => {
+    if (cameraWs === ws) setTimeout(() => setActiveCameraStream(vlmCamera.value), 3000);
+  };
+}
+vlmCamera.addEventListener('change', () => setActiveCameraStream(vlmCamera.value));
+vlmRotate180.addEventListener('change', () => {
+  vlmSentImage.classList.toggle('rotate180', vlmRotate180.checked);
+});
+setActiveCameraStream(vlmCamera.value);
+
+// Whisper STT — record audio and inject transcription into vlm-prompt
+const vlmMic = document.getElementById('vlm-mic');
+const vlmMicDevice = document.getElementById('vlm-mic-device');
+let mediaRecorder = null;
+let recChunks = [];
+let isRecording = false;
+
+async function populateMicDevices() {
+  if (!navigator.mediaDevices?.enumerateDevices) return;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const audioInputs = devices.filter((d) => d.kind === 'audioinput');
+    const previous = vlmMicDevice.value;
+    vlmMicDevice.innerHTML = '<option value="">Default microphone</option>';
+    audioInputs.forEach((d, i) => {
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `Microphone ${i + 1}`;
+      vlmMicDevice.appendChild(opt);
+    });
+    if (previous && [...vlmMicDevice.options].some((o) => o.value === previous)) {
+      vlmMicDevice.value = previous;
+    }
+  } catch (err) {
+    console.warn('enumerateDevices failed:', err);
+  }
+}
+populateMicDevices();
+navigator.mediaDevices?.addEventListener?.('devicechange', populateMicDevices);
+
+async function startRecording() {
+  try {
+    const deviceId = vlmMicDevice.value;
+    const constraints = { audio: deviceId ? { deviceId: { exact: deviceId } } : true };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    // Labels are only revealed after permission is granted — repopulate.
+    populateMicDevices();
+    mediaRecorder = new MediaRecorder(stream);
+    recChunks = [];
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recChunks.push(e.data); };
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      const blob = new Blob(recChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+      await transcribeAudio(blob);
+    };
+    mediaRecorder.start();
+    isRecording = true;
+    vlmMic.textContent = 'Stop';
+    vlmMic.classList.add('recording');
+  } catch (err) {
+    alert(`Mic unavailable: ${err}`);
+  }
+}
+
+function stopRecording() {
+  if (mediaRecorder && isRecording) {
+    mediaRecorder.stop();
+    isRecording = false;
+  }
+}
+
+async function transcribeAudio(blob) {
+  vlmMic.disabled = true;
+  vlmMic.textContent = '…';
+  try {
+    const ext = (blob.type.split('/')[1] || 'webm').split(';')[0];
+    const form = new FormData();
+    form.append('file', blob, `mic.${ext}`);
+    const r = await fetch('/api/whisper/transcribe', { method: 'POST', body: form });
+    const body = await r.json();
+    if (body.error) {
+      alert(`Transcribe failed: ${body.error}`);
+    } else if (body.text) {
+      vlmPrompt.value = body.text.trim();
+      vlmPrompt.focus();
+    }
+  } catch (err) {
+    alert(`Transcribe failed: ${err}`);
+  } finally {
+    vlmMic.disabled = false;
+    vlmMic.textContent = 'Rec';
+    vlmMic.classList.remove('recording');
+  }
+}
+
+vlmMic.addEventListener('click', () => {
+  if (isRecording) stopRecording(); else startRecording();
 });
 vlmPrompt.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
