@@ -49,17 +49,17 @@ board_positions = {
     },
     "ELECTRIC_COMPANY": {
         "red_cube": {
-            "pos": [-0.28, 0.05505, 0.3],
+            "pos": [-0.26, 0.05505, 0.3],
             "ori": [3.14, 0.0, 3.14]
         },
         "green_cube": {
-            "pos": [-0.22, 0.05505, 0.3],
+            "pos": [-0.215, 0.05505, 0.3],
             "ori": [3.14, 0.0, -3.14]
         }
     },
     "JEONJU": {
         "red_cube": {
-            "pos": [-0.17, 0.05505, 0.3],
+            "pos": [-0.15, 0.05505, 0.3],
             "ori": [3.14, 0.0, -3.14]
         },
         "green_cube": {
@@ -69,81 +69,81 @@ board_positions = {
     },
     "DAEJEON": {
         "red_cube": {
-            "pos": [-0.06, 0.05505, 0.3],
+            "pos": [-0.035, 0.05505, 0.3],
             "ori": [3.14, 0.0, -3.14]
         },
         "green_cube": {
-            "pos": [0.0, 0.05505, 0.3],
+            "pos": [0.012, 0.05505, 0.3],
             "ori": [3.14, 0.0, -3.14]
         }
     },
     "NON-FREE_PARKING": {
         "red_cube": {
-            "pos": [0.05, 0.055, 0.3],
+            "pos": [0.082, 0.055, 0.3],
             "ori": [3.14, 0.0, 1.57]
         },
         "green_cube": {
-            "pos": [-0.01, 0.055, 0.3],
+            "pos": [0.124, 0.055, 0.3],
             "ori": [3.14, 0.0, 1.57]
         }
     },
     "GYEONGJU": {
         "red_cube": {
-            "pos": [0.05, -0.005, 0.3],
+            "pos": [0.082, -0.005, 0.3],
             "ori": [3.14, 0.0, 1.57]
         },
         "green_cube": {
-            "pos": [-0.01, -0.005, 0.3],
+            "pos": [0.124, -0.005, 0.3],
             "ori": [3.14, 0.0, 1.57]
         }
     },
     "BUSAN": {
         "red_cube": {
-            "pos": [0.05, -0.07005, 0.3],
+            "pos": [0.082, -0.07005, 0.3],
             "ori": [3.14, 0.0, 1.57]
         },
         "green_cube": {
-            "pos": [-0.01, -0.07005, 0.3],
+            "pos": [0.124, -0.07005, 0.3],
             "ori": [3.14, 0.0, 1.57]
         }
     },
     "GO_TO_JAIL": {
         "red_cube": {
-            "pos": [0.05, -0.14509, 0.3],
+            "pos": [0.082, -0.14509, 0.3],
             "ori": [3.14, 0.0, 1.57]
         },
         "green_cube": {
-            "pos": [-0.01, -0.14509, 0.3],
+            "pos": [0.124, -0.14509, 0.3],
             "ori": [3.14, 0.0, 1.57]
         }
     },
     "DAEGU": {
         "red_cube": {
-            "pos": [-0.03036, -0.14509, 0.3],
+            "pos": [-0.035, -0.14509, 0.3],
             "ori": [3.14, 0.0, -3.14]
         },
         "green_cube": {
-            "pos": [0.02351, -0.14509, 0.3],
+            "pos": [0.012, -0.14509, 0.3],
             "ori": [3.14, 0.0, -3.14]
         }
     },
     "CHANCE": {
         "red_cube": {
-            "pos": [-0.14805, -0.14509, 0.3],
+            "pos": [-0.15, -0.14509, 0.3],
             "ori": [3.14, 0.0, -3.14]
         },
         "green_cube": {
-            "pos": [-0.09401, -0.14509, 0.3],
+            "pos": [-0.11, -0.14509, 0.3],
             "ori": [3.14, 0.0, -3.14]
         }
     },
     "BUNDANG": {
         "red_cube": {
-            "pos": [-0.26453, -0.14509, 0.29],
+            "pos": [-0.26, -0.14509, 0.29],
             "ori": [3.14, 0.0, -3.14]
         },
         "green_cube": {
-            "pos": [-0.21345, -0.14509, 0.29],
+            "pos": [-0.215, -0.14509, 0.29],
             "ori": [3.14, 0.0, -3.14]
         }
     }
@@ -207,7 +207,7 @@ class PnP:
         self.YOLO_dice_offset_x: float = 0.015  # [m]
         self.YOLO_dice_offset_y: float = -0.075  # [m]
         self.YOLO_piece_offset_x: float = 0.015  # [m]
-        self.YOLO_piece_offset_y: float = -0.075  # [m]
+        self.YOLO_piece_offset_y: float = -0.08 # [m]
         
 
         self.pos: Optional[dict] = None
@@ -241,6 +241,7 @@ class PnP:
         else:
             # Go upside of the piece
             if self.is_YOLO:
+                print(target_pos)
                 relative_cartesian_tool(target_pos, target_ori)
                 time.sleep(delay_exec)
             else:
@@ -387,7 +388,7 @@ class PnP:
             target_ori = [0.0, 0.0, self.yaw]
         else:
             target_pos = [self.pos['y'], -self.pos['x'], 0.3]
-            target_ori = [3.14, 0.0, self.yaw]
+            target_ori = [0.0, 0.0, self.yaw]
         
         print(self.yaw)
         self._toward_target(self.target_object, self.delay_exec, target_pos, target_ori)
@@ -413,7 +414,7 @@ def main():
 
     # init
     pnp._init_move(sys.argv[1])
-    time.sleep(2.0)
+    time.sleep(3.0)
 
     # pick and place
     if not pnp.get_piece_info():
