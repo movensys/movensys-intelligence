@@ -68,10 +68,18 @@ class DiceSubmitRequest(BaseModel):
     source: Literal["manual", "rng", "robot"] = "manual"
 
 
+class DiceRollRobotRequest(BaseModel):
+    is_YOLO: bool = True
+
+
 class MoveApplyRequest(BaseModel):
     player: Literal["user", "robot"]
     from_tile: int = Field(ge=0)
     to_tile: int = Field(ge=0)
+
+
+class MoveApplyRobotRequest(MoveApplyRequest):
+    is_YOLO: bool = True
 
 
 class ConfigPatch(BaseModel):
@@ -152,12 +160,9 @@ async def dice_request(request: Request) -> dict[str, Any]:
         raise HTTPException(**_http_kwargs(exc))
 
 
-# Default location of the robot pick-and-place script. The monopoly server
-# lives at movensys_sample/movensys_monopoly/, and the script at
-# movensys_vlm/, both under the same project root — so walk two parents up.
-_DEFAULT_PNP_SCRIPT = (
-    Path(__file__).resolve().parents[2] / "movensys_vlm" / "pick_and_place.py"
-)
+# Default location of the robot pick-and-place script. It now lives next to
+# this router under movensys_sample/movensys_robopoly/.
+_DEFAULT_PNP_SCRIPT = Path(__file__).resolve().parent / "pick_and_place.py"
 _DICE_LINE_RE = re.compile(rb"DICE_NUMBER=(\d+)")
 
 # Board tile index → pick_and_place.py board_positions key. 14-tile board,
@@ -182,9 +187,9 @@ _PLAYER_TO_CUBE: dict[str, str] = {"user": "red_cube", "robot": "green_cube"}
 
 
 @api_router.post("/dice/roll_robot")
-async def dice_roll_robot(request: Request) -> dict[str, Any]:
-    # Spawn pick_and_place.py dice GO, return as soon as the script prints
-    # DICE_NUMBER=<n> (emitted right after get_piece_info). The physical
+async def dice_roll_robot(request: Request, body: DiceRollRobotRequest) -> dict[str, Any]:
+    # Spawn pick_and_place.py dice GO <is_YOLO>, return as soon as the script
+    # prints DICE_NUMBER=<n> (emitted right after get_piece_info). The physical
     # motion keeps running in the background after we respond.
     script = Path(os.environ.get("MONOPOLY_PNP_SCRIPT", _DEFAULT_PNP_SCRIPT))
     if not script.exists():
@@ -194,9 +199,10 @@ async def dice_roll_robot(request: Request) -> dict[str, Any]:
                     "message": f"pick_and_place.py not found at {script}"},
         )
 
+    is_yolo_arg = "true" if body.is_YOLO else "false"
     try:
         proc = await asyncio.create_subprocess_exec(
-            "python3", str(script), "dice", "GO",
+            "python3", str(script), "dice", "GO", is_yolo_arg,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -293,9 +299,10 @@ async def move_apply(request: Request, body: MoveApplyRequest) -> dict[str, Any]
 
 
 @api_router.post("/move/apply_robot")
-async def move_apply_robot(request: Request, body: MoveApplyRequest) -> dict[str, Any]:
-    # Spawn pick_and_place.py <cube> <board_pos> in the background, then apply
-    # the game move. The HTTP response doesn't wait for the physical motion.
+async def move_apply_robot(request: Request, body: MoveApplyRobotRequest) -> dict[str, Any]:
+    # Spawn pick_and_place.py <cube> <board_pos> <is_YOLO> in the background,
+    # then apply the game move. The HTTP response waits for the physical motion
+    # so the on-screen piece moves at the same moment as the robot.
     board_pos = _TILE_INDEX_TO_BOARD_POS.get(body.to_tile)
     cube = _PLAYER_TO_CUBE.get(body.player)
     if board_pos is None or cube is None:
@@ -313,9 +320,10 @@ async def move_apply_robot(request: Request, body: MoveApplyRequest) -> dict[str
                     "message": f"pick_and_place.py not found at {script}"},
         )
 
+    is_yolo_arg = "true" if body.is_YOLO else "false"
     try:
         proc = await asyncio.create_subprocess_exec(
-            "python3", str(script), cube, board_pos,
+            "python3", str(script), cube, board_pos, is_yolo_arg,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

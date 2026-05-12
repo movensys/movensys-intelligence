@@ -320,6 +320,17 @@ function logEvent(env) {
   while (ol.children.length > 80) ol.removeChild(ol.lastChild);
 }
 
+// ---- is_YOLO toggle -------------------------------------------------------
+
+// Client-side flag forwarded to pick_and_place.py via /api/dice/roll_robot
+// and /api/move/apply_robot bodies. Defaults to true (YOLO detection).
+let isYOLO = true;
+
+function renderYoloStatus() {
+  const el = document.getElementById("st-is-yolo");
+  if (el) el.textContent = isYOLO ? "ON" : "OFF";
+}
+
 // ---- state reconciliation -------------------------------------------------
 
 let currentState = null;
@@ -400,7 +411,7 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
   btn.textContent = "Rolling…";
   let rolled = false;
   try {
-    const result = await postJson("/api/dice/roll_robot", {});
+    const result = await postJson("/api/dice/roll_robot", { is_YOLO: isYOLO });
     if (result && typeof result.dice_number === "number") {
       renderDiceFace(result.dice_number);
       rolled = true;
@@ -433,7 +444,9 @@ document.getElementById("btn-apply-move").addEventListener("click", async () => 
   btn.textContent = "Moving…";
   let moved = false;
   try {
-    await postJson("/api/move/apply_robot", { player, from_tile: from, to_tile: to });
+    await postJson("/api/move/apply_robot", {
+      player, from_tile: from, to_tile: to, is_YOLO: isYOLO,
+    });
     moved = true;
   } catch (err) {
     console.warn("apply_move:", err);
@@ -451,6 +464,10 @@ document.getElementById("btn-reset").addEventListener("click", async () => {
   await postJson("/api/game/start", { board: "final" });
   await loadBoardVisual("final");
   await refreshState();
+});
+document.getElementById("btn-toggle-yolo").addEventListener("click", () => {
+  isYOLO = !isYOLO;
+  renderYoloStatus();
 });
 document.getElementById("btn-skip").addEventListener("click", () => submitDecision("skip"));
 document.getElementById("btn-buy").addEventListener("click", () => submitDecision("buy"));
@@ -782,6 +799,7 @@ function setupVlm() {
   await loadBadges();
   await loadBoardVisual("final");
   setupPieceDragging();
+  renderYoloStatus();
   await refreshState();
   openStream();
   openCameraFeed("/api/stream/image_top/rgb",   "feed-top-rgb",   "feed-top-rgb-status",   "feed-cell-top-rgb",   "feed-dot-top");

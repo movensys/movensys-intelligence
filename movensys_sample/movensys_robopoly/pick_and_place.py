@@ -406,11 +406,29 @@ class PnP:
 
 
 
+def _parse_is_yolo(token: str) -> bool:
+    value = token.strip().lower()
+    if value in ("1", "true", "yes", "y", "on"):
+        return True
+    if value in ("0", "false", "no", "n", "off"):
+        return False
+    raise ValueError(f"Unrecognized is_YOLO value '{token}'. Use true/false.")
+
+
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-    
-    
-    pnp = PnP(target_object=sys.argv[1], is_YOLO=True, delay_exec=2.0)
+
+    if len(sys.argv) < 4:
+        raise SystemExit(
+            "Usage: python3 pick_and_place.py <target_object> <board_pos> <is_YOLO>"
+        )
+
+    # is_YOLO drives PnP.TARGET_STR (yolo_cube_* vs piece_*) and per-method
+    # branches throughout the class, so it must be parsed before PnP() is
+    # instantiated.
+    is_yolo = _parse_is_yolo(sys.argv[3])
+
+    pnp = PnP(target_object=sys.argv[1], is_YOLO=is_yolo, delay_exec=2.0)
 
     # init
     pnp._init_move(sys.argv[1])
@@ -420,7 +438,7 @@ def main():
     if not pnp.get_piece_info():
         logger.error("Failed to get piece info, aborting.")
         return
-    
+
     pnp.pick_and_place(board_pos=sys.argv[2])
 
     # When rolling the dice, emit the YOLO-detected face value so the caller
