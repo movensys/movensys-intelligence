@@ -46,23 +46,58 @@ log = logging.getLogger("whisper")
 
 BACKEND = os.environ.get("WHISPER_BACKEND", "openvino").lower()
 
-# Backend-specific defaults: the OV-NPU build wants a pre-quantized IR repo,
-# the transformers build wants a regular HF Whisper repo. We pick sensible
-# defaults per backend so the service runs out of the box on either target.
+
+def _autodetect_ov_device() -> str:
+    # NPU > GPU > CPU. We query OpenVINO directly because that's the same list
+    # the WhisperPipeline will see at compile time — no point preferring a
+    # device the runtime can't actually target.
+    try:
+        import openvino as ov
+
+        available = {d.split(".")[0].upper() for d in ov.Core().available_devices}
+    except Exception as e:
+        log.warning("openvino device probe failed (%s); defaulting to CPU", e)
+        return "CPU"
+    for preferred in ("NPU", "GPU", "CPU"):
+        if preferred in available:
+            return preferred
+    return "CPU"
+
+
+# Per-device OV-IR model defaults. `movensys/whisper-large-v3-turbo-fp16-ov-npu`
+# is a modern stateful export (single-file decoder + `beam_idx` input) that
+# OV 2026 will load on NPU, GPU, *and* CPU. We use it for every device rather
+# than swapping in legacy FluidInference NPU IRs, which OV 2026's NPU plugin
+# rejects via the StatefulToStateless transform. See
+# docker/whisper/whisper-npu-README.md for the export-format rationale.
+_MOVENSYS_OV_REPO = ("movensys/whisper-large-v3-turbo-fp16-ov-npu",
+                     "/models/whisper-large-v3-turbo-fp16-ov-npu")
+_OV_MODEL_BY_DEVICE = {
+    "NPU": _MOVENSYS_OV_REPO,
+    "GPU": _MOVENSYS_OV_REPO,
+    "CPU": _MOVENSYS_OV_REPO,
+}
+
 if BACKEND == "openvino":
-    _DEFAULT_REPO = "FluidInference/whisper-large-v3-turbo-int4-ov-npu"
-    _DEFAULT_DIR = "/models/whisper-large-v3-turbo-int4-ov-npu"
-    _DEFAULT_DEVICE = "NPU"
+    _requested = os.environ.get("WHISPER_DEVICE", "AUTO").strip().upper() or "AUTO"
+    _DEFAULT_DEVICE = _autodetect_ov_device() if _requested == "AUTO" else _requested
+    _DEFAULT_REPO, _DEFAULT_DIR = _OV_MODEL_BY_DEVICE.get(
+        _DEFAULT_DEVICE, _OV_MODEL_BY_DEVICE["CPU"]
+    )
+    log.info(
+        "openvino backend: device=%s (requested=%s) default_model=%s",
+        _DEFAULT_DEVICE, _requested, _DEFAULT_REPO,
+    )
 elif BACKEND == "transformers":
     _DEFAULT_REPO = "openai/whisper-large-v3"
     _DEFAULT_DIR = "/models/whisper-large-v3"
-    _DEFAULT_DEVICE = "cuda"
+    _DEFAULT_DEVICE = os.environ.get("WHISPER_DEVICE", "cuda")
 else:
     raise RuntimeError(f"unknown WHISPER_BACKEND={BACKEND!r}; expected 'openvino' or 'transformers'")
 
 MODEL_REPO = os.environ.get("HF_WHISPER_REPO", _DEFAULT_REPO)
 MODEL_DIR = os.environ.get("WHISPER_MODEL_DIR", _DEFAULT_DIR)
-DEVICE = os.environ.get("WHISPER_DEVICE", _DEFAULT_DEVICE)
+DEVICE = _DEFAULT_DEVICE
 DEFAULT_LANGUAGE = os.environ.get("WHISPER_DEFAULT_LANGUAGE", "")
 MAX_NEW_TOKENS = int(os.environ.get("WHISPER_MAX_NEW_TOKENS", "448"))
 TORCH_DTYPE = os.environ.get("WHISPER_TORCH_DTYPE", "float16")  # transformers only
@@ -88,8 +123,8 @@ class _OpenVINOBackend:
 
         model_path = _resolve_model_path()
         log.info(
-            "loading WhisperPipeline on %s (this triggers NPU compile, ~30s first run)",
-            DEVICE,
+            "loading WhisperPipeline on %s from %s (first-run compile may take ~30s)",
+            DEVICE, model_path,
         )
         if DEVICE.upper() == "NPU":
             self._pipe = openvino_genai.WhisperPipeline(model_path, DEVICE, STATIC_PIPELINE=True)
