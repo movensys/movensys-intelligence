@@ -10,7 +10,7 @@ x-common: &common
   devices:
       - /dev/dri:/dev/dri
   volumes:
-    - &models-vol ../models:/models
+    - &models-vol ../models/${VLM_MODEL_NAME}:/models/${VLM_MODEL_NAME}
 
 x-common-env: &common-env
   HF_TOKEN: ${HF_TOKEN}

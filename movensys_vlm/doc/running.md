@@ -17,6 +17,14 @@ COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml build
 COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml up -d  
 ```
 
+# Setup Whisper
+```
+cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
+COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml down
+COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml build
+COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml up -d  
+```
+
 # Setup movensys_vlm
 ```
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
@@ -29,6 +37,21 @@ docker compose -f movensys_vlm.yaml up -d
 open `localhost:8000` for robot controller
 open `localhost:8000/vlm` for VLM
 open `localhost:8000/docs` for checking APIs
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ---
 
