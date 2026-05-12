@@ -10,19 +10,22 @@ source ~/.bashrc
 ```
 
 # Setup Vllm 
-## For Nvidia 
+## For Nvidia Desktop, Jetson Thor, Intel B60 
 ```
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
 COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml down
 COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml build
 COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml up -d  
 ```
-## For Intel
-Docker setup is failed
+## For Intel Panther Lake [Docker setup is failed]
 ```
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
 ./vllm-intel-build.sh
 ./vllm-intel-run.sh
+```
+## If memory stuck in Intel Panther Lake
+```
+sync && sudo sysctl vm.drop_caches=3
 ```
 
 

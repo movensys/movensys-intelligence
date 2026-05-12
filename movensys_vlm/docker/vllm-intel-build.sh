@@ -26,11 +26,15 @@ cd vllm
 git checkout v0.20.0
 
 # 4. Build vLLM for XPU
+# Order matches vllm-intel.Dockerfile: install requirements + vLLM first, then
+# swap Triton last. If you uninstall/reinstall Triton before the vLLM install,
+# vllm's setup re-pulls upstream `triton` and clobbers `triton-xpu`, leaving
+# `triton.backends` un-importable at runtime.
 pip install --upgrade pip
 pip install -v -r requirements/xpu.txt
+VLLM_TARGET_DEVICE=xpu pip install --no-build-isolation -e . -v
 pip uninstall -y triton triton-xpu
 pip install triton-xpu==3.7.0 --extra-index-url https://download.pytorch.org/whl/xpu
-VLLM_TARGET_DEVICE=xpu pip install --no-build-isolation -e . -v
 
 # 5. Hugging Face CLI (for the download step)
 pip install "huggingface_hub[cli]"
