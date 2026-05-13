@@ -1,19 +1,69 @@
 # Running Movensys-Manipulator
-check `doc/` number 1, 2, and 3
+check `doc/` number 1, 2, and 6
 
-# Setup docker
+# Bashrc Setup
+```
+export XPU_CORE=nvidia-gpu              #support{nvidia-gpu, intel-xpu} 
+```
+```
+source ~/.bashrc
+```
+
+# Setup Vllm 
+## For Nvidia Desktop, Jetson Thor, Intel B60 
 ```
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
-docker compose down
-docker compose build
-docker compose up
+COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml down
+COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml build
+COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml up -d  
+```
+## For Intel Panther Lake [Docker setup is failed]
+```
+cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
+./vllm-intel-build.sh
+./vllm-intel-run.sh
+```
+## If memory stuck in Intel Panther Lake
+```
+sync && sudo sysctl vm.drop_caches=3
+```
+
+
+# Setup Whisper
+```
+cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
+COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml down
+COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml build
+COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml up -d  
+```
+
+# Setup movensys_vlm
+```
+cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml down
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml build
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml up -d
 ```
 
 # Running
-open `localhost:8000`
+open `localhost:8000` for robot controller
+open `localhost:8000/vlm` for VLM
+open `localhost:8000/docs` for checking APIs
 
-# Check API
-open `localhost:8000/docs`
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ---
 
