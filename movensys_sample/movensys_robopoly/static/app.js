@@ -322,8 +322,8 @@ function logEvent(env) {
 
 // ---- is_YOLO toggle -------------------------------------------------------
 
-// Client-side flag forwarded to pick_and_place.py via /api/dice/roll_robot
-// and /api/move/apply_robot bodies. Defaults to true (YOLO detection).
+// is_YOLO lives in server RuntimeConfig so SAVE/LOAD STATE persists it.
+// Mirror it locally so the Toggle button can flip without a round trip.
 let isYOLO = true;
 
 function renderYoloStatus() {
@@ -336,6 +336,10 @@ function renderYoloStatus() {
 let currentState = null;
 
 function renderState(state) {
+  if (state.config && typeof state.config.is_YOLO === "boolean") {
+    isYOLO = state.config.is_YOLO;
+    renderYoloStatus();
+  }
   document.getElementById("st-turn").textContent = state.turn;
   // Single-die manual input stores as (value, 0); only render the "+ d2"
   // part when we actually rolled two dice (doubles detection).
@@ -465,9 +469,47 @@ document.getElementById("btn-reset").addEventListener("click", async () => {
   await loadBoardVisual("final");
   await refreshState();
 });
-document.getElementById("btn-toggle-yolo").addEventListener("click", () => {
-  isYOLO = !isYOLO;
+document.getElementById("btn-toggle-yolo").addEventListener("click", async () => {
+  const next = !isYOLO;
+  try {
+    const cfg = await postJson("/api/game/config", { is_YOLO: next });
+    isYOLO = !!cfg.is_YOLO;
+  } catch (err) {
+    console.warn("toggle is_YOLO:", err);
+    isYOLO = next;  // local fallback so the UI still reflects the click
+  }
   renderYoloStatus();
+});
+document.getElementById("btn-save-state").addEventListener("click", async () => {
+  const btn = document.getElementById("btn-save-state");
+  const prevText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Saving…";
+  try {
+    await postJson("/api/game/save_state");
+  } catch (err) {
+    console.warn("save_state:", err);
+    alert(`Save failed: ${err.message || err}`);
+  } finally {
+    btn.textContent = prevText;
+    btn.disabled = false;
+  }
+});
+document.getElementById("btn-load-state").addEventListener("click", async () => {
+  const btn = document.getElementById("btn-load-state");
+  const prevText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Loading…";
+  try {
+    await postJson("/api/game/load_state");
+    await refreshState();
+  } catch (err) {
+    console.warn("load_state:", err);
+    alert(`Load failed: ${err.message || err}`);
+  } finally {
+    btn.textContent = prevText;
+    btn.disabled = false;
+  }
 });
 document.getElementById("btn-skip").addEventListener("click", () => submitDecision("skip"));
 document.getElementById("btn-buy").addEventListener("click", () => submitDecision("buy"));

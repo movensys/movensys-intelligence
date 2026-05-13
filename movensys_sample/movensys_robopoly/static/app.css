@@ -79,6 +79,8 @@ dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0;
      font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; }
 dt { color: var(--muted); }
 dd { margin: 0; }
+dd.yolo-row { display: flex; gap: 8px; align-items: center; }
+.btn-inline { padding: 2px 8px; font-size: 12px; line-height: 1.2; }
 
 .row { display: flex; gap: 6px; align-items: end; margin-bottom: 8px; }
 .row:last-child { margin-bottom: 0; }

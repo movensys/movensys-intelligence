@@ -60,6 +60,7 @@ class RuntimeConfig(BaseModel):
     player_colors: dict[Player, str] = Field(
         default_factory=lambda: {"user": "#E53935", "robot": "#1E88E5"}
     )
+    is_YOLO: bool = True
 
 
 class GameState(BaseModel):

@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 from typing import Any, Literal
 
+import yaml
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -87,6 +88,7 @@ class ConfigPatch(BaseModel):
     auctions_enabled: bool | None = None
     income_tax_mode: Literal["fixed_200", "choose"] | None = None
     player_colors: dict[str, str] | None = None
+    is_YOLO: bool | None = None
 
 
 class DecideRequest(BaseModel):
@@ -138,6 +140,56 @@ async def game_winner(request: Request) -> dict[str, str | None]:
 async def game_config(request: Request, body: ConfigPatch) -> dict[str, Any]:
     patch = body.model_dump(exclude_none=True)
     return await request.app.state.game.update_config(patch)
+
+
+_SAVED_STATE_PATH = Path(__file__).resolve().parent / "saved_status.yaml"
+
+
+@api_router.post("/game/save_state")
+async def game_save_state(request: Request) -> dict[str, Any]:
+    # mode="json" so enums (FSM) and tuples become primitives PyYAML can handle.
+    snapshot = request.app.state.game.state.model_dump(mode="json")
+    try:
+        with open(_SAVED_STATE_PATH, "w", encoding="utf-8") as fh:
+            yaml.safe_dump(snapshot, fh, sort_keys=False, allow_unicode=True)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "SAVE_FAILED", "message": str(exc)},
+        )
+    return {"path": str(_SAVED_STATE_PATH), "ok": True}
+
+
+@api_router.post("/game/load_state")
+async def game_load_state(request: Request) -> dict[str, Any]:
+    if not _SAVED_STATE_PATH.exists():
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "NO_SAVED_STATE",
+                    "message": f"no saved state at {_SAVED_STATE_PATH}"},
+        )
+    try:
+        with open(_SAVED_STATE_PATH, "r", encoding="utf-8") as fh:
+            raw = yaml.safe_load(fh)
+    except (OSError, yaml.YAMLError) as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "LOAD_FAILED", "message": str(exc)},
+        )
+    if not isinstance(raw, dict):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "BAD_SAVED_STATE",
+                    "message": "saved_status.yaml is not a mapping"},
+        )
+    try:
+        new_state = await request.app.state.game.replace_state(raw)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_SAVED_STATE", "message": str(exc)},
+        )
+    return {"path": str(_SAVED_STATE_PATH), "ok": True, "state": new_state}
 
 
 @api_router.get("/game/next_prompt")

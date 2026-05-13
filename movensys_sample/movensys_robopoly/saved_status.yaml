@@ -1,0 +1,21 @@
+board_id: final
+fsm: IDLE
+turn: user
+turn_number: 0
+positions: {}
+players: {}
+properties: {}
+last_dice: null
+last_dice_sum: null
+pending_dice: null
+doubles_streak: 0
+lap_count: {}
+winner: null
+config:
+  dice_source: rng
+  auctions_enabled: false
+  income_tax_mode: fixed_200
+  player_colors:
+    user: '#E53935'
+    robot: '#1E88E5'
+  is_YOLO: false

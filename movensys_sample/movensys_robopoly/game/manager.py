@@ -254,6 +254,20 @@ class GameManager:
     def money_snapshot(self) -> dict[str, int]:
         return {pid: p.balance for pid, p in self.state.players.items()}
 
+    async def replace_state(self, raw: dict[str, Any]) -> dict[str, Any]:
+        async with self._lock:
+            self.state = GameState.model_validate(raw)
+            if self._chance is None:
+                self._chance = load_chance()
+                self._chance.shuffle()
+            if self._cc is None:
+                self._cc = load_community_chest()
+                self._cc.shuffle()
+            self.bus.publish_nowait("state_loaded", {"board_id": self.state.board_id,
+                                                     "turn": self.state.turn,
+                                                     "fsm": self.state.fsm.value})
+            return self.state.model_dump()
+
     async def end_turn(self) -> dict[str, Any]:
         async with self._lock:
             prev = self.state.fsm
