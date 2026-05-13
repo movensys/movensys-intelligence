@@ -18,7 +18,7 @@ exec vllm serve "${PROJECT_ROOT}/models/${VLM_MODEL_NAME}" \
   --port=9000 \
   --max-model-len=2048 \
   --dtype=float16 \
-  --gpu-memory-utilization=0.30 \
+  --gpu-memory-utilization=0.70 \
   --attention-backend=TRITON_ATTN \
   --enforce-eager \
   --limit-mm-per-prompt='{"image":1,"video":0,"audio":0}'
