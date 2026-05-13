@@ -276,7 +276,7 @@ class PnP:
             time.sleep(delay_exec)
 
             # Go down
-            relative_cartesian_tool([0.0,0.0,0.06], [0.0,0.0,0.0])
+            relative_cartesian_tool([0.0,0.0,0.055], [0.0,0.0,0.0])
             time.sleep(delay_exec)
 
             # place
@@ -368,10 +368,18 @@ class PnP:
             probe_time = time.time()
             time.sleep(self._SEARCH_SETTLE_S)
             found = self.get_piece_info(min_received_at=probe_time)
-            relative_cartesian_base([-dx, -dy, 0.0], [0.0, 0.0, 0.0])
             if found:
                 logger.info("search: detected %s after %s probe", self.target_object, name)
                 return True
+            
+            relative_cartesian_base([-dx, -dy, 0.0], [0.0, 0.0, 0.0])
+            probe_time = time.time()
+            time.sleep(self._SEARCH_SETTLE_S)
+            found = self.get_piece_info(min_received_at=probe_time)
+            if found:
+                logger.info("search: detected %s after %s probe", self.target_object, name)
+                return True
+
         return False
 
     def pick_and_place(self, board_pos: str = "GO"):
@@ -448,10 +456,11 @@ def main():
 
     # init
     pnp._init_move(sys.argv[1])
+    init_done_at = time.time()
     time.sleep(3.0)
-
+    logger.info("Starting pick and place...")
     # pick and place
-    if not pnp.get_piece_info():
+    if not pnp.get_piece_info(min_received_at=init_done_at):
         logger.info("Initial detection missed, starting 4-direction fallback search")
         if not pnp._search_for_target():
             logger.error("Failed to detect %s after search, aborting.", sys.argv[1])
