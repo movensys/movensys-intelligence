@@ -1,5 +1,6 @@
 import logging
 import math
+import random
 import sys
 import time
 import requests
@@ -10,141 +11,169 @@ board_positions = {
     "GO": {
         "red_cube": {
             "pos": [-0.38973, -0.14509, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [-0.37876, -0.15907, 0.3]
         },
         "green_cube": {
             "pos": [-0.32786, -0.14509, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [-0.3323, -0.15907, 0.3]
         }
     },
     "SUWON": {
         "red_cube": {
             "pos": [-0.38973, -0.07005, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [-0.38615, -0.09402,0.3]
         },
         "green_cube": {
             "pos": [-0.32786, -0.07005, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [-0.34041, -0.09396, 0.3]
         }
     },
     "SEOUL": {
         "red_cube": {
             "pos": [-0.38973, -0.00499, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [-0.38615, -0.02562, 0.3]
         },
         "green_cube": {
             "pos": [-0.32786, -0.00499, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [-0.34041, -0.02614, 0.3]
         }
     },
     "IN_JAIL": {
         "red_cube": {
             "pos": [-0.38973, 0.05505, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [-0.38615, 0.0405, 0.3]
         },
         "green_cube": {
             "pos": [-0.32786, 0.05505, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [-0.34041, 0.04039, 0.3]
         }
     },
     "ELECTRIC_COMPANY": {
         "red_cube": {
             "pos": [-0.26, 0.05505, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [-0.27231, 0.0405, 0.3]
         },
         "green_cube": {
             "pos": [-0.215, 0.05505, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [-0.23001, 0.04039, 0.3]
         }
     },
     "JEONJU": {
         "red_cube": {
             "pos": [-0.15, 0.05505, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [-0.15219, 0.0405, 0.3]
         },
         "green_cube": {
             "pos": [-0.11, 0.05505, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [-0.10781, 0.04039, 0.3]
         }
     },
     "DAEJEON": {
         "red_cube": {
             "pos": [-0.035, 0.05505, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [-0.03453, 0.0405, 0.3]
         },
         "green_cube": {
             "pos": [0.012, 0.05505, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [0.00802, 0.04039, 0.3]
         }
     },
     "NON-FREE_PARKING": {
         "red_cube": {
             "pos": [0.082, 0.055, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [0.07915, 0.0405, 0.3]
         },
         "green_cube": {
             "pos": [0.124, 0.055, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [0.12049, 0.04039, 0.3]
         }
     },
     "GYEONGJU": {
         "red_cube": {
             "pos": [0.082, -0.005, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [0.07915, -0.02496, 0.3]
         },
         "green_cube": {
             "pos": [0.124, -0.005, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [0.12049, -0.02767, 0.3]
         }
     },
     "BUSAN": {
         "red_cube": {
             "pos": [0.082, -0.07005, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [0.07915, -0.09243, 0.3]
         },
         "green_cube": {
             "pos": [0.124, -0.07005, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [0.12049, -0.09362, 0.3]
         }
     },
     "GO_TO_JAIL": {
         "red_cube": {
             "pos": [0.082, -0.14509, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [0.07991, -0.16428, 0.3]
         },
         "green_cube": {
             "pos": [0.124, -0.14509, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [0.12049, -0.16341, 0.3]
         }
     },
     "DAEGU": {
         "red_cube": {
             "pos": [-0.035, -0.14509, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [-0.03824, -0.16428, 0.3]
         },
         "green_cube": {
             "pos": [0.012, -0.14509, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [0.00573, -0.16341, 0.3]
         }
     },
     "CHANCE": {
         "red_cube": {
             "pos": [-0.15, -0.14509, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [-0.1527, -0.16428, 0.3]
         },
         "green_cube": {
             "pos": [-0.11, -0.14509, 0.3],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [-0.11251, -0.16341, 0.3]
         }
     },
     "BUNDANG": {
         "red_cube": {
             "pos": [-0.26, -0.14509, 0.29],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [-0.26724, -0.16428, 0.3]
         },
         "green_cube": {
             "pos": [-0.215, -0.14509, 0.29],
-            "ori": [3.14, 0.0, -1.57]
+            "ori": [3.14, 0.0, -1.57],
+            "sim_pos": [-0.22484, -0.16341, 0.3]
         }
     }
 }
@@ -235,6 +264,7 @@ class PnP:
                 time.sleep(delay_exec)
             else:
                 absolute_cartesian_base(target_pos, target_ori)
+                time.sleep(delay_exec)
             
             # Go down
             relative_cartesian_tool([0.0,0.0,0.01], [0.0,0.0,0.0])
@@ -245,20 +275,16 @@ class PnP:
                 relative_cartesian_tool(target_pos, target_ori)
                 time.sleep(delay_exec)
             else:
-                target_pos[2] = target_pos[2] + 0.035
                 absolute_cartesian_base(target_pos, target_ori)
                 time.sleep(delay_exec)
 
             # Go down
             relative_cartesian_tool([0.0,0.0,0.025], [0.0,0.0,0.0])
 
-        
-    
-    @staticmethod
-    def _dest_move(target_object: str = "dice", delay_exec: float = 0.2, board_pos: str = "GO"):
+    def _dest_move(self, target_object: str = "dice", delay_exec: float = 0.2, board_pos: str = "GO"):
         if target_object == "dice":
             # Go up
-            relative_cartesian_tool([0.0,0.0,-0.08], [0.0,0.0,0.0])
+            relative_cartesian_tool([0.0,0.0,-0.1], [0.0,0.0,0.0])
             time.sleep(delay_exec)
 
             # place
@@ -266,17 +292,20 @@ class PnP:
             time.sleep(delay_exec)
         else:
             # Go up
-            relative_cartesian_tool([0.0,0.0,-0.08], [0.0,0.0,0.0])
+            relative_cartesian_tool([0.0,0.0,-0.050], [0.0,0.0,0.0])
             time.sleep(delay_exec)
 
             # Go upper side of target pos.
-            target_pos = board_positions[board_pos][target_object]["pos"]
+            if self.is_YOLO:
+                target_pos = board_positions[board_pos][target_object]["pos"]
+            else:
+                target_pos = board_positions[board_pos][target_object]["sim_pos"]
             target_pos[2] = target_pos[2] + 0.035
             absolute_cartesian_base(target_pos, board_positions[board_pos][target_object]["ori"])
             time.sleep(delay_exec)
 
             # Go down
-            relative_cartesian_tool([0.0,0.0,0.06], [0.0,0.0,0.0])
+            relative_cartesian_tool([0.0,0.0,0.055], [0.0,0.0,0.0])
             time.sleep(delay_exec)
 
             # place
@@ -361,6 +390,7 @@ class PnP:
         if self.target_object == "dice":
             yaw_status = self._checking_yaw(self.yaw)
             print(self.yaw)
+            # For using target_yaw_status = 3, we should change `movensys_manipulator's joint6 limitation`
             self.converting_yaw(yaw_status=yaw_status, target_yaw_status=1)
         # This is for piece pnp.
         else:
@@ -377,8 +407,6 @@ class PnP:
             else:
                 self.converting_yaw(yaw_status=yaw_status, target_yaw_status=1)
 
-        logger.info(f"{self.target_object}: x={self.pos['x']}, y={self.pos['y']}, z={self.pos['z']}, yaw={self.yaw}")
-
         # move toward target
         if self.is_YOLO:
             if self.target_object == "dice":
@@ -386,11 +414,15 @@ class PnP:
             else:
                 target_pos = [self.pos['x'], self.pos['y'], 0.22]
             target_ori = [0.0, 0.0, self.yaw]
+            logger.info(f"{self.target_object}: x={self.pos['x']}, y={self.pos['y']}, z={self.pos['z']}, yaw={self.yaw}")
         else:
-            target_pos = [self.pos['y'], -self.pos['x'], 0.3]
-            target_ori = [0.0, 0.0, self.yaw]
+            if self.target_object == "dice":
+                target_pos = [self.pos['y'], -self.pos['x'], 0.3]
+            else:
+                target_pos = [self.pos['y'], -self.pos['x'], 0.3]
+            target_ori = [-3.14, 0.0, self.yaw]
+            logger.info(f"{self.target_object}: x={self.pos['y']}, y={-self.pos['x']}, z={self.pos['z']}, yaw={self.yaw}")
         
-        print(self.yaw)
         self._toward_target(self.target_object, self.delay_exec, target_pos, target_ori)
         time.sleep(self.delay_exec)
 
@@ -444,20 +476,24 @@ def main():
     # When rolling the dice, emit the YOLO-detected face value so the caller
     # (e.g. the monopoly server) can pick it up before the motion finishes.
     if sys.argv[1] == "dice":
-        try:
-            resp = requests.get(f"{URL}/api/topics/dice_number", timeout=2.0)
-            if resp.ok:
-                value = resp.json().get("value")
-                if value is not None:
-                    print(f"DICE_NUMBER={int(value)}", flush=True)
-                    logger.info("Detected dice number: %s", value)
+        if is_yolo:
+            try:
+                resp = requests.get(f"{URL}/api/topics/dice_number", timeout=2.0)
+                if resp.ok:
+                    value = resp.json().get("value")
+                    if value is not None:
+                        print(f"DICE_NUMBER={int(value)}", flush=True)
+                        logger.info("Detected dice number: %s", value)
+                    else:
+                        logger.warning("dice_number response missing 'value': %s", resp.text)
                 else:
-                    logger.warning("dice_number response missing 'value': %s", resp.text)
-            else:
-                logger.warning("dice_number fetch returned %s: %s", resp.status_code, resp.text)
-        except Exception as exc:
-            logger.warning("Failed to fetch dice number: %s", exc)
-
+                    logger.warning("dice_number fetch returned %s: %s", resp.status_code, resp.text)
+            except Exception as exc:
+                logger.warning("Failed to fetch dice number: %s", exc)
+        else:
+            value = random.randint(1, 6)
+            print(f"DICE_NUMBER={value}", flush=True)
+            logger.info("Sampled dice number: %s", value)
 
 if __name__ == "__main__":
     main()
