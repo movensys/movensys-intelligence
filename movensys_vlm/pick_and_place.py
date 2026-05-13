@@ -276,7 +276,7 @@ class PnP:
             time.sleep(delay_exec)
 
             # Go down
-            relative_cartesian_tool([0.0,0.0,0.06], [0.0,0.0,0.0])
+            relative_cartesian_tool([0.0,0.0,0.055], [0.0,0.0,0.0])
             time.sleep(delay_exec)
 
             # place
@@ -287,7 +287,7 @@ class PnP:
             relative_cartesian_tool([0.0,0.0,-0.06], [0.0,0.0,0.0])
             time.sleep(delay_exec)
 
-    def get_piece_info(self) -> bool:
+    def get_piece_info(self, min_received_at: Optional[float] = None) -> bool:
         _target_object = self.TARGET_STR[self.target_num]
 
         if self.is_YOLO:
@@ -309,6 +309,13 @@ class PnP:
 
             # find the result
             tf = tf_all[_target_object]
+            # Reject cached TF entries older than the caller-supplied cutoff.
+            # Used by the fallback search to ignore stale detections from
+            # before the probe motion.
+            if min_received_at is not None and tf.get("received_at", 0.0) < min_received_at:
+                logger.info("%s detection is stale (received_at=%.3f < %.3f)",
+                            _target_object, tf.get("received_at", 0.0), min_received_at)
+                return False
             self.pos = {"x": round(tf["translation"]["x"], 5), "y": round(tf["translation"]["y"], 5), "z": round(tf["translation"]["z"], 5)}
             self.ori = {"w": tf["rotation"]["w"], "x": tf["rotation"]["x"], "y": tf["rotation"]["y"], "z": tf["rotation"]["z"]}
 
@@ -339,6 +346,41 @@ class PnP:
         delta = self._BIN_CENTERS[target_yaw_status] - self._BIN_CENTERS[yaw_status]
         # Then wrap to (-pi, pi].
         self.yaw = (self.yaw + delta + math.pi) % (2 * math.pi) - math.pi
+
+    _SEARCH_OFFSETS = (
+        ("front", ( 0.05,  0.0)),
+        ("back",  (-0.05,  0.0)),
+        ("right", ( 0.0,  -0.05)),
+        ("left",  ( 0.0,   0.05)),
+    )
+    _SEARCH_SETTLE_S = 1.5
+
+    def _search_for_target(self) -> bool:
+        """Fallback: nudge +/-5cm in base XY (front, back, right, left) and
+        retry detection at each probe. Undoes each probe before the next so
+        the arm ends at the original pose whether we succeed or fail."""
+        for name, (dx, dy) in self._SEARCH_OFFSETS:
+            logger.info("search: probing %s (dx=%+.2f, dy=%+.2f)", name, dx, dy)
+            mv = relative_cartesian_base([dx, dy, 0.0], [0.0, 0.0, 0.0])
+            if not mv.get("success", False):
+                logger.warning("search: %s probe motion failed: %s", name, mv.get("message"))
+                continue
+            probe_time = time.time()
+            time.sleep(self._SEARCH_SETTLE_S)
+            found = self.get_piece_info(min_received_at=probe_time)
+            if found:
+                logger.info("search: detected %s after %s probe", self.target_object, name)
+                return True
+            
+            relative_cartesian_base([-dx, -dy, 0.0], [0.0, 0.0, 0.0])
+            probe_time = time.time()
+            time.sleep(self._SEARCH_SETTLE_S)
+            found = self.get_piece_info(min_received_at=probe_time)
+            if found:
+                logger.info("search: detected %s after %s probe", self.target_object, name)
+                return True
+
+        return False
 
     def pick_and_place(self, board_pos: str = "GO"):
         if board_pos not in board_positions:
@@ -414,12 +456,15 @@ def main():
 
     # init
     pnp._init_move(sys.argv[1])
+    init_done_at = time.time()
     time.sleep(3.0)
-
+    logger.info("Starting pick and place...")
     # pick and place
-    if not pnp.get_piece_info():
-        logger.error("Failed to get piece info, aborting.")
-        return
+    if not pnp.get_piece_info(min_received_at=init_done_at):
+        logger.info("Initial detection missed, starting 4-direction fallback search")
+        if not pnp._search_for_target():
+            logger.error("Failed to detect %s after search, aborting.", sys.argv[1])
+            return
     
     pnp.pick_and_place(board_pos=sys.argv[2])
 
