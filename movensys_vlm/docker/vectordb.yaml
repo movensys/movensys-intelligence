@@ -1,22 +1,19 @@
 # Vector DB stack for VLM long-term memory.
 #
-# Two services:
+# Two services, identical on every host (no profiles — XPU_CORE is irrelevant
+# here, unlike vllm.yaml / whisper.yaml):
 #   * qdrant — vector store (single-binary, multi-arch image; runs on both
 #     Jetson AGX Thor / arm64 and Panther Lake / amd64).
 #   * embed  — HuggingFace text-embeddings-inference, CPU image. The embedding
-#     model is small (~130 MB for bge-small-en-v1.5) so CPU is fine on edge.
-#
-# Both services are exposed on host network and share both profiles so the same
-# `COMPOSE_PROFILES=$XPU_CORE` workflow used for vllm / whisper applies here.
+#     model is small (~120 MB for multilingual-e5-small) so CPU is fine on edge.
 #
 # Bring-up (from this directory):
-#   COMPOSE_PROFILES=$XPU_CORE docker compose -f vectordb.yaml down
-#   COMPOSE_PROFILES=$XPU_CORE docker compose -f vectordb.yaml up -d
+#   docker compose -f vectordb.yaml down
+#   docker compose -f vectordb.yaml up -d
 
 x-common: &common
   restart: unless-stopped
   network_mode: host
-  profiles: [nvidia-gpu, intel-xpu]
 
 services:
   qdrant:
@@ -32,12 +29,13 @@ services:
   embed:
     <<: *common
     container_name: embed_container
-    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    # cpu-1.5 ships hf-hub 0.3.2 which mishandles an empty HF_TOKEN env var and
+    # crashes with "relative URL without a base" before download even starts.
+    # cpu-1.6+ has the fix. Token vars are intentionally NOT passed: the
+    # default embedding model is public and an empty token re-triggers the bug.
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
     volumes:
       - ../models/embeddings:/data
-    environment:
-      HF_TOKEN: ${HF_TOKEN}
-      HUGGINGFACE_HUB_TOKEN: ${HF_TOKEN}
     command:
       - --model-id=${EMBED_MODEL_ID}
       - --port=9020

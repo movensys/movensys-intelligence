@@ -28,6 +28,13 @@ cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
 sync && sudo sysctl vm.drop_caches=3
 ```
 
+# Setup Vector Db
+```
+cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
+docker compose -f vectordb.yaml down
+docker compose -f vectordb.yaml build
+docker compose -f vectordb.yaml up -d
+```
 
 # Setup Whisper
 ```
