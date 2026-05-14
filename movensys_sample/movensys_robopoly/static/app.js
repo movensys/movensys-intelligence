@@ -68,7 +68,7 @@ async function loadBadges() {
   try {
     const m = await fetchJson("/api/modes");
     document.getElementById("modes").innerHTML =
-      modeBadge("STT", m.stt) + modeBadge("LLM", m.llm) +
+      modeBadge("STT", m.stt) + modeBadge("VLM", m.vlm) +
       modeBadge("Robot", m.robot) + modeBadge("ROS2", m.ros2);
   } catch (err) { console.warn("modes fetch failed:", err); }
 }

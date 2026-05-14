@@ -43,16 +43,16 @@ async def stt_health(request: Request) -> dict[str, object]:
     return request.app.state.stt_adapter.health()
 
 
-@api_router.get("/llm/health")
-async def llm_health(request: Request) -> dict[str, object]:
-    return request.app.state.llm_adapter.health()
+@api_router.get("/vlm/health")
+async def vlm_health(request: Request) -> dict[str, object]:
+    return request.app.state.vlm_adapter.health()
 
 
 @api_router.get("/modes")
 async def modes(request: Request) -> dict[str, dict[str, object]]:
     return {
         "stt":   request.app.state.stt_adapter.health(),
-        "llm":   request.app.state.llm_adapter.health(),
+        "vlm":   request.app.state.vlm_adapter.health(),
         "robot": request.app.state.robot_adapter.health(),
     }
 
