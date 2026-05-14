@@ -71,11 +71,12 @@ Red circles = user-owned, green = robot.
     4.1.2.3. Land → Hotel (skip house): pay $200.
     4.1.2.4. Hotel → nothing more to buy.
 4.1.3. **Already owned by the opponent** — the current player **pays
-       rent** to the opponent and cannot buy. Rent comes from the
-       tile's `rent_table` indexed by the tier owned by the opponent:
-    4.1.3.1. Land (`houses=0, !hotel`)  → `rent_table[0]`.
-    4.1.3.2. House (`houses≥1, !hotel`) → `rent_table[1]`.
-    4.1.3.3. Hotel                       → `rent_table[5]` (last entry).
+       rent** to the opponent and cannot buy. Rent equals the **total
+       price the opponent has paid in** for the current tier (i.e.
+       the cumulative buy cost from §4.1):
+    4.1.3.1. Opponent owns land    → rent = **$100**.
+    4.1.3.2. Opponent owns house   → rent = **$200**.
+    4.1.3.3. Opponent owns hotel   → rent = **$300**.
 4.1.4. If the rent payment would bankrupt the payer, the game
        auto-liquidates assets first (sell buildings, then mortgage
        land). If still short, the payer goes bankrupt and the opponent
@@ -85,16 +86,18 @@ Red circles = user-owned, green = robot.
 
 4.2.1. Buyable for $100 (land tier only — no houses or hotels on
        utilities).
-4.2.2. Rent if owned by the opponent = `dice_sum × 4`.
+4.2.2. Rent if owned by the opponent = **$100** (flat, same as the
+       land-tier rent in §4.1.3.1; the dice sum does not factor in).
 
 ### 4.3 Tax tile (Non-Free Parking)
 
-4.3.1. Landing pays a fixed amount to the bank (the tile's `amount`
-       in the board JSON). Auto-liquidation rules apply on shortfall.
+4.3.1. Landing pays a flat **$100** to the bank. (The tile's
+       `amount` field in the board JSON is no longer used.)
+       Auto-liquidation rules in §4.1.4 apply on shortfall.
 
 ### 4.4 Chance tile
 
-4.4.1. Drawing a card yields either **+$100** or **−$100** (from/to
+4.4.1. Drawing a card yields either **+$200** or **−$200** (from/to
        the bank, equal probability).
 4.4.2. No other effects (no jail-card draws, no move-to-tile cards) —
        chance in this game is a coin flip of cash only.
@@ -117,23 +120,50 @@ Red circles = user-owned, green = robot.
 4.6.1. No effect on arrival (other than the GO start bonus which
        triggers on **passing** GO, not on landing).
 
-## 5. Selling and out-of-money
+## 5. Out-of-money handling
 
-5.1. At any point during the current player's turn, they may
-     **sell** anything they own to raise liquid:
-    5.1.1. Sell a hotel → refund $100, leaves a house (2 circles).
-    5.1.2. Sell a house → refund $100, leaves land (1 circle).
-    5.1.3. Sell the land → refund $50 (mortgage). Marks the tile as
-           unowned for rent purposes.
-5.2. Selling is voluntary while solvent. If a payment would bankrupt
-     the player, the auto-liquidation in §4.1.4 runs in this order:
-     sell hotels → sell houses → mortgage land → declare bankruptcy.
+5.1. **No voluntary selling.** A player cannot choose to sell or
+     downgrade their own properties during normal play. Owned tiers
+     can only move down via the auto-liquidation pathway below.
+5.2. **Auto-liquidation** kicks in only when the player owes a
+     payment (rent §4.1.3, utility rent §4.2.2, tax §4.3, chance loss
+     §4.4) that their current liquid cannot cover. It runs in this
+     fixed order until the debt is paid:
+    5.2.1. Downgrade hotels to houses (refund $100 each, leaves 2
+           circles).
+    5.2.2. Downgrade houses to land (refund $100 each, leaves 1
+           circle).
+    5.2.3. Sell remaining land $100.
+    5.2.4. If the debt is still not covered after step 5.2.3, the
+           player is **bankrupt** and the opponent wins per §6.1.
+5.3. Auto-liquidation is the only way a player's circle count
+     decreases. There is just one "sell" event — each tier drop
+     (hotel→house, house→land, or land→unowned) emits the same
+     `tier_sold` event, surfaced in the notification banner as
+     "user sold hotel on Seoul (+$100)" etc. No separate
+     `mortgage` / `building_sold` distinction.
 
 ## 6. Win condition
 
-6.1. Game ends the moment one player is bankrupt. The other player
-     is declared winner.
-6.2. There is no fixed turn limit and no "first to N dollars" rule.
+The game ends as soon as **either** of these triggers:
+
+6.1. **Bankruptcy.** A player can no longer pay what they owe even
+     after auto-liquidation. The other player wins immediately.
+6.2. **Lap limit.** A player has completed **5 full rotations of the
+     board** (= passed GO 5 times). Tracked per player by counting
+     `lap_completed` events. As soon as either player's counter
+     reaches 5, the game ends at the end of that turn.
+    6.2.1. Winner = the player with the larger **accumulated
+           money** = `liquid + assets value`. Assets value uses the
+           same §2.1.2 sum ($100 × land tiers + $200 × house tiers
+           + $300 × hotel tiers).
+    6.2.2. If both totals are equal the UI banner shows **"draw"**.
+    6.2.3. The 5-lap counter and bankruptcy condition are checked
+           independently — bankruptcy still ends the game
+           immediately, even before any player reaches 5 laps.
+
+There is no other end condition — no "first to N dollars" and no
+fixed cash threshold.
 
 ## 7. UI surfaces relevant to gameplay
 
@@ -168,6 +198,10 @@ These items are spec, not yet code:
 - **Uniform $100 / $200 / $300 pricing**. Current code uses each
   tile's `price_buy` and `price_building` from the board JSON
   ($60–$400 / $50–$200). Spec wants flat $100 per tier.
+- **Rent equals the opponent's tier price** ($100 / $200 / $300).
+  Current code reads rent from each tile's `rent_table`
+  (`[4,20,60,180,320,450]` for Suwon etc.) — that table is no longer
+  used in the spec.
 - **Upgrade on revisit (§4.1.2)**. Current code only shows the Buy
   modal on the *first* arrival at an unowned tile; revisiting an
   already-owned tile is a no-op. Spec wants the upgrade modal.
@@ -179,6 +213,15 @@ These items are spec, not yet code:
   Spec wants two cards: `+$100` and `−$100` only.
 - **Liquid / Assets split UI (§2.1)**. Current UI only shows liquid
   (`balance`). Spec wants both, with assets computed live.
-- **Manual sell endpoints (§5.1) wired to the UI**. The backend has
-  `mortgage` / `sell_building` endpoints, but no buttons surface them
-  yet.
+- **Remove manual sell endpoints**. Backend currently exposes
+  `/api/properties/{pid}/sell_building` and
+  `/api/properties/{pid}/mortgage` for voluntary sells. Spec
+  forbids voluntary selling (§5.1) — these endpoints should be
+  dropped or made internal-only (callable only by the
+  auto-liquidation pathway).
+- **5-lap cap (§6.2)**. Current code only ends on bankruptcy and
+  doesn't track a per-player lap counter (only emits the
+  `lap_completed` event). Spec wants `PlayerState.laps_completed`
+  incremented in `apply_move` when `result.wrapped` is true and a
+  game-end check at end_turn comparing `liquid + assets value` once
+  either player hits 5 (with "draw" on tie).
