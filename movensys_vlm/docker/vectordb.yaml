@@ -1,0 +1,48 @@
+# Vector DB stack for VLM long-term memory.
+#
+# Two services:
+#   * qdrant — vector store (single-binary, multi-arch image; runs on both
+#     Jetson AGX Thor / arm64 and Panther Lake / amd64).
+#   * embed  — HuggingFace text-embeddings-inference, CPU image. The embedding
+#     model is small (~130 MB for bge-small-en-v1.5) so CPU is fine on edge.
+#
+# Both services are exposed on host network and share both profiles so the same
+# `COMPOSE_PROFILES=$XPU_CORE` workflow used for vllm / whisper applies here.
+#
+# Bring-up (from this directory):
+#   COMPOSE_PROFILES=$XPU_CORE docker compose -f vectordb.yaml down
+#   COMPOSE_PROFILES=$XPU_CORE docker compose -f vectordb.yaml up -d
+
+x-common: &common
+  restart: unless-stopped
+  network_mode: host
+  profiles: [nvidia-gpu, intel-xpu]
+
+services:
+  qdrant:
+    <<: *common
+    container_name: qdrant_container
+    image: qdrant/qdrant:v1.13.0
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: "6333"
+      QDRANT__SERVICE__GRPC_PORT: "6334"
+
+  embed:
+    <<: *common
+    container_name: embed_container
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    volumes:
+      - ../models/embeddings:/data
+    environment:
+      HF_TOKEN: ${HF_TOKEN}
+      HUGGINGFACE_HUB_TOKEN: ${HF_TOKEN}
+    command:
+      - --model-id=${EMBED_MODEL_ID}
+      - --port=9020
+      - --hostname=0.0.0.0
+      - --huggingface-hub-cache=/data
+
+volumes:
+  qdrant_storage:

@@ -3,6 +3,8 @@ from typing import Optional
 
 from openai import AsyncOpenAI
 
+import memory_client
+
 DEFAULT_SYSTEM_PROMPT = """You are a vision assistant for a board game played on a printed grid.
 
 The user will provide:
@@ -76,6 +78,11 @@ async def infer(
 ) -> str:
     client = get_client()
     model = os.environ.get("VLM_MODEL_NAME")
+
+    base_system = system_prompt if system_prompt is not None else _system_prompt
+    memory_block = memory_client.format_recall(await memory_client.recall(user_prompt))
+    effective_system = f"{base_system}\n\n{memory_block}" if memory_block else base_system
+
     user_content: list = []
     if image_b64:
         user_content.append({
@@ -88,8 +95,13 @@ async def infer(
         max_tokens=max_tokens,
         temperature=temperature,
         messages=[
-            {"role": "system", "content": system_prompt if system_prompt is not None else _system_prompt},
+            {"role": "system", "content": effective_system},
             {"role": "user", "content": user_content},
         ],
     )
-    return response.choices[0].message.content
+    answer = response.choices[0].message.content
+    await memory_client.store(
+        f"Q: {user_prompt}\nA: {answer}",
+        metadata={"prompt": user_prompt, "model": model},
+    )
+    return answer
