@@ -207,6 +207,19 @@ class GameManager:
                         break
                 self._emit_transition(prev, self.state.fsm, trigger="decide_build")
                 return {"action": "build", "fsm": self.state.fsm.value}
+            if action == "build_hotel":
+                res = rules.buy_property(self.state, board, player, pid)
+                self.bus.publish_nowait("property_bought", res)
+                try:
+                    built = rules.build(self.state, board, player, pid, hotel=True)
+                    self.bus.publish_nowait("property_built", built)
+                except rules.RuleError as exc:
+                    self.bus.publish_nowait(
+                        "property_build_rejected",
+                        {"property_id": pid, "code": exc.code, "message": str(exc)},
+                    )
+                self._emit_transition(prev, self.state.fsm, trigger="decide_build_hotel")
+                return {"action": "build_hotel", "fsm": self.state.fsm.value}
             raise rules.RuleError("BAD_REQUEST", f"unknown action: {action!r}")
 
     async def build(

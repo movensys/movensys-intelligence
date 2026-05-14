@@ -86,7 +86,8 @@ def main() -> int:
         kind = tile["kind"]
         name = tile["name"]
         if kind == "property":
-            svg = render_property(tile, colors.get(tile["color_group"], "#888"), prop_tmpl)
+            color = colors.get(tile.get("color_group"), "#888")
+            svg = render_property(tile, color, prop_tmpl)
         elif kind == "railroad":
             svg = render_railroad(tile, rail_tmpl)
         elif kind == "utility":

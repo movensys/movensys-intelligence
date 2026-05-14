@@ -352,8 +352,8 @@ def build(
         raise RuleError("BAD_REQUEST", "cannot build on mortgaged property")
 
     if hotel:
-        if p.houses != 4:
-            raise RuleError("BAD_REQUEST", "hotel requires 4 houses first")
+        if p.has_hotel:
+            raise RuleError("BAD_REQUEST", "already has hotel")
         cost = tile.price_building or 0
         if state.players[player].balance < cost:
             raise RuleError("INSUFFICIENT_FUNDS", "balance below hotel cost")

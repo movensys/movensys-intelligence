@@ -83,6 +83,45 @@ async function loadBoardVisual(boardId) {
   host.innerHTML = `<img src="/assets/boards/${boardJson.physical_image}" alt="Board ${boardId}"/>`;
 }
 
+// Ownership circles overlay: for each owned property, draw 1/2/3 colored
+// circles next to that tile — 1=land, 2=house, 3=hotel. Red=user, green=robot.
+function renderOwnership(state) {
+  const svg = document.getElementById("pieces");
+  if (!svg) return;
+  const layout = BOARD_LAYOUTS[state?.board_id];
+  let g = document.getElementById("ownership-overlay");
+  if (g) g.replaceChildren();
+  if (!layout) return;
+  if (!g) {
+    g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    g.setAttribute("id", "ownership-overlay");
+    svg.insertBefore(g, svg.firstChild);  // behind pieces
+  }
+  const props = state?.properties || {};
+  for (const p of Object.values(props)) {
+    if (!p.owner) continue;
+    const tile = layout.centers?.[p.tile_index];
+    if (!tile) continue;
+    const cx = (tile.user[0] + tile.robot[0]) / 2;
+    const cy = (tile.user[1] + tile.robot[1]) / 2 + 40;  // below the pieces
+    const tier = p.has_hotel ? 3 : (p.houses > 0 ? 2 : 1);
+    const fill = p.owner === "user" ? "var(--user)" : "var(--robot)";
+    const r = 7, gap = 4;
+    const totalW = tier * 2 * r + (tier - 1) * gap;
+    const startX = cx - totalW / 2 + r;
+    for (let i = 0; i < tier; i++) {
+      const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      c.setAttribute("cx", String(startX + i * (2 * r + gap)));
+      c.setAttribute("cy", String(cy));
+      c.setAttribute("r", String(r));
+      c.setAttribute("fill", fill);
+      c.setAttribute("stroke", "#000");
+      c.setAttribute("stroke-width", "1.5");
+      g.appendChild(c);
+    }
+  }
+}
+
 function movePiece(player, tileIndex, boardId) {
   const layout = BOARD_LAYOUTS[boardId];
   const tile = layout?.centers?.[tileIndex];
@@ -242,6 +281,7 @@ function showDecision(decision) {
   document.getElementById("decision-title").textContent = `Land on ${card.name}`;
   const canBuild = card.kind === "property" && card.price_building !== null;
   document.getElementById("btn-buy-build").style.display = canBuild ? "inline-block" : "none";
+  document.getElementById("btn-buy-hotel").style.display = canBuild ? "inline-block" : "none";
   document.getElementById("decision-modal").classList.remove("hidden");
 }
 
@@ -392,6 +432,7 @@ function renderState(state) {
       pos === undefined ? "—" : (tileName ?? pos);
     if (pos !== undefined) movePiece(p, pos, state.board_id);
   }
+  renderOwnership(state);
   const money = {};
   for (const [pid, ps] of Object.entries(state.players || {})) money[pid] = ps.balance;
   renderMoney(money);
@@ -552,6 +593,7 @@ document.getElementById("btn-load-state").addEventListener("click", async () => 
 document.getElementById("btn-skip").addEventListener("click", () => submitDecision("skip"));
 document.getElementById("btn-buy").addEventListener("click", () => submitDecision("buy"));
 document.getElementById("btn-buy-build").addEventListener("click", () => submitDecision("build", 1));
+document.getElementById("btn-buy-hotel").addEventListener("click", () => submitDecision("build_hotel"));
 
 // ---- VLM ask --------------------------------------------------------------
 

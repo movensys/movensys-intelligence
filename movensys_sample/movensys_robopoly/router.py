@@ -92,7 +92,7 @@ class ConfigPatch(BaseModel):
 
 
 class DecideRequest(BaseModel):
-    action: Literal["skip", "buy", "build"]
+    action: Literal["skip", "buy", "build", "build_hotel"]
     house_count: int = Field(default=0, ge=0, le=5)
 
 
