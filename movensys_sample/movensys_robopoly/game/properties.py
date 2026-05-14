@@ -42,21 +42,6 @@ def owned_by(state: GameState, owner: Player) -> list[PropertyState]:
     return [p for p in state.properties.values() if p.owner == owner]
 
 
-def is_monopoly(state: GameState, board: Board, color_group: str, owner: Player) -> bool:
-    """Player owns every tile in the color group (PRD §7.3.5)."""
-    if not color_group:
-        return False
-    group_tiles = [t for t in board.tiles if t.kind == "property" and t.color_group == color_group]
-    if not group_tiles:
-        return False
-    for tile in group_tiles:
-        pid = property_id(board.board_id, tile.name)
-        state_p = state.properties.get(pid)
-        if state_p is None or state_p.owner != owner:
-            return False
-    return True
-
-
 def railroads_owned(state: GameState, board: Board, owner: Player) -> int:
     return sum(
         1
@@ -116,39 +101,7 @@ def _rent_property(tile: Tile, p: PropertyState, board: Board, state: GameState)
     if p.houses > 0:
         idx = min(p.houses, len(rents) - 1)
         return rents[idx]
-    base = rents[0]
-    # Monopoly bonus applies only to unimproved properties (§7.3.5).
-    if tile.color_group and is_monopoly(state, board, tile.color_group, p.owner):  # type: ignore[arg-type]
-        return base * max(1, board.monopoly_bonus_multiplier)
-    return base
-
-
-# ---- even-build rule (PRD §7.3.5) ----------------------------------------
-
-
-def even_build_ok(
-    state: GameState, board: Board, color_group: str, change_pid: str, delta: int
-) -> bool:
-    """After applying `delta` to `change_pid`, max-min house count in the
-    color group must be at most 1 (max one over min).
-    """
-    houses: list[int] = []
-    for tile in board.tiles:
-        if tile.kind != "property" or tile.color_group != color_group:
-            continue
-        pid = property_id(board.board_id, tile.name)
-        p = state.properties.get(pid)
-        if p is None:
-            continue
-        h = p.houses + (delta if pid == change_pid else 0)
-        if p.has_hotel and pid != change_pid:
-            h = 5  # count hotel as houses=5 for the comparison
-        if pid == change_pid and p.has_hotel and delta == 0:
-            h = 5
-        houses.append(h)
-    if not houses:
-        return True
-    return (max(houses) - min(houses)) <= 1
+    return rents[0]
 
 
 # ---- projection to PRD §4.4 PropertyCard shape ----------------------------
@@ -161,7 +114,6 @@ def render_card(tile: Tile, p: PropertyState, board_id: str) -> dict:
         "tile_index": tile.index,
         "name": tile.name,
         "kind": tile.kind,
-        "color_group": tile.color_group,
         "price_buy": tile.price_buy,
         "price_building": tile.price_building,
         "rent_table": tile.rent_table,

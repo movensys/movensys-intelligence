@@ -34,12 +34,6 @@ const BOARD_LAYOUTS = {
   "final": BOARD_FINAL_LAYOUT,
 };
 
-const COLOR_HEX = {
-  brown: "#8B4513", light_blue: "#87CEEB", pink: "#E91E63",
-  orange: "#FF9800", red: "#D32F2F", yellow: "#FDD835",
-  green: "#388E3C", dark_blue: "#1A237E",
-};
-
 // ---- HTTP helpers ----------------------------------------------------------
 
 async function fetchJson(path, init) {
@@ -238,10 +232,9 @@ function showDecision(decision) {
   pendingDecision = decision;
   const { card } = decision;
   const host = document.getElementById("decision-card");
-  const swatch = COLOR_HEX[card.color_group] || "#888";
   host.innerHTML = `
-    <div class="card-preview" style="background:${swatch}; color:#fff; text-shadow:0 1px 1px rgba(0,0,0,.4)">
-      <div class="kind">${card.kind}${card.color_group ? ' · ' + card.color_group : ''}</div>
+    <div class="card-preview">
+      <div class="kind">${card.kind}</div>
       <div class="name">${card.name}</div>
       <div class="price">Price $${card.price_buy}${card.price_building ? ` · build $${card.price_building}` : ''}</div>
     </div>

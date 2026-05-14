@@ -3,9 +3,7 @@ from game.decks import Card, Deck, load_chance, load_community_chest
 from game.effects import EffectError, apply_effect
 from game.properties import (
     compute_rent,
-    even_build_ok,
     initial_properties,
-    is_monopoly,
     property_id,
     render_card,
 )
@@ -57,9 +55,7 @@ __all__ = [
     "buy_property",
     "compute_rent",
     "end_turn",
-    "even_build_ok",
     "initial_properties",
-    "is_monopoly",
     "load_board",
     "load_chance",
     "load_community_chest",

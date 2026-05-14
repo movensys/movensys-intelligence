@@ -575,7 +575,7 @@ async def stream_properties(ws: WebSocket) -> None:
 def _http_kwargs(exc: RuleError) -> dict[str, Any]:
     """FastAPI's HTTPException flow cooperates with our error envelope middleware."""
     status = 409 if exc.code in ("TILE_MISMATCH", "INVALID_STATE", "PROPERTY_OWNED",
-                                  "NOT_OWNER", "INSUFFICIENT_FUNDS", "MONOPOLY_REQUIRED",
+                                  "NOT_OWNER", "INSUFFICIENT_FUNDS",
                                   "JAIL_EXIT_UNAVAILABLE") else 400
     if exc.code == "NOT_FOUND":
         status = 404

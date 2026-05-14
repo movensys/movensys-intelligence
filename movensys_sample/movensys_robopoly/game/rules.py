@@ -19,8 +19,6 @@ from game.boards import Board, load_board
 from game.decks import Deck
 from game.effects import apply_effect
 from game.properties import (
-    even_build_ok,
-    is_monopoly,
     initial_properties,
     property_id,
     render_card,
@@ -356,10 +354,6 @@ def build(
     if hotel:
         if p.houses != 4:
             raise RuleError("BAD_REQUEST", "hotel requires 4 houses first")
-        if board.monopoly_bonus_multiplier > 1 and not is_monopoly(
-            state, board, tile.color_group or "", player
-        ):
-            raise RuleError("MONOPOLY_REQUIRED", "hotel requires monopoly")
         cost = tile.price_building or 0
         if state.players[player].balance < cost:
             raise RuleError("INSUFFICIENT_FUNDS", "balance below hotel cost")
@@ -376,14 +370,6 @@ def build(
         raise RuleError("BAD_REQUEST", "already has hotel")
     if p.houses + houses > 4:
         raise RuleError("BAD_REQUEST", "cannot exceed 4 houses (build a hotel instead)")
-    if board.monopoly_bonus_multiplier > 1 and not is_monopoly(
-        state, board, tile.color_group or "", player
-    ):
-        raise RuleError("MONOPOLY_REQUIRED", "building requires monopoly")
-    if board.monopoly_bonus_multiplier > 1 and not even_build_ok(
-        state, board, tile.color_group or "", pid, houses,
-    ):
-        raise RuleError("BAD_REQUEST", "even-build rule violated (±1 houses per group)")
     cost = (tile.price_building or 0) * houses
     if state.players[player].balance < cost:
         raise RuleError("INSUFFICIENT_FUNDS", "balance below build cost")
