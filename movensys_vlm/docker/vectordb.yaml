@@ -41,6 +41,10 @@ services:
       - --port=9020
       - --hostname=0.0.0.0
       - --huggingface-hub-cache=/data
+      # Silently clip inputs to the model's max sequence length (~512 tokens
+      # for multilingual-e5-small) instead of returning 413 Payload Too Large.
+      # Memory.store sends Q+A pairs which can easily exceed that.
+      - --auto-truncate
 
 volumes:
   qdrant_storage:
