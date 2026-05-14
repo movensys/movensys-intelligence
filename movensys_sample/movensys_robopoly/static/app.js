@@ -204,47 +204,6 @@ function renderMoney(snap) {
   }
 }
 
-// ---- property sidebar -----------------------------------------------------
-
-function groupByColor(properties) {
-  const groups = {};
-  for (const p of properties) {
-    const key = p.color_group || p.kind;
-    (groups[key] ??= []).push(p);
-  }
-  return groups;
-}
-
-function renderPropertyLists(properties) {
-  for (const player of ["user", "robot"]) {
-    const host = document.getElementById(`props-${player}`);
-    const mine = properties.filter(p => p.owner === player);
-    if (mine.length === 0) {
-      host.innerHTML = `<p class="muted" style="font-size:11px;color:var(--muted);margin:0">none yet</p>`;
-      continue;
-    }
-    const groups = groupByColor(mine);
-    const frags = [];
-    for (const [name, items] of Object.entries(groups)) {
-      frags.push(`<div class="property-group"><div class="property-group-name">${name}</div>`);
-      for (const p of items) {
-        const swatch = COLOR_HEX[p.color_group] || "#888";
-        const buildings = p.has_hotel ? "🏨" : "🏠".repeat(p.houses);
-        const cls = ["property-thumb"];
-        if (p.mortgaged) cls.push("mortgaged");
-        frags.push(
-          `<div class="${cls.join(" ")}" title="${p.name}">` +
-          `<span class="swatch" style="background:${swatch}"></span>` +
-          `<span class="name">${p.name}</span>` +
-          `<span class="buildings">${buildings}</span></div>`
-        );
-      }
-      frags.push(`</div>`);
-    }
-    host.innerHTML = frags.join("");
-  }
-}
-
 // ---- dice face ------------------------------------------------------------
 
 // Pip positions on a 3×3 grid (row, col) for each die value.
@@ -308,6 +267,88 @@ async function submitDecision(action, houseCount = 0) {
   hideDecision();
 }
 
+// ---- announcement (human-readable banner below the board) -----------------
+
+let lastAnnouncedTurn = null;
+
+function tileName(idx) {
+  if (idx === null || idx === undefined) return "—";
+  return boardTiles?.[idx]?.name ?? `tile ${idx}`;
+}
+
+function propertyName(pid) {
+  if (!pid) return "a property";
+  const prop = currentState?.properties?.[pid];
+  if (prop && typeof prop.tile_index === "number") return tileName(prop.tile_index);
+  // property_id is usually `${board_id}:${tile_name_slug}` — fall back to the suffix.
+  const idx = String(pid).lastIndexOf(":");
+  return idx >= 0 ? String(pid).slice(idx + 1).replace(/_/g, " ") : pid;
+}
+
+function announce(text, kind = "info") {
+  const el = document.getElementById("notification");
+  if (!el) return;
+  el.classList.remove("empty");
+  el.className = `notification kind-${kind}`;
+  el.textContent = text;
+}
+
+function announceFromEvent(env) {
+  const { type, payload = {} } = env;
+  switch (type) {
+    case "game_started":
+      announce("Game started", "turn");
+      lastAnnouncedTurn = null;
+      break;
+    case "dice_submitted": {
+      const player = currentState?.turn ?? "player";
+      const sum = payload.sum ?? payload.value;
+      announce(`${player} rolled ${sum}`, "dice");
+      break;
+    }
+    case "move_applied":
+      announce(`${payload.player} moved to ${tileName(payload.to_tile)}`, "move");
+      break;
+    case "lap_completed":
+      announce(`${payload.player} passed GO`, "move");
+      break;
+    case "start_bonus":
+      announce(`${payload.player} collected $${payload.amount} for passing GO`, "money");
+      break;
+    case "property_bought":
+      announce(`${payload.owner} bought ${propertyName(payload.property_id)} for $${payload.price}`, "buy");
+      break;
+    case "purchase_skipped":
+      announce(`Purchase skipped`, "buy");
+      break;
+    case "property_built":
+      announce(`Built on ${propertyName(payload.property_id)}`, "build");
+      break;
+    case "property_mortgaged":
+      announce(`Mortgaged ${propertyName(payload.property_id)}`, "money");
+      break;
+    case "property_unmortgaged":
+      announce(`Unmortgaged ${propertyName(payload.property_id)}`, "money");
+      break;
+    case "building_sold":
+      announce(`Sold building on ${propertyName(payload.property_id)}`, "money");
+      break;
+    case "tile_rent_paid":
+      announce(`Rent paid${payload.amount ? ` ($${payload.amount})` : ""}`, "money");
+      break;
+    case "tile_tax_paid":
+      announce(`Tax paid${payload.amount ? ` ($${payload.amount})` : ""}`, "money");
+      break;
+    case "game_won":
+      announce(`🏆 ${payload.winner} wins the game!`, "win");
+      break;
+    case "state_loaded":
+      announce("Game state loaded", "turn");
+      lastAnnouncedTurn = null;
+      break;
+  }
+}
+
 // ---- event log ------------------------------------------------------------
 
 function logEvent(env) {
@@ -367,15 +408,18 @@ function renderState(state) {
   document.getElementById("btn-roll-dice").disabled = state.fsm !== "TURN_START";
   document.getElementById("btn-end-turn").disabled =
     !["RESOLVE_TILE", "END_TURN"].includes(state.fsm) || winner;
+
+  // Whose turn is it? — announce when it flips. Skip if a winner has been
+  // declared so the "X wins" banner isn't overwritten by a stale turn label.
+  if (!winner && state.turn && state.turn !== lastAnnouncedTurn) {
+    lastAnnouncedTurn = state.turn;
+    announce(`It's ${state.turn}'s turn`, "turn");
+  }
 }
 
 async function refreshState() {
   currentState = await fetchJson("/api/game/state");
   renderState(currentState);
-  try {
-    const props = await fetchJson("/api/properties");
-    renderPropertyLists(props);
-  } catch (err) { /* properties empty before start */ }
 }
 
 // ---- WebSocket stream ----------------------------------------------------
@@ -397,6 +441,7 @@ function openStream() {
         card: env.payload.card,
       });
     }
+    announceFromEvent(env);
     await refreshState();
   };
   ws.onclose = () => setTimeout(openStream, 1500);
@@ -515,49 +560,12 @@ document.getElementById("btn-skip").addEventListener("click", () => submitDecisi
 document.getElementById("btn-buy").addEventListener("click", () => submitDecision("buy"));
 document.getElementById("btn-buy-build").addEventListener("click", () => submitDecision("build", 1));
 
-// ---- camera thumbs --------------------------------------------------------
-
-const VLM_HOST = `${location.hostname}:8000`;
-
-function openCameraFeed(path, imgId, statusId, cellId, dotId) {
-  const img = document.getElementById(imgId);
-  const status = document.getElementById(statusId);
-  const cell = document.getElementById(cellId);
-  const dot = dotId ? document.getElementById(dotId) : null;
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(`${proto}//${VLM_HOST}${path}`);
-  ws.onmessage = (ev) => {
-    const payload = JSON.parse(ev.data);
-    if (payload.error || !payload.data?.data) {
-      cell.classList.remove("live");
-      if (dot) dot.classList.remove("live");
-      status.textContent = "No stream";
-      return;
-    }
-    cell.classList.add("live");
-    if (dot) dot.classList.add("live");
-    img.src = `data:image/jpeg;base64,${payload.data.data}`;
-    const enc = payload.data.encoding ? ` · ${payload.data.encoding}` : "";
-    status.textContent = `${payload.data.width}×${payload.data.height}${enc}`;
-  };
-  ws.onerror = () => {
-    cell.classList.remove("live");
-    if (dot) dot.classList.remove("live");
-  };
-  ws.onclose = () => {
-    cell.classList.remove("live");
-    if (dot) dot.classList.remove("live");
-    status.textContent = "No stream";
-    setTimeout(() => openCameraFeed(path, imgId, statusId, cellId, dotId), 3000);
-  };
-}
-
 // ---- VLM ask --------------------------------------------------------------
 
+const VLM_HOST = `${location.hostname}:8000`;
 const VLM_BASE = `${location.protocol}//${VLM_HOST}`;
 
 function setupVlm() {
-  const camera   = document.getElementById("vlm-camera");
   const prompt   = document.getElementById("vlm-prompt");
   const askBtn   = document.getElementById("vlm-ask");
   const repeat   = document.getElementById("vlm-repeat");
@@ -566,19 +574,9 @@ function setupVlm() {
   const metaEl   = document.getElementById("vlm-meta");
   const loopDot  = document.getElementById("vlm-loop-dot");
   const loopLbl  = document.getElementById("vlm-loop-status");
-  const sentImg  = document.getElementById("vlm-sent-image");
-  const imgPh    = document.getElementById("vlm-img-placeholder");
-  const imgMeta  = document.getElementById("vlm-img-meta");
-  const rotate   = document.getElementById("vlm-rotate180");
 
   let loopTimer = null;
   let inFlight  = false;
-
-  sentImg.addEventListener("error", () => {
-    sentImg.classList.remove("has-image");
-    imgPh.classList.remove("hidden");
-    imgPh.textContent = "Failed to render captured image.";
-  });
 
   async function askOnce() {
     if (inFlight) return;
@@ -592,27 +590,20 @@ function setupVlm() {
       const r = await fetch(`${VLM_BASE}/api/vlm/infer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ camera: camera.value, prompt: prompt.value.trim() || null, rotate180: rotate.checked }),
+        body: JSON.stringify({ camera: "none", prompt: prompt.value.trim() || null, client: "robopoly" }),
       });
       const body = await r.json();
       const elapsedMs = Math.round(performance.now() - started);
       if (!r.ok) {
         respEl.className = "vlm-response error";
         respEl.textContent = body.detail || `HTTP ${r.status}`;
-        metaEl.textContent = `camera=${camera.value} · ${elapsedMs} ms`;
+        metaEl.textContent = `${elapsedMs} ms`;
         return;
       }
       respEl.className = "vlm-response";
       respEl.textContent = body.response || "(empty response)";
-      const wh = (body.width && body.height) ? `${body.width}×${body.height}` : "—";
       const ts = new Date().toLocaleTimeString();
-      metaEl.textContent = `camera=${body.camera} · frame=${wh} · ${elapsedMs} ms · ${ts}`;
-      if (body.image) {
-        sentImg.src = `data:image/jpeg;base64,${body.image}`;
-        sentImg.classList.add("has-image");
-        imgPh.classList.add("hidden");
-        imgMeta.textContent = `${wh} · ${ts}`;
-      }
+      metaEl.textContent = `${elapsedMs} ms · ${ts}`;
     } catch (err) {
       respEl.className = "vlm-response error";
       respEl.textContent = String(err);
@@ -682,7 +673,7 @@ function setupVlm() {
   }
   async function loadSp() {
     try {
-      const r = await fetch(`${VLM_BASE}/api/vlm/system_prompt`);
+      const r = await fetch(`${VLM_BASE}/api/vlm/system_prompt?client=robopoly`);
       const body = await r.json();
       spServer = body.system_prompt || "";
       sp.value = spServer;
@@ -694,7 +685,7 @@ function setupVlm() {
     spSave.disabled = true;
     setSpStatus("saving…");
     try {
-      const r = await fetch(`${VLM_BASE}/api/vlm/system_prompt`, {
+      const r = await fetch(`${VLM_BASE}/api/vlm/system_prompt?client=robopoly`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ system_prompt: sp.value }),
@@ -711,7 +702,7 @@ function setupVlm() {
     if (!confirm("Reset system prompt to default?")) return;
     setSpStatus("resetting…");
     try {
-      const r = await fetch(`${VLM_BASE}/api/vlm/system_prompt`, { method: "DELETE" });
+      const r = await fetch(`${VLM_BASE}/api/vlm/system_prompt?client=robopoly`, { method: "DELETE" });
       const body = await r.json();
       if (!r.ok) { setSpStatus(body.detail || `HTTP ${r.status}`, true); return; }
       spServer = body.system_prompt;
@@ -725,17 +716,10 @@ function setupVlm() {
   spReset.addEventListener("click", resetSp);
   loadSp();
 
-  // Speech-to-text via OpenAI-compatible Whisper server
+  // Speech-to-text — routed through the orchestrator's /api/whisper/transcribe.
   const mic       = document.getElementById("vlm-mic");
-  const sttUrl    = document.getElementById("vlm-stt-url");
+  const micDevice = document.getElementById("vlm-mic-device");
   const sttStatus = document.getElementById("vlm-stt-status");
-
-  const STT_URL_KEY = "vlm-stt-url";
-  const savedSttUrl = localStorage.getItem(STT_URL_KEY);
-  if (savedSttUrl) sttUrl.value = savedSttUrl;
-  sttUrl.addEventListener("change", () => {
-    localStorage.setItem(STT_URL_KEY, sttUrl.value.trim());
-  });
 
   let sttRecorder = null;
   let sttChunks   = [];
@@ -751,23 +735,41 @@ function setupVlm() {
       sttStream = null;
     }
   }
+  async function populateMicDevices() {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioInputs = devices.filter((d) => d.kind === "audioinput");
+      const previous = micDevice.value;
+      micDevice.innerHTML = '<option value="">Default microphone</option>';
+      audioInputs.forEach((d, i) => {
+        const opt = document.createElement("option");
+        opt.value = d.deviceId;
+        opt.textContent = d.label || `Microphone ${i + 1}`;
+        micDevice.appendChild(opt);
+      });
+      if (previous && [...micDevice.options].some((o) => o.value === previous)) {
+        micDevice.value = previous;
+      }
+    } catch (err) {
+      console.warn("enumerateDevices failed:", err);
+    }
+  }
+  populateMicDevices();
+  navigator.mediaDevices?.addEventListener?.("devicechange", populateMicDevices);
+
   async function transcribeBlob(blob) {
-    const base = sttUrl.value.trim().replace(/\/+$/, "");
-    if (!base) { setSttStatus("Whisper URL is empty", true); return; }
-    const url = `${base}/v1/audio/transcriptions`;
     const form = new FormData();
     const ext = (blob.type.includes("webm") ? "webm"
                : blob.type.includes("ogg")  ? "ogg"
                : blob.type.includes("mp4")  ? "mp4"
                : "wav");
-    form.append("file", blob, `speech.${ext}`);
-    form.append("model", "whisper");
-    form.append("response_format", "json");
+    form.append("file", blob, `mic.${ext}`);
 
     setSttStatus("transcribing…");
     const started = performance.now();
     try {
-      const r = await fetch(url, { method: "POST", body: form });
+      const r = await fetch(`${VLM_BASE}/api/whisper/transcribe`, { method: "POST", body: form });
       const elapsedMs = Math.round(performance.now() - started);
       if (!r.ok) {
         let detail = `HTTP ${r.status}`;
@@ -776,6 +778,7 @@ function setupVlm() {
         return;
       }
       const body = await r.json();
+      if (body.error) { setSttStatus(`failed: ${body.error}`, true); return; }
       const text = (body.text || "").trim();
       if (text) {
         prompt.value = prompt.value
@@ -794,7 +797,11 @@ function setupVlm() {
       return;
     }
     try {
-      sttStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const deviceId = micDevice.value;
+      const constraints = { audio: deviceId ? { deviceId: { exact: deviceId } } : true };
+      sttStream = await navigator.mediaDevices.getUserMedia(constraints);
+      // Labels are only revealed after permission is granted — repopulate.
+      populateMicDevices();
     } catch (err) {
       setSttStatus(`mic denied: ${err.name || err}`, true);
       return;
@@ -809,8 +816,8 @@ function setupVlm() {
     sttRecorder.onstop = async () => {
       stopSttTracks();
       mic.classList.remove("recording");
-      mic.textContent = "🎤";
-      mic.title = "Record speech and transcribe via Whisper";
+      mic.textContent = "Rec";
+      mic.title = "Record voice and transcribe via Whisper";
       if (sttChunks.length === 0) { setSttStatus("no audio captured", true); return; }
       const blob = new Blob(sttChunks, { type: sttRecorder.mimeType || "audio/webm" });
       sttChunks = [];
@@ -818,7 +825,7 @@ function setupVlm() {
     };
     sttRecorder.start();
     mic.classList.add("recording");
-    mic.textContent = "⏹";
+    mic.textContent = "Stop";
     mic.title = "Stop recording";
     setSttStatus("recording…");
   }
@@ -833,6 +840,51 @@ function setupVlm() {
     if (sttRecorder && sttRecorder.state === "recording") stopRecording();
     else startRecording();
   });
+
+  // VLM memory (vector DB) — talks to the orchestrator at VLM_BASE.
+  const memStatus = document.getElementById("vlm-mem-status");
+  const memClear  = document.getElementById("vlm-mem-clear");
+
+  async function refreshMemoryStatus() {
+    try {
+      const r = await fetch(`${VLM_BASE}/api/vlm/memory`);
+      const body = await r.json();
+      if (!r.ok) { memStatus.textContent = "memory: error"; return; }
+      const tag = body.enabled ? "" : " (disabled)";
+      memStatus.textContent = body.count === null
+        ? `memory: unreachable${tag}`
+        : `memory: ${body.count} stored${tag}`;
+    } catch {
+      memStatus.textContent = "memory: unreachable";
+    }
+  }
+  async function clearMemory() {
+    if (!confirm("Delete all stored memories from the vector DB? This cannot be undone.")) return;
+    memClear.disabled = true;
+    const prev = memClear.textContent;
+    memClear.textContent = "Clearing…";
+    try {
+      const r = await fetch(`${VLM_BASE}/api/vlm/memory`, { method: "DELETE" });
+      const body = await r.json();
+      if (!r.ok || !body.ok) alert(`Clear failed: ${body.error || r.status}`);
+    } catch (err) {
+      alert(`Clear failed: ${err}`);
+    } finally {
+      memClear.disabled = false;
+      memClear.textContent = prev;
+      refreshMemoryStatus();
+    }
+  }
+  memClear.addEventListener("click", clearMemory);
+  refreshMemoryStatus();
+  setInterval(refreshMemoryStatus, 5000);
+
+  // Refresh memory counter right after every inference.
+  const _askOnceOrig = askOnce;
+  askOnce = async function() {
+    await _askOnceOrig();
+    refreshMemoryStatus();
+  };
 }
 
 // ---- boot -----------------------------------------------------------------
@@ -844,7 +896,5 @@ function setupVlm() {
   renderYoloStatus();
   await refreshState();
   openStream();
-  openCameraFeed("/api/stream/image_top/rgb",   "feed-top-rgb",   "feed-top-rgb-status",   "feed-cell-top-rgb",   "feed-dot-top");
-  openCameraFeed("/api/stream/image_hand/rgb",  "feed-hand-rgb",  "feed-hand-rgb-status",  "feed-cell-hand-rgb",  "feed-dot-hand");
   setupVlm();
 })();
