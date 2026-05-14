@@ -26,6 +26,52 @@ from game.properties import (
 from game.state import FSM, GameState, Player, PlayerState
 
 
+# Game-wide flat economy (spec §2, §4.x).
+TIER_PRICE = 100          # cost per tier crossed (and refund on sell)
+LAND_PRICE = 1 * TIER_PRICE   # tier 1 → $100 cumulative
+HOUSE_PRICE = 2 * TIER_PRICE  # tier 2 → $200 cumulative
+HOTEL_PRICE = 3 * TIER_PRICE  # tier 3 → $300 cumulative
+TAX_AMOUNT = 100          # flat tax for Non-Free Parking (§4.3)
+CHANCE_AMOUNT = 200       # chance card payout magnitude (§4.4)
+LAPS_TO_WIN = 5           # end-of-game lap-count cap (§6.2)
+
+
+def tier_of(p) -> int:
+    """1 = land, 2 = house, 3 = hotel, 0 = unowned."""
+    if p.owner is None:
+        return 0
+    if p.has_hotel:
+        return 3
+    if p.houses > 0:
+        return 2
+    return 1
+
+
+def _set_tier(p, target: int) -> None:
+    """Mutate p so its tier becomes `target` (1/2/3). Owner must already be set."""
+    if target <= 0:
+        p.owner = None
+        p.houses = 0
+        p.has_hotel = False
+        p.mortgaged = False
+        return
+    p.has_hotel = target == 3
+    p.houses = 1 if target == 2 else 0
+    p.mortgaged = False
+
+
+def assets_value(state: GameState, player: Player) -> int:
+    """Sum of tier × $100 over all properties owned by `player` (spec §2.1.2)."""
+    return sum(
+        tier_of(p) * TIER_PRICE for p in state.properties.values() if p.owner == player
+    )
+
+
+def total_money(state: GameState, player: Player) -> int:
+    """Liquid + assets (spec §6.2.1)."""
+    return state.players[player].balance + assets_value(state, player)
+
+
 class RuleError(ValueError):
     """Raised when a request violates game rules. Mapped to 409 by the API."""
 
@@ -50,6 +96,11 @@ def _init_players(state: GameState, board: Board) -> None:
 
 def _tile_pid(board: Board, tile_index: int) -> str:
     return property_id(board.board_id, board.tiles[tile_index].name)
+
+
+def _max_tier(tile) -> int:
+    """Max owned tier for a tile kind (spec §4.1, §4.2)."""
+    return 3 if tile.kind == "property" else 1
 
 
 # ---- transitions -----------------------------------------------------------
@@ -80,7 +131,17 @@ def start_game(state: GameState, board_id: str) -> Board:
     return board
 
 
-def submit_dice(state: GameState, value: int | tuple[int, int]) -> None:
+def submit_dice(state: GameState, value: int | tuple[int, int]) -> dict[str, Any] | None:
+    """Submit a dice roll. Spec §4.5 jail handling:
+      - if not jailed: normal flow (FSM → MOVING)
+      - if jailed and the rolled face is 6: escape, normal move
+      - if jailed and turns_left > 0: decrement, **skip the move** by
+        going straight to RESOLVE_TILE (the manager runs no resolution
+        for a jail-skipped turn and end_turn is the next action)
+      - if jailed and turns_left == 0: auto-release, normal flow
+    Returns a payload describing the jail outcome, or None if no jail
+    transition happened.
+    """
     if state.fsm != FSM.TURN_START:
         raise RuleError("INVALID_STATE", f"cannot submit dice in fsm={state.fsm.value}")
     if isinstance(value, tuple):
@@ -96,7 +157,32 @@ def submit_dice(state: GameState, value: int | tuple[int, int]) -> None:
         state.last_dice = (value, 0)
     state.last_dice_sum = total
     state.pending_dice = total
+
+    player = state.turn
+    p_state = state.players.get(player)
+    jail_payload: dict[str, Any] | None = None
+    if p_state is not None and p_state.in_jail:
+        # Single-die move from IN_JAIL — escape iff face is 6 (spec §4.5.2.1).
+        face_for_escape = state.last_dice[0]
+        if face_for_escape == 6:
+            p_state.in_jail = False
+            p_state.jail_turns_left = 0
+            jail_payload = {"kind": "jail_escaped", "player": player}
+        elif p_state.jail_turns_left > 0:
+            p_state.jail_turns_left -= 1
+            state.pending_dice = None
+            state.fsm = FSM.END_TURN
+            jail_payload = {
+                "kind": "jail_skipped",
+                "player": player,
+                "turns_left": p_state.jail_turns_left,
+            }
+            return jail_payload
+        else:
+            p_state.in_jail = False
+            jail_payload = {"kind": "jail_released", "player": player}
     state.fsm = FSM.MOVING
+    return jail_payload
 
 
 @dataclass
@@ -165,9 +251,14 @@ def apply_move(state: GameState, player: Player, from_tile: int, to_tile: int) -
     )
 
 
-def end_turn(state: GameState) -> None:
+def end_turn(state: GameState) -> dict[str, Any] | None:
+    """Hand control to the other player. Also runs the lap-cap check
+    (spec §6.2): if any player has completed `LAPS_TO_WIN` laps, the
+    game ends and winner is decided by total_money. Returns the
+    end-of-game payload when the game ends, else None.
+    """
     if state.fsm == FSM.GAME_OVER:
-        return
+        return None
     if state.fsm not in (FSM.RESOLVE_TILE, FSM.END_TURN):
         raise RuleError("INVALID_STATE", f"cannot end turn in fsm={state.fsm.value}")
     state.turn = state.other(state.turn)
@@ -176,6 +267,25 @@ def end_turn(state: GameState) -> None:
     state.last_dice_sum = None
     state.pending_dice = None
     state.fsm = FSM.TURN_START
+
+    # Spec §6.2 — lap cap.
+    if any(state.lap_count.get(p, 0) >= LAPS_TO_WIN for p in ("user", "robot")):
+        totals = {p: total_money(state, p) for p in ("user", "robot")}
+        if totals["user"] > totals["robot"]:
+            state.winner = "user"
+        elif totals["robot"] > totals["user"]:
+            state.winner = "robot"
+        else:
+            state.winner = None  # tie — see "draw" flag in payload
+        state.fsm = FSM.GAME_OVER
+        return {
+            "winner": state.winner,
+            "draw": state.winner is None,
+            "reason": "lap_cap",
+            "totals": totals,
+            "lap_count": dict(state.lap_count),
+        }
+    return None
 
 
 # ============================================================================
@@ -238,12 +348,13 @@ def _resolve_once(
         pid = _tile_pid(board, tile_index)
         p = state.properties[pid]
         if p.owner is None:
-            if state.players[player].balance >= (tile.price_buy or 0):
+            if state.players[player].balance >= LAND_PRICE:
                 state.fsm = FSM.AWAIT_DECISION
                 return TileResolution(
                     "property_arrival_buyable",
                     tile_index,
-                    payload={"property_id": pid, "card": render_card(tile, p, board.board_id)},
+                    payload={"property_id": pid, "card": render_card(tile, p, board.board_id),
+                             "current_tier": 0, "max_tier": _max_tier(tile)},
                     needs_decision=True,
                 )
             return TileResolution(
@@ -251,7 +362,21 @@ def _resolve_once(
                 tile_index,
                 payload={"property_id": pid, "card": render_card(tile, p, board.board_id)},
             )
-        if p.owner == player or p.mortgaged:
+        if p.owner == player:
+            # Spec §4.1.2: revisiting an already-owned property opens the
+            # upgrade modal (unless it's already at max tier for this kind:
+            # property → tier 3, utility/railroad → tier 1).
+            current = tier_of(p)
+            max_tier = _max_tier(tile)
+            if current < max_tier:
+                state.fsm = FSM.AWAIT_DECISION
+                return TileResolution(
+                    "property_arrival_buyable",
+                    tile_index,
+                    payload={"property_id": pid, "card": render_card(tile, p, board.board_id),
+                             "current_tier": current, "max_tier": max_tier},
+                    needs_decision=True,
+                )
             return TileResolution("property_arrival_self_or_mortgaged", tile_index,
                                   payload={"property_id": pid})
         rent = props_mod.compute_rent(state, board, tile_index, state.last_dice_sum)
@@ -265,27 +390,34 @@ def _resolve_once(
         )
 
     if tile.kind == "tax":
-        amount = int(tile.amount or 0)
-        bankrupt, liq = _pay_bank_or_bankrupt(state, board, player, amount)
+        bankrupt, liq = _pay_bank_or_bankrupt(state, board, player, TAX_AMOUNT)
         return TileResolution(
             "tax_paid" if not bankrupt else "tax_bankruptcy",
             tile_index,
-            payload={"amount": amount, "liquidation": liq},
+            payload={"amount": TAX_AMOUNT, "liquidation": liq},
             bankrupt_player=player if bankrupt else None,
         )
 
-    if tile.kind == "chance" and chance_deck is not None:
-        card = chance_deck.draw()
-        apply_res = apply_effect(state, board, player, card.effect)
-        payload = {"card_id": card.id, "text": card.text, "effect": apply_res}
-        if card.effect.get("type") == "grant_jail_free_card":
-            # Player keeps the card — don't rotate to bottom.
-            pass
-        else:
-            chance_deck.return_to_bottom(card)
-        if apply_res.get("kind") in ("move_to_tile", "move_to_nearest", "move_relative", "go_to_jail"):
-            payload["moved_to"] = state.positions[player]
-        return TileResolution("chance_drawn", tile_index, payload=payload)
+    if tile.kind == "chance":
+        # Spec §4.4: random ±$200 coin flip. Deck is unused.
+        import random
+        delta = random.choice([+CHANCE_AMOUNT, -CHANCE_AMOUNT])
+        if delta > 0:
+            state.players[player].balance += delta
+            return TileResolution(
+                "chance_drawn", tile_index,
+                payload={"amount": delta, "direction": "collect",
+                         "balance": state.players[player].balance},
+            )
+        amount = -delta
+        bankrupt, liq = _pay_bank_or_bankrupt(state, board, player, amount)
+        return TileResolution(
+            "chance_drawn" if not bankrupt else "chance_bankruptcy",
+            tile_index,
+            payload={"amount": -amount, "direction": "pay", "liquidation": liq,
+                     "balance": state.players[player].balance},
+            bankrupt_player=player if bankrupt else None,
+        )
 
     if tile.kind == "community_chest" and cc_deck is not None:
         card = cc_deck.draw()
@@ -316,8 +448,7 @@ def buy_property(state: GameState, board: Board, player: Player, pid: str) -> di
     p = state.properties[pid]
     if p.owner is not None:
         raise RuleError("PROPERTY_OWNED", f"{pid} already owned by {p.owner}")
-    tile = board.tiles[p.tile_index]
-    price = tile.price_buy or 0
+    price = LAND_PRICE  # flat land tier (spec §4.1)
     if state.players[player].balance < price:
         raise RuleError(
             "INSUFFICIENT_FUNDS", f"balance {state.players[player].balance} < {price}",
@@ -325,8 +456,11 @@ def buy_property(state: GameState, board: Board, player: Player, pid: str) -> di
         )
     state.players[player].balance -= price
     p.owner = player
+    p.houses = 0
+    p.has_hotel = False
+    p.mortgaged = False
     state.fsm = FSM.RESOLVE_TILE
-    return {"property_id": pid, "price": price, "owner": player,
+    return {"property_id": pid, "price": price, "owner": player, "tier": 1,
             "balance": state.players[player].balance}
 
 
@@ -340,6 +474,10 @@ def build(
     state: GameState, board: Board, player: Player, pid: str,
     *, houses: int = 1, hotel: bool = False,
 ) -> dict[str, Any]:
+    """Upgrade to a higher tier (spec §4.1.2). Cost = $100 × tiers crossed.
+
+    `hotel=True` targets tier 3, any positive `houses` targets tier 2.
+    """
     if pid not in state.properties:
         raise RuleError("NOT_FOUND", f"unknown property {pid!r}")
     p = state.properties[pid]
@@ -348,87 +486,51 @@ def build(
     tile = board.tiles[p.tile_index]
     if tile.kind != "property":
         raise RuleError("BAD_REQUEST", f"cannot build on {tile.kind} tile")
-    if p.mortgaged:
-        raise RuleError("BAD_REQUEST", "cannot build on mortgaged property")
 
-    if hotel:
-        if p.has_hotel:
-            raise RuleError("BAD_REQUEST", "already has hotel")
-        cost = tile.price_building or 0
-        if state.players[player].balance < cost:
-            raise RuleError("INSUFFICIENT_FUNDS", "balance below hotel cost")
-        state.players[player].balance -= cost
-        p.houses = 0
-        p.has_hotel = True
-        return {"property_id": pid, "built": "hotel", "cost": cost,
-                "balance": state.players[player].balance}
+    current = tier_of(p)
+    target = 3 if hotel else 2
+    if target <= current:
+        raise RuleError("BAD_REQUEST", f"already at tier {current}")
 
-    # houses
-    if houses <= 0:
-        raise RuleError("BAD_REQUEST", "houses must be positive")
-    if p.has_hotel:
-        raise RuleError("BAD_REQUEST", "already has hotel")
-    if p.houses + houses > 4:
-        raise RuleError("BAD_REQUEST", "cannot exceed 4 houses (build a hotel instead)")
-    cost = (tile.price_building or 0) * houses
+    cost = (target - current) * TIER_PRICE
     if state.players[player].balance < cost:
         raise RuleError("INSUFFICIENT_FUNDS", "balance below build cost")
     state.players[player].balance -= cost
-    p.houses += houses
-    return {"property_id": pid, "built": "house", "houses_added": houses,
-            "total_houses": p.houses, "cost": cost,
+    _set_tier(p, target)
+    return {"property_id": pid, "tier": target,
+            "tier_label": "hotel" if target == 3 else "house",
+            "cost": cost,
             "balance": state.players[player].balance}
 
 
-def sell_building(state: GameState, board: Board, player: Player, pid: str) -> dict[str, Any]:
+def sell_tier(state: GameState, board: Board, player: Player, pid: str) -> dict[str, Any]:
+    """Drop one tier (hotel→house, house→land, or land→unowned).
+
+    This is the only sell path under the spec — invoked from auto-liquidation,
+    never from a voluntary user action. Refund = $100 per tier dropped.
+    """
     p = state.properties[pid]
     if p.owner != player:
         raise RuleError("NOT_OWNER", f"{pid} is owned by {p.owner}")
-    tile = board.tiles[p.tile_index]
-    price_building = tile.price_building or 0
-    refund = price_building // 2
-    if p.has_hotel:
-        p.has_hotel = False
-        p.houses = 4
-    elif p.houses > 0:
-        p.houses -= 1
-    else:
-        raise RuleError("BAD_REQUEST", "no buildings to sell")
-    state.players[player].balance += refund
-    return {"property_id": pid, "refund": refund, "houses": p.houses, "has_hotel": p.has_hotel,
+    current = tier_of(p)
+    if current <= 0:
+        raise RuleError("BAD_REQUEST", "nothing to sell — property is unowned")
+    new_tier = current - 1
+    _set_tier(p, new_tier)
+    state.players[player].balance += TIER_PRICE
+    return {"property_id": pid, "refund": TIER_PRICE,
+            "from_tier": current, "to_tier": new_tier,
             "balance": state.players[player].balance}
 
 
-def mortgage(state: GameState, board: Board, player: Player, pid: str) -> dict[str, Any]:
-    p = state.properties[pid]
-    if p.owner != player:
-        raise RuleError("NOT_OWNER", f"{pid} is owned by {p.owner}")
-    if p.mortgaged:
-        raise RuleError("BAD_REQUEST", "already mortgaged")
-    if p.houses > 0 or p.has_hotel:
-        raise RuleError("BAD_REQUEST", "sell buildings before mortgaging")
-    tile = board.tiles[p.tile_index]
-    price_buy = tile.price_buy or 0
-    cash = price_buy // 2
-    p.mortgaged = True
-    state.players[player].balance += cash
-    return {"property_id": pid, "received": cash, "balance": state.players[player].balance}
+# Back-compat aliases — older code paths (and a few tests) still import these.
+# Both collapse to sell_tier under the flat-economy spec.
+sell_building = sell_tier
+mortgage = sell_tier
 
 
-def unmortgage(state: GameState, board: Board, player: Player, pid: str) -> dict[str, Any]:
-    p = state.properties[pid]
-    if p.owner != player:
-        raise RuleError("NOT_OWNER", f"{pid} is owned by {p.owner}")
-    if not p.mortgaged:
-        raise RuleError("BAD_REQUEST", "not mortgaged")
-    tile = board.tiles[p.tile_index]
-    price_buy = tile.price_buy or 0
-    cost = int((price_buy // 2) * 1.1)
-    if state.players[player].balance < cost:
-        raise RuleError("INSUFFICIENT_FUNDS", "balance below unmortgage cost")
-    state.players[player].balance -= cost
-    p.mortgaged = False
-    return {"property_id": pid, "paid": cost, "balance": state.players[player].balance}
+def unmortgage(*_args, **_kwargs):  # pragma: no cover — voluntary mortgage is gone
+    raise RuleError("BAD_REQUEST", "unmortgage is not part of the spec")
 
 
 # ---- bankruptcy ------------------------------------------------------------
@@ -484,35 +586,29 @@ def _pay_bank_or_bankrupt(
 def _auto_liquidate(
     state: GameState, board: Board, player: Player, target: int,
 ) -> list[dict[str, Any]]:
-    """Sell buildings then mortgage properties until balance >= target or
-    nothing left to sell. Smallest-value first to minimise overshoot
-    (PRD §7.3.10). Returns per-step dicts so the caller can emit events
-    and the UI can narrate the liquidation instead of only showing the
-    final rent-paid transaction.
+    """Drop tiers one at a time until balance >= target or nothing left to
+    sell (spec §5.2). Order: hotels first, then houses, then lands. Each
+    step refunds $100 and emits a single `tier_sold` event.
     """
     steps: list[dict[str, Any]] = []
 
-    # 1. Sell buildings — cheapest house cost first.
-    for p in sorted(
-        state.properties.values(),
-        key=lambda pp: board.tiles[pp.tile_index].price_building or 0,
-    ):
-        if p.owner != player:
-            continue
-        while state.players[player].balance < target and (p.houses > 0 or p.has_hotel):
-            steps.append({"kind": "building_sold", **sell_building(state, board, player, p.id)})
-        if state.players[player].balance >= target:
-            return steps
+    def _drop_at_tier(target_tier: int) -> None:
+        """Drop one tier on every property currently at exactly `target_tier`."""
+        for p in list(state.properties.values()):
+            if state.players[player].balance >= target:
+                return
+            if p.owner != player or tier_of(p) != target_tier:
+                continue
+            steps.append({"kind": "tier_sold", **sell_tier(state, board, player, p.id)})
 
-    # 2. Mortgage remaining unencumbered properties — cheapest buy-price first.
-    for p in sorted(
-        state.properties.values(),
-        key=lambda pp: board.tiles[pp.tile_index].price_buy or 0,
-    ):
-        if p.owner != player or p.mortgaged or p.houses > 0 or p.has_hotel:
-            continue
-        if state.players[player].balance >= target:
-            return steps
-        steps.append({"kind": "property_mortgaged", **mortgage(state, board, player, p.id)})
-
+    # Hotels (tier 3) → houses
+    _drop_at_tier(3)
+    if state.players[player].balance >= target:
+        return steps
+    # Houses (tier 2) → land
+    _drop_at_tier(2)
+    if state.players[player].balance >= target:
+        return steps
+    # Land (tier 1) → unowned
+    _drop_at_tier(1)
     return steps

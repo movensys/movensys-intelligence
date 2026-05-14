@@ -65,7 +65,18 @@ header .spacer { flex: 1; }
   font-family: "JetBrains Mono", ui-monospace, monospace;
 }
 .money-color { width: 18px; height: 18px; border-radius: 50%; }
-.money-label { color: var(--muted); font-size: 14px; }
+.money-label { color: var(--muted); font-size: 14px; min-width: 48px; }
+.money-stack { display: flex; flex-direction: column; gap: 2px; }
+.money-row { display: inline-flex; align-items: baseline; gap: 8px; }
+.money-row-label {
+  font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.05em;
+  min-width: 48px;
+}
+.money-assets {
+  font-size: 14px; font-weight: 600; color: var(--muted);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
 .money-value {
   font-size: 24px; font-weight: 700;
   transition: color 300ms;

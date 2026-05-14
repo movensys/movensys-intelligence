@@ -65,13 +65,19 @@ def utilities_owned(state: GameState, board: Board, owner: Player) -> int:
 # ---- rent computation ------------------------------------------------------
 
 
+# Spec §4.1.3, §4.2.2: rent = the cumulative buy cost for the opponent's
+# current tier ($100 land, $200 house, $300 hotel). Utilities cap at land.
+_RENT_BY_TIER = {1: 100, 2: 200, 3: 300}
+
+
 def compute_rent(
     state: GameState, board: Board, tile_index: int, dice_sum: int | None
 ) -> int:
     """Rent to pay when landing on `tile_index` owned by someone.
 
-    Returns 0 when unowned, self-owned, mortgaged, or when the tile is
-    not a purchasable kind.
+    Returns 0 when unowned, self-owned, or when the tile isn't a buyable
+    kind. `dice_sum` is accepted for back-compat but no longer used
+    (utility rent is now flat $100, same as land).
     """
     tile = board.tiles[tile_index]
     if tile.kind not in ("property", "railroad", "utility"):
@@ -80,43 +86,30 @@ def compute_rent(
     p = state.properties.get(pid)
     if p is None or p.owner is None or p.mortgaged:
         return 0
-
-    if tile.kind == "property":
-        return _rent_property(tile, p, board, state)
-    if tile.kind == "railroad":
-        n = railroads_owned(state, board, p.owner)
-        return 25 * (2 ** (n - 1)) if n > 0 else 0
-    # utility
-    if dice_sum is None:
-        return 0
-    n = utilities_owned(state, board, p.owner)
-    factor = 10 if n >= 2 else 4
-    return dice_sum * factor
-
-
-def _rent_property(tile: Tile, p: PropertyState, board: Board, state: GameState) -> int:
-    rents = tile.rent_table or [0]
     if p.has_hotel:
-        return rents[5] if len(rents) > 5 else rents[-1]
-    if p.houses > 0:
-        idx = min(p.houses, len(rents) - 1)
-        return rents[idx]
-    return rents[0]
+        tier = 3
+    elif p.houses > 0:
+        tier = 2
+    else:
+        tier = 1
+    return _RENT_BY_TIER[tier]
 
 
 # ---- projection to PRD §4.4 PropertyCard shape ----------------------------
 
 
 def render_card(tile: Tile, p: PropertyState, board_id: str) -> dict:
-    """Merge static + dynamic view for REST responses (PRD §4.4)."""
+    """Merge static + dynamic view for REST responses (PRD §4.4).
+
+    The per-tile `price_buy` / `price_building` / `rent_table` fields
+    are no longer relevant under the flat-economy spec; the UI uses
+    the global $100/$200/$300 ladder.
+    """
     return {
         "id": p.id,
         "tile_index": tile.index,
         "name": tile.name,
         "kind": tile.kind,
-        "price_buy": tile.price_buy,
-        "price_building": tile.price_building,
-        "rent_table": tile.rent_table,
         "owner": p.owner,
         "houses": p.houses,
         "has_hotel": p.has_hotel,

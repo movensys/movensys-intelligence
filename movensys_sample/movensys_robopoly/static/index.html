@@ -90,12 +90,18 @@
         <div class="money-player" id="money-user">
           <span class="money-color" style="background:var(--user)"></span>
           <span class="money-label">user</span>
-          <span class="money-value" id="money-user-value">$0</span>
+          <div class="money-stack">
+            <span class="money-row"><span class="money-row-label">Liquid</span><span class="money-value" id="money-user-value">$0</span></span>
+            <span class="money-row"><span class="money-row-label">Assets</span><span class="money-assets" id="money-user-assets">$0</span></span>
+          </div>
         </div>
         <div class="money-player" id="money-robot">
           <span class="money-color" style="background:var(--robot)"></span>
           <span class="money-label">robot</span>
-          <span class="money-value" id="money-robot-value">$0</span>
+          <div class="money-stack">
+            <span class="money-row"><span class="money-row-label">Liquid</span><span class="money-value" id="money-robot-value">$0</span></span>
+            <span class="money-row"><span class="money-row-label">Assets</span><span class="money-assets" id="money-robot-assets">$0</span></span>
+          </div>
         </div>
       </div>
       <div class="notification empty" id="notification">Waiting for the game to start…</div>

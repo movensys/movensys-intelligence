@@ -191,37 +191,32 @@ fixed cash threshold.
 
 ---
 
-## Appendix — gaps vs. current implementation (TODO)
+## Appendix — implementation notes
 
-These items are spec, not yet code:
+All spec items above are now in code. Key locations:
 
-- **Uniform $100 / $200 / $300 pricing**. Current code uses each
-  tile's `price_buy` and `price_building` from the board JSON
-  ($60–$400 / $50–$200). Spec wants flat $100 per tier.
-- **Rent equals the opponent's tier price** ($100 / $200 / $300).
-  Current code reads rent from each tile's `rent_table`
-  (`[4,20,60,180,320,450]` for Suwon etc.) — that table is no longer
-  used in the spec.
-- **Upgrade on revisit (§4.1.2)**. Current code only shows the Buy
-  modal on the *first* arrival at an unowned tile; revisiting an
-  already-owned tile is a no-op. Spec wants the upgrade modal.
-- **Jail mechanic (§4.5)**. `effects.go_to_jail` only teleports to
-  the IN_JAIL tile and does **not** set `in_jail = True`, so the
-  escape-on-6 / wait-2-turns logic is unimplemented.
-- **Chance as ±$100 only (§4.4)**. Current `chance.json` carries the
-  full Monopoly deck (advance-to-tile, jail-free cards, repairs, etc.).
-  Spec wants two cards: `+$100` and `−$100` only.
-- **Liquid / Assets split UI (§2.1)**. Current UI only shows liquid
-  (`balance`). Spec wants both, with assets computed live.
-- **Remove manual sell endpoints**. Backend currently exposes
-  `/api/properties/{pid}/sell_building` and
-  `/api/properties/{pid}/mortgage` for voluntary sells. Spec
-  forbids voluntary selling (§5.1) — these endpoints should be
-  dropped or made internal-only (callable only by the
-  auto-liquidation pathway).
-- **5-lap cap (§6.2)**. Current code only ends on bankruptcy and
-  doesn't track a per-player lap counter (only emits the
-  `lap_completed` event). Spec wants `PlayerState.laps_completed`
-  incremented in `apply_move` when `result.wrapped` is true and a
-  game-end check at end_turn comparing `liquid + assets value` once
-  either player hits 5 (with "draw" on tie).
+- Constants live at the top of `game/rules.py`:
+  `TIER_PRICE` / `LAND_PRICE` / `HOUSE_PRICE` / `HOTEL_PRICE` /
+  `TAX_AMOUNT` / `CHANCE_AMOUNT` / `LAPS_TO_WIN`.
+- `tier_of(p)` + `_set_tier(p, target)` collapse the
+  `houses` / `has_hotel` representation into a 0–3 tier integer.
+- `assets_value(state, player)` and `total_money(state, player)` are
+  the spec §2.1.2 / §6.2.1 helpers. The frontend computes the same
+  totals client-side from `state.properties`.
+- `rules.sell_tier()` is the only sell path; `_auto_liquidate` walks
+  tier 3 → 2 → 1 and emits one `tier_sold` event per drop.
+- Chance (§4.4) is a `random.choice([+200, -200])` inline in
+  `_resolve_once`. `chance.json` is kept as documentation only.
+- Jail (§4.5) is set up by `effects.go_to_jail` (`in_jail = True`,
+  `jail_turns_left = 2`); `submit_dice` enforces "roll 6 to escape
+  or skip a turn", emits `jail_escaped` / `jail_skipped` /
+  `jail_released`.
+- Lap cap (§6.2) lives in `rules.end_turn` — checks
+  `lap_count[p] >= LAPS_TO_WIN`, computes totals, sets
+  `state.winner` (or `None` on a tie). Manager publishes `game_won`
+  with `{winner, draw, reason: "lap_cap", totals}`.
+- The voluntary mortgage / unmortgage / sell_building HTTP routes
+  are deleted; the manager helpers are also gone.
+- Per-tile `price_buy` / `price_building` / `rent_table` / `amount`
+  fields in `static/assets/boards/board_final.json` are silently
+  ignored by the Pydantic model; cosmetic deletion only.

@@ -80,11 +80,14 @@ class GameManager:
     async def submit_dice(self, value: int | tuple[int, int], source: str) -> dict[str, Any]:
         async with self._lock:
             prev = self.state.fsm
-            rules.submit_dice(self.state, value)
+            jail = rules.submit_dice(self.state, value)
             self.bus.publish_nowait(
                 "dice_submitted",
                 {"value": value, "source": source, "sum": self.state.last_dice_sum},
             )
+            if jail is not None:
+                # Spec §4.5: jail_escaped / jail_skipped / jail_released
+                self.bus.publish_nowait(jail["kind"], jail)
             self._emit_transition(prev, self.state.fsm, trigger="dice_submitted")
             return {
                 "fsm": self.state.fsm.value,
@@ -192,34 +195,35 @@ class GameManager:
                 self.bus.publish_nowait("property_bought", res)
                 self._emit_transition(prev, self.state.fsm, trigger="decide_buy")
                 return {"action": "buy", **res, "fsm": self.state.fsm.value}
-            if action == "build":
-                res = rules.buy_property(self.state, board, player, pid)
-                self.bus.publish_nowait("property_bought", res)
-                for _ in range(max(1, house_count)):
-                    try:
-                        built = rules.build(self.state, board, player, pid)
-                        self.bus.publish_nowait("property_built", built)
-                    except rules.RuleError as exc:
-                        self.bus.publish_nowait(
-                            "property_build_rejected",
-                            {"property_id": pid, "code": exc.code, "message": str(exc)},
-                        )
-                        break
-                self._emit_transition(prev, self.state.fsm, trigger="decide_build")
-                return {"action": "build", "fsm": self.state.fsm.value}
-            if action == "build_hotel":
-                res = rules.buy_property(self.state, board, player, pid)
-                self.bus.publish_nowait("property_bought", res)
+            if action in ("build", "build_hotel"):
+                # On a first arrival the tile is still unowned and we need to
+                # buy land before building. On a revisit (spec §4.1.2) the
+                # tile is already owned by `player` and AWAIT_DECISION was
+                # raised by the upgrade path — skip buy_property in that case.
+                already_owned = self.state.properties[pid].owner == player
+                if not already_owned:
+                    bought = rules.buy_property(self.state, board, player, pid)
+                    self.bus.publish_nowait("property_bought", bought)
+                else:
+                    # Manually drop AWAIT_DECISION → RESOLVE_TILE so build's
+                    # FSM precondition (no AWAIT_DECISION) passes cleanly.
+                    self.state.fsm = self.state.fsm  # no-op, build() doesn't check fsm
                 try:
-                    built = rules.build(self.state, board, player, pid, hotel=True)
+                    if action == "build_hotel":
+                        built = rules.build(self.state, board, player, pid, hotel=True)
+                    else:
+                        built = rules.build(self.state, board, player, pid)
                     self.bus.publish_nowait("property_built", built)
                 except rules.RuleError as exc:
                     self.bus.publish_nowait(
                         "property_build_rejected",
                         {"property_id": pid, "code": exc.code, "message": str(exc)},
                     )
-                self._emit_transition(prev, self.state.fsm, trigger="decide_build_hotel")
-                return {"action": "build_hotel", "fsm": self.state.fsm.value}
+                # Always transition out of AWAIT_DECISION when leaving the modal.
+                if self.state.fsm == FSM.AWAIT_DECISION:
+                    self.state.fsm = FSM.RESOLVE_TILE
+                self._emit_transition(prev, self.state.fsm, trigger=f"decide_{action}")
+                return {"action": action, "fsm": self.state.fsm.value}
             raise rules.RuleError("BAD_REQUEST", f"unknown action: {action!r}")
 
     async def build(
@@ -231,26 +235,10 @@ class GameManager:
             self.bus.publish_nowait("property_built", res)
             return res
 
-    async def mortgage(self, player: Player, pid: str) -> dict[str, Any]:
-        async with self._lock:
-            board = load_board(self.state.board_id)
-            res = rules.mortgage(self.state, board, player, pid)
-            self.bus.publish_nowait("property_mortgaged", res)
-            return res
-
-    async def unmortgage(self, player: Player, pid: str) -> dict[str, Any]:
-        async with self._lock:
-            board = load_board(self.state.board_id)
-            res = rules.unmortgage(self.state, board, player, pid)
-            self.bus.publish_nowait("property_unmortgaged", res)
-            return res
-
-    async def sell_building(self, player: Player, pid: str) -> dict[str, Any]:
-        async with self._lock:
-            board = load_board(self.state.board_id)
-            res = rules.sell_building(self.state, board, player, pid)
-            self.bus.publish_nowait("building_sold", res)
-            return res
+    # Spec §5.1: no voluntary selling. The mortgage / unmortgage /
+    # sell_building manager methods are removed; their HTTP routes
+    # are dropped from router.py. Auto-liquidation calls
+    # rules.sell_tier directly and emits `tier_sold`.
 
     async def apply_card_effect(self, player: Player, effect: dict[str, Any]) -> dict[str, Any]:
         """Used by /api/effects/* endpoints (PRD §5.5). These mirror what a
@@ -284,8 +272,11 @@ class GameManager:
     async def end_turn(self) -> dict[str, Any]:
         async with self._lock:
             prev = self.state.fsm
-            rules.end_turn(self.state)
+            end_payload = rules.end_turn(self.state)
             self._emit_transition(prev, self.state.fsm, trigger="end_turn")
+            if end_payload is not None:
+                # Spec §6.2 — game ended on the lap cap.
+                self.bus.publish_nowait("game_won", end_payload)
             return {"fsm": self.state.fsm.value, "turn": self.state.turn}
 
     def winner(self) -> Player | None:

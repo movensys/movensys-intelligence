@@ -221,11 +221,11 @@ function setupPieceDragging() {
 // ---- money widget ---------------------------------------------------------
 
 const lastBalance = { user: null, robot: null };
-function renderMoney(snap) {
+function renderMoney(liquidSnap, assetsSnap) {
   for (const p of ["user", "robot"]) {
     const el = document.getElementById(`money-${p}-value`);
     const prev = lastBalance[p];
-    const curr = snap[p] ?? 0;
+    const curr = liquidSnap[p] ?? 0;
     el.textContent = `$${curr}`;
     if (prev !== null && curr !== prev) {
       el.classList.remove("flash-up", "flash-down");
@@ -234,6 +234,9 @@ function renderMoney(snap) {
       setTimeout(() => el.classList.remove("flash-up", "flash-down"), 600);
     }
     lastBalance[p] = curr;
+
+    const aEl = document.getElementById(`money-${p}-assets`);
+    if (aEl) aEl.textContent = `$${assetsSnap?.[p] ?? 0}`;
   }
 }
 
@@ -270,18 +273,39 @@ let pendingDecision = null;  // { property_id, card }
 function showDecision(decision) {
   pendingDecision = decision;
   const { card } = decision;
+  const currentTier = decision.current_tier ?? 0;
+  const maxTier = decision.max_tier ?? (card.kind === "property" ? 3 : 1);
+  const tierLabel = ["unowned", "land", "house", "hotel"];
   const host = document.getElementById("decision-card");
+  const subtitle = currentTier > 0
+    ? `You already own this — current tier: ${tierLabel[currentTier]}`
+    : "Unowned — pick a tier to buy directly";
   host.innerHTML = `
     <div class="card-preview">
       <div class="kind">${card.kind}</div>
       <div class="name">${card.name}</div>
-      <div class="price">Price $${card.price_buy}${card.price_building ? ` · build $${card.price_building}` : ''}</div>
+      <div class="price">${subtitle}</div>
     </div>
   `;
-  document.getElementById("decision-title").textContent = `Land on ${card.name}`;
-  const canBuild = card.kind === "property" && card.price_building !== null;
-  document.getElementById("btn-buy-build").style.display = canBuild ? "inline-block" : "none";
-  document.getElementById("btn-buy-hotel").style.display = canBuild ? "inline-block" : "none";
+  const title = currentTier > 0
+    ? `Upgrade ${card.name}`
+    : `Land on ${card.name}`;
+  document.getElementById("decision-title").textContent = title;
+
+  const btnBuy   = document.getElementById("btn-buy");        // → land  (tier 1)
+  const btnHouse = document.getElementById("btn-buy-build");  // → house (tier 2)
+  const btnHotel = document.getElementById("btn-buy-hotel");  // → hotel (tier 3)
+
+  // Show only the upgrade paths that actually advance the tier.
+  btnBuy.style.display   = currentTier < 1 ? "inline-block" : "none";
+  btnHouse.style.display = (currentTier < 2 && maxTier >= 2) ? "inline-block" : "none";
+  btnHotel.style.display = (currentTier < 3 && maxTier >= 3) ? "inline-block" : "none";
+
+  // Re-label with the actual delta cost from where the player is now.
+  btnBuy.textContent   = "Buy land ($100)";
+  btnHouse.textContent = `Buy + house ($${(2 - currentTier) * 100})`;
+  btnHotel.textContent = `Buy + hotel ($${(3 - currentTier) * 100})`;
+
   document.getElementById("decision-modal").classList.remove("hidden");
 }
 
@@ -354,26 +378,47 @@ function announceFromEvent(env) {
     case "purchase_skipped":
       announce(`Purchase skipped`, "buy");
       break;
-    case "property_built":
-      announce(`Built on ${propertyName(payload.property_id)}`, "build");
+    case "property_built": {
+      const label = payload.tier_label || (payload.tier === 3 ? "hotel" : "house");
+      announce(`Built ${label} on ${propertyName(payload.property_id)}`, "build");
       break;
-    case "property_mortgaged":
-      announce(`Mortgaged ${propertyName(payload.property_id)}`, "money");
+    }
+    case "tier_sold": {
+      const labels = ["unowned", "land", "house", "hotel"];
+      const what = labels[payload.from_tier] || "tier";
+      announce(`Sold ${what} on ${propertyName(payload.property_id)} (+$${payload.refund})`, "money");
       break;
-    case "property_unmortgaged":
-      announce(`Unmortgaged ${propertyName(payload.property_id)}`, "money");
-      break;
-    case "building_sold":
-      announce(`Sold building on ${propertyName(payload.property_id)}`, "money");
-      break;
+    }
     case "tile_rent_paid":
       announce(`Rent paid${payload.amount ? ` ($${payload.amount})` : ""}`, "money");
       break;
     case "tile_tax_paid":
       announce(`Tax paid${payload.amount ? ` ($${payload.amount})` : ""}`, "money");
       break;
+    case "chance_drawn": {
+      const dir = payload.direction;
+      const amt = payload.amount;
+      if (dir === "collect") announce(`Chance: collect $${amt}`, "money");
+      else if (dir === "pay") announce(`Chance: pay $${Math.abs(amt)}`, "money");
+      break;
+    }
+    case "jail_escaped":
+      announce(`${payload.player} rolled 6 and escaped jail!`, "turn");
+      break;
+    case "jail_skipped":
+      announce(`${payload.player} is in jail (${payload.turns_left} turn(s) left)`, "money");
+      break;
+    case "jail_released":
+      announce(`${payload.player} served their time and is free`, "turn");
+      break;
     case "game_won":
-      announce(`🏆 ${payload.winner} wins the game!`, "win");
+      if (payload.draw) {
+        const t = payload.totals || {};
+        announce(`🤝 Draw — both players at $${t.user ?? "?"}`, "win");
+      } else {
+        const reason = payload.reason === "lap_cap" ? " (5 laps)" : "";
+        announce(`🏆 ${payload.winner} wins the game!${reason}`, "win");
+      }
       break;
     case "state_loaded":
       announce("Game state loaded", "turn");
@@ -434,8 +479,14 @@ function renderState(state) {
   }
   renderOwnership(state);
   const money = {};
+  const assets = { user: 0, robot: 0 };
   for (const [pid, ps] of Object.entries(state.players || {})) money[pid] = ps.balance;
-  renderMoney(money);
+  for (const p of Object.values(state.properties || {})) {
+    if (!p.owner) continue;
+    const tier = p.has_hotel ? 3 : (p.houses > 0 ? 2 : 1);
+    assets[p.owner] = (assets[p.owner] ?? 0) + tier * 100;
+  }
+  renderMoney(money, assets);
 
   const winner = state.winner;
   document.getElementById("btn-apply-move").disabled = state.fsm !== "MOVING";
@@ -473,6 +524,8 @@ function openStream() {
       showDecision({
         property_id: env.payload.property_id,
         card: env.payload.card,
+        current_tier: env.payload.current_tier ?? 0,
+        max_tier: env.payload.max_tier,
       });
     }
     announceFromEvent(env);

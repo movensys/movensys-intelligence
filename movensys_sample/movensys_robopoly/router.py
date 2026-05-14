@@ -450,31 +450,9 @@ async def property_build(request: Request, pid: str, body: BuildRequest) -> dict
         raise HTTPException(**_http_kwargs(exc))
 
 
-@api_router.post("/properties/{pid}/mortgage")
-async def property_mortgage(request: Request, pid: str) -> dict[str, Any]:
-    game = request.app.state.game
-    try:
-        return await game.mortgage(game.state.turn, pid)
-    except RuleError as exc:
-        raise HTTPException(**_http_kwargs(exc))
-
-
-@api_router.post("/properties/{pid}/unmortgage")
-async def property_unmortgage(request: Request, pid: str) -> dict[str, Any]:
-    game = request.app.state.game
-    try:
-        return await game.unmortgage(game.state.turn, pid)
-    except RuleError as exc:
-        raise HTTPException(**_http_kwargs(exc))
-
-
-@api_router.post("/properties/{pid}/sell_building")
-async def property_sell_building(request: Request, pid: str) -> dict[str, Any]:
-    game = request.app.state.game
-    try:
-        return await game.sell_building(game.state.turn, pid)
-    except RuleError as exc:
-        raise HTTPException(**_http_kwargs(exc))
+# Voluntary mortgage / unmortgage / sell_building routes are intentionally
+# removed (spec §5.1: no voluntary selling). The only sell path is
+# auto-liquidation, which is internal to rules.py.
 
 
 # ---- money ---------------------------------------------------------------
@@ -556,8 +534,7 @@ async def stream_board(ws: WebSocket) -> None:
 @api_router.websocket("/stream/money")
 async def stream_money(ws: WebSocket) -> None:
     await _stream_events(ws, "money", {"effect_applied", "property_bought",
-                                        "property_built", "property_mortgaged",
-                                        "property_unmortgaged", "building_sold",
+                                        "property_built", "tier_sold",
                                         "tile_rent_paid", "tile_tax_paid",
                                         "tile_rent_bankruptcy", "tile_tax_bankruptcy"})
 
@@ -565,8 +542,7 @@ async def stream_money(ws: WebSocket) -> None:
 @api_router.websocket("/stream/properties")
 async def stream_properties(ws: WebSocket) -> None:
     await _stream_events(ws, "properties", {"property_bought", "property_built",
-                                             "property_mortgaged", "property_unmortgaged",
-                                             "building_sold"})
+                                             "tier_sold"})
 
 
 # ---- HTTPException helper --------------------------------------------------
