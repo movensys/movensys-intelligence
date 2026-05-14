@@ -97,6 +97,39 @@ async def store(text: str, metadata: Optional[dict[str, Any]] = None) -> Optiona
         return None
 
 
+async def clear() -> dict[str, Any]:
+    """Drop the collection so it's recreated empty on next use.
+
+    Always callable (ignores MEMORY_ENABLED) — operators may want to wipe
+    stored memories even while recall/store is disabled.
+    """
+    global _collection_ready
+    name = _collection()
+    try:
+        r = await _qdrant().delete(f"/collections/{name}")
+        # 200 = deleted, 404 = already gone — both are success.
+        if r.status_code not in (200, 404):
+            r.raise_for_status()
+        _collection_ready = False
+        return {"ok": True, "collection": name}
+    except Exception as exc:
+        logger.warning("memory.clear failed: %s", exc)
+        return {"ok": False, "collection": name, "error": str(exc)}
+
+
+async def count() -> Optional[int]:
+    """Return the number of stored points, or None on failure."""
+    try:
+        r = await _qdrant().get(f"/collections/{_collection()}")
+        if r.status_code == 404:
+            return 0
+        r.raise_for_status()
+        return r.json().get("result", {}).get("points_count", 0)
+    except Exception as exc:
+        logger.warning("memory.count failed: %s", exc)
+        return None
+
+
 async def recall(query: str, top_k: Optional[int] = None) -> list[dict[str, Any]]:
     """Return up to `top_k` payloads most similar to `query`. Empty list on failure."""
     if not is_enabled() or not query:

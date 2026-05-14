@@ -9,6 +9,31 @@ export XPU_CORE=nvidia-gpu              #support{nvidia-gpu, intel-xpu}
 source ~/.bashrc
 ```
 
+
+
+
+# Setup movensys_vlm
+```
+cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml down
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml build
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml up -d
+```
+
+
+
+
+# Setup Vector Db
+```
+cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
+docker compose -f vectordb.yaml down
+docker compose -f vectordb.yaml build
+docker compose -f vectordb.yaml up -d
+```
+
+
+
+
 # Setup Vllm 
 ## For Nvidia Desktop, Jetson Thor, Intel B60 
 ```
@@ -28,13 +53,8 @@ cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
 sync && sudo sysctl vm.drop_caches=3
 ```
 
-# Setup Vector Db
-```
-cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
-docker compose -f vectordb.yaml down
-docker compose -f vectordb.yaml build
-docker compose -f vectordb.yaml up -d
-```
+
+
 
 # Setup Whisper
 ```
@@ -42,14 +62,6 @@ cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
 COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml down
 COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml build
 COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml up -d  
-```
-
-# Setup movensys_vlm
-```
-cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
-COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml down
-COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml build
-COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml up -d
 ```
 
 # Running

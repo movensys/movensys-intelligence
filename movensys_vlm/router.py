@@ -12,6 +12,7 @@ from movensys_manipulator_moveit_config.srv import GetEefPose, MovePose, MoveJoi
 from fastapi import APIRouter, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
+import memory_client
 import ros2_node as rn
 import vlm_client
 import whisper_client
@@ -427,6 +428,20 @@ def vlm_set_system_prompt(body: VlmSystemPromptRequest):
 @router.delete("/api/vlm/system_prompt")
 def vlm_reset_system_prompt():
     return {"system_prompt": vlm_client.reset_system_prompt()}
+
+
+# ---------------------------------------------------------------------------
+# VLM memory (vector DB)
+# ---------------------------------------------------------------------------
+
+@router.get("/api/vlm/memory")
+async def vlm_memory_stats():
+    return {"count": await memory_client.count(), "enabled": memory_client.is_enabled()}
+
+
+@router.delete("/api/vlm/memory")
+async def vlm_memory_clear():
+    return await memory_client.clear()
 
 
 # ---------------------------------------------------------------------------

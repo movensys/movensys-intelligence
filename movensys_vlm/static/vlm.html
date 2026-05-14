@@ -51,6 +51,9 @@
             <option value="30">30 s</option>
             <option value="60">60 s</option>
           </select>
+          <span class="vlm-meta" id="vlm-mem-status" style="margin-left:auto">memory: —</span>
+          <button id="vlm-mem-clear" class="vlm-btn vlm-btn-secondary"
+                  title="Delete all stored memories from the vector DB">Clear memory</button>
         </div>
         <div id="vlm-response" class="vlm-response empty">No response yet.</div>
         <div id="vlm-meta" class="vlm-meta"></div>
@@ -423,6 +426,56 @@ vlmSP.addEventListener('input', updateSPDirty);
 vlmSPSave.addEventListener('click', saveSystemPrompt);
 vlmSPReset.addEventListener('click', resetSystemPrompt);
 loadSystemPrompt();
+
+// VLM memory (vector DB)
+const vlmMemStatus = document.getElementById('vlm-mem-status');
+const vlmMemClear  = document.getElementById('vlm-mem-clear');
+
+async function refreshMemoryStatus() {
+  try {
+    const r = await fetch('/api/vlm/memory');
+    const body = await r.json();
+    if (!r.ok) { vlmMemStatus.textContent = 'memory: error'; return; }
+    const tag = body.enabled ? '' : ' (disabled)';
+    vlmMemStatus.textContent = body.count === null
+      ? `memory: unreachable${tag}`
+      : `memory: ${body.count} stored${tag}`;
+  } catch {
+    vlmMemStatus.textContent = 'memory: unreachable';
+  }
+}
+
+async function clearMemory() {
+  if (!confirm('Delete all stored memories from the vector DB? This cannot be undone.')) return;
+  vlmMemClear.disabled = true;
+  const prev = vlmMemClear.textContent;
+  vlmMemClear.textContent = 'Clearing…';
+  try {
+    const r = await fetch('/api/vlm/memory', { method: 'DELETE' });
+    const body = await r.json();
+    if (!r.ok || !body.ok) {
+      alert(`Clear failed: ${body.error || r.status}`);
+    }
+  } catch (err) {
+    alert(`Clear failed: ${err}`);
+  } finally {
+    vlmMemClear.disabled = false;
+    vlmMemClear.textContent = prev;
+    refreshMemoryStatus();
+  }
+}
+
+vlmMemClear.addEventListener('click', clearMemory);
+refreshMemoryStatus();
+setInterval(refreshMemoryStatus, 5000);
+
+// Refresh the memory counter right after every inference so the user sees the
+// store land. Wrap the existing askVlmOnce so we don't fight with it.
+const _askVlmOnceOrig = askVlmOnce;
+askVlmOnce = async function() {
+  await _askVlmOnceOrig();
+  refreshMemoryStatus();
+};
 </script>
 </body>
 </html>
