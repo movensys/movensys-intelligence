@@ -60,38 +60,36 @@ def reset_system_prompt() -> str:
 def get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        base_url = os.environ.get("VLM_BASE_URL", "http://192.168.10.73:9000/v1")
-        api_key = os.environ.get("VLM_API_KEY", "none")
-        timeout = float(os.environ.get("VLM_TIMEOUT", "60"))
+        base_url = os.environ.get("VLM_BASE_URL", "http://localhost:9000/v1")
+        api_key = os.environ.get("HF_TOKEN") or "EMPTY"
+        timeout = float(os.environ.get("VLM_TIMEOUT") or 60)
         _client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
     return _client
 
 
 async def infer(
-    image_b64: str,
+    image_b64: Optional[str] = None,
     user_prompt: str = "Report the tokens on the board and the die value.",
     system_prompt: Optional[str] = None,
     max_tokens: int = 512,
     temperature: float = 0.2,
 ) -> str:
     client = get_client()
-    model = os.environ.get("VLM_MODEL", "google/gemma-4-E4B-it")
+    model = os.environ.get("VLM_MODEL_NAME")
+    user_content: list = []
+    if image_b64:
+        user_content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+        })
+    user_content.append({"type": "text", "text": user_prompt})
     response = await client.chat.completions.create(
         model=model,
         max_tokens=max_tokens,
         temperature=temperature,
         messages=[
             {"role": "system", "content": system_prompt if system_prompt is not None else _system_prompt},
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
-                    },
-                    {"type": "text", "text": user_prompt},
-                ],
-            },
+            {"role": "user", "content": user_content},
         ],
     )
     return response.choices[0].message.content

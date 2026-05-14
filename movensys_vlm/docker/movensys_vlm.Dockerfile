@@ -29,18 +29,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 RUN if [ "${ROS_DISTRO}" = "jazzy" ]; then \
-        pip3 install --no-cache-dir --break-system-packages fastapi "uvicorn[standard]" pydantic "openai>=1.30.0" Pillow; \
+        pip3 install --no-cache-dir --break-system-packages fastapi "uvicorn[standard]" pydantic "openai>=1.30.0" Pillow "python-multipart>=0.0.9"; \
     elif [ "${ROS_DISTRO}" = "humble" ]; then \
-        pip3 install --no-cache-dir fastapi "uvicorn[standard]" pydantic "openai>=1.30.0" Pillow; \
+        pip3 install --no-cache-dir fastapi "uvicorn[standard]" pydantic "openai>=1.30.0" Pillow "python-multipart>=0.0.9"; \
     fi
 
 WORKDIR /app
 
 COPY *.py ./
 COPY static/ ./static/
-COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY docker/movensys_vlm-entrypoint.sh /movensys_vlm-entrypoint.sh
+RUN chmod +x /movensys_vlm-entrypoint.sh
 
 EXPOSE 8000
 
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/movensys_vlm-entrypoint.sh"]

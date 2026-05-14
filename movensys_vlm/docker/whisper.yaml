@@ -1,0 +1,80 @@
+x-common: &common
+  container_name: whisper_container
+  image: whisper_image
+  restart: unless-stopped
+  ports:
+    - "9010:9010"
+  volumes:
+    - &hf-cache ~/.cache/huggingface:/root/.cache/huggingface
+
+# Only the genuinely-shared knobs live in the common env anchor. Model repo /
+# name / dir are per-profile because NVIDIA (transformers) and Intel
+# (openvino_genai) consume different model formats (stock HF vs OV-IR).
+x-common-env: &common-env
+  HF_TOKEN: ${HF_TOKEN}
+  WHISPER_DEFAULT_LANGUAGE: ${WHISPER_DEFAULT_LANGUAGE:-}
+
+services:
+  # ── NVIDIA Jetson AGX Thor ──────────────────────────────────────────────────
+  whisper-nvidia:
+    <<: *common
+    profiles: [nvidia-gpu]
+    runtime: nvidia
+    build:
+      context: ..
+      dockerfile: docker/whisper-nvidia.Dockerfile
+    volumes:
+      - ../models/${WHISPER_MODEL_NAME_NVIDIA}:/models/${WHISPER_MODEL_NAME_NVIDIA}
+      - *hf-cache
+    environment:
+      <<: *common-env
+      HF_WHISPER_REPO: ${HF_WHISPER_REPO_NVIDIA}
+      WHISPER_MODEL_NAME: ${WHISPER_MODEL_NAME_NVIDIA}
+      WHISPER_MODEL_DIR: /models/${WHISPER_MODEL_NAME_NVIDIA}
+      WHISPER_BACKEND: transformers
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
+      WHISPER_TORCH_DTYPE: ${WHISPER_TORCH_DTYPE:-float16}
+      WHISPER_CHUNK_LENGTH_S: ${WHISPER_CHUNK_LENGTH_S:-30}
+    command:
+      - uvicorn
+      - whisper_server:app
+      - --host=0.0.0.0
+      - --port=9010
+
+  # ── Intel XPU (NPU preferred, GPU fallback) ─────────────────────────────────
+  # Targets two hardware classes with a single image:
+  #   * Panther Lake (Core Ultra): NPU via /dev/accel/accel0 (owned by `render`)
+  #   * Discrete Intel Arc / iGPU: OpenVINO GPU plugin via /dev/dri
+  # The server (whisper_server.py) probes openvino.Core().available_devices at
+  # startup and picks NPU > GPU > CPU when WHISPER_DEVICE=AUTO. The /dev/accel
+  # mount is toggled by WHISPER_NPU_DEVICE: leave it unset on hosts without NPU
+  # and the mount collapses to a harmless /dev/null:/dev/null no-op; set it to
+  # /dev/accel on Panther Lake to expose the NPU kernel handle. Resolve the
+  # host's render GID with `getent group render | cut -d: -f3` and override
+  # RENDER_GID via .env if it isn't 992.
+  whisper-intel:
+    <<: *common
+    profiles: [intel-xpu]
+    build:
+      context: ..
+      dockerfile: docker/whisper-intel.Dockerfile
+    devices:
+      - /dev/dri:/dev/dri
+      - "${WHISPER_NPU_DEVICE:-/dev/null}:${WHISPER_NPU_DEVICE:-/dev/null}"
+    group_add:
+      - "${RENDER_GID:-992}"
+    volumes:
+      - ../models/${WHISPER_MODEL_NAME_INTEL}:/models/${WHISPER_MODEL_NAME_INTEL}
+      - *hf-cache
+      - ~/.cache/ze_intel_npu_cache:/root/.cache/ze_intel_npu_cache
+    environment:
+      <<: *common-env
+      HF_WHISPER_REPO: ${HF_WHISPER_REPO_INTEL}
+      WHISPER_MODEL_NAME: ${WHISPER_MODEL_NAME_INTEL}
+      WHISPER_MODEL_DIR: /models/${WHISPER_MODEL_NAME_INTEL}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-AUTO}
+    command:
+      - uvicorn
+      - whisper_server:app
+      - --host=0.0.0.0
+      - --port=9010

@@ -9,12 +9,12 @@ from PIL import Image
 import std_srvs.srv
 from movensys_manipulator_moveit_config.srv import GetEefPose, MovePose, MoveJoints
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 import ros2_node as rn
 import vlm_client
-import monopoly_geometry as mg
+import whisper_client
 
 router = APIRouter()
 
@@ -348,43 +348,6 @@ def set_scales(body: ScalesRequest):
 # VLM inference
 # ---------------------------------------------------------------------------
 
-def _classify_token(label: str, pose: Optional[dict], board_pose: dict) -> dict:
-    """Run geometry classification for one token; return a serializable dict."""
-    if pose is None:
-        return {"label": label, "status": "unavailable",
-                "row": None, "col": None, "world": None}
-    info = mg.classify_piece(
-        (pose["position"]["x"], pose["position"]["y"]),
-        (board_pose["position"]["x"], board_pose["position"]["y"]),
-        (
-            board_pose["orientation"]["x"],
-            board_pose["orientation"]["y"],
-            board_pose["orientation"]["z"],
-            board_pose["orientation"]["w"],
-        ),
-    )
-    return {
-        "label": label,
-        "status": info["status"],
-        "row": info["row"],
-        "col": info["col"],
-        "world": {"x": pose["position"]["x"], "y": pose["position"]["y"]},
-        "local": {"x": info["local_x"], "y": info["local_y"]},
-    }
-
-
-def _format_token_lines(tokens: List[dict]) -> str:
-    lines = []
-    for t in tokens:
-        if t["status"] == "unavailable":
-            lines.append(f"- {t['label']}: pose unavailable")
-        elif t["status"] == "on_board":
-            lines.append(f"- {t['label']}: status=on_board, row={t['row']}, col={t['col']}")
-        else:
-            lines.append(f"- {t['label']}: status={t['status']}")
-    return "\n".join(lines) if lines else "(no tokens)"
-
-
 @router.post("/api/vlm/infer")
 async def vlm_infer(body: VlmInferRequest):
     if rn.ros_node is None:
@@ -394,32 +357,22 @@ async def vlm_infer(body: VlmInferRequest):
         img = rn.ros_node.latest_hand_rgb_image
     elif body.camera == "top":
         img = rn.ros_node.latest_top_rgb_image
+    elif body.camera == "none":
+        img = None
     else:
-        raise HTTPException(400, detail="camera must be 'top' or 'hand'")
+        raise HTTPException(400, detail="camera must be 'top', 'hand', or 'none'")
 
-    if img is None:
-        raise HTTPException(503, detail=f"No RGB image available for camera '{body.camera}'")
+    image_b64: Optional[str] = None
+    if img is not None:
+        image_b64 = img["data"]
+        if body.rotate180:
+            pil_img = Image.open(io.BytesIO(base64.b64decode(image_b64)))
+            pil_img = pil_img.rotate(180)
+            buf = io.BytesIO()
+            pil_img.save(buf, format="JPEG")
+            image_b64 = base64.b64encode(buf.getvalue()).decode()
 
-    image_b64 = img["data"]
-    if body.rotate180:
-        pil_img = Image.open(io.BytesIO(base64.b64decode(image_b64)))
-        pil_img = pil_img.rotate(180)
-        buf = io.BytesIO()
-        pil_img.save(buf, format="JPEG")
-        image_b64 = base64.b64encode(buf.getvalue()).decode()
-
-    board_pose = rn.ros_node.latest_board_pose
-    tokens: List[dict] = []
-    if board_pose is not None:
-        tokens.append(_classify_token("piece_1", rn.ros_node.latest_piece_1_pose, board_pose))
-        tokens.append(_classify_token("piece_2", rn.ros_node.latest_piece_2_pose, board_pose))
-
-    sensor_block = _format_token_lines(tokens) if tokens else "(no /board pose received yet — fall back to vision)"
-    base_prompt = body.prompt or "Report the tokens on the board."
-    user_prompt = (
-        f"Sensor data (from /piece_1, /piece_2, /board topics):\n{sensor_block}\n\n"
-        f"{base_prompt}"
-    )
+    user_prompt = body.prompt or "Report the tokens on the board."
 
     error: Optional[str] = None
     result: Optional[str] = None
@@ -436,12 +389,11 @@ async def vlm_infer(body: VlmInferRequest):
 
     return {
         "camera": body.camera,
-        "width": img.get("width"),
-        "height": img.get("height"),
+        "width": img.get("width") if img else None,
+        "height": img.get("height") if img else None,
         "image": image_b64,
-        "encoding": img.get("encoding"),
+        "encoding": img.get("encoding") if img else None,
         "user_prompt": user_prompt,
-        "tokens": tokens,
         "response": result if result is not None else (error or ""),
         "error": error,
     }
@@ -475,6 +427,28 @@ def vlm_set_system_prompt(body: VlmSystemPromptRequest):
 @router.delete("/api/vlm/system_prompt")
 def vlm_reset_system_prompt():
     return {"system_prompt": vlm_client.reset_system_prompt()}
+
+
+# ---------------------------------------------------------------------------
+# Whisper STT
+# ---------------------------------------------------------------------------
+
+@router.post("/api/whisper/transcribe")
+async def whisper_transcribe(
+    file: UploadFile = File(...),
+    language: Optional[str] = None,
+):
+    audio_bytes = await file.read()
+    try:
+        text = await whisper_client.transcribe(
+            audio_bytes,
+            filename=file.filename or "audio.wav",
+            content_type=file.content_type or "audio/wav",
+            language=language,
+        )
+        return {"text": text, "error": None}
+    except Exception as exc:
+        return {"text": None, "error": f"transcription failed: {exc}"}
 
 
 # ---------------------------------------------------------------------------
