@@ -592,7 +592,14 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
     const size = BOARD_LAYOUTS[currentState.board_id]
       ? Object.keys(BOARD_LAYOUTS[currentState.board_id].centers).length
       : 40;
-    const to = (from + rollRes.sum) % size;
+    let to = (from + rollRes.sum) % size;
+    // Mirror rules.apply_move: IN_JAIL ("jail_visit") is skipped during
+    // normal dice movement. Without this client-side bump the server's
+    // expected_to (which also bumps) won't match and apply_move raises
+    // TILE_MISMATCH.
+    if (boardTiles && boardTiles[to] && boardTiles[to].kind === "jail_visit") {
+      to = (to + 1) % size;
+    }
     btn.textContent = "Moving…";
     const moveRes = await postJson("/api/move/apply_robot", {
       player, from_tile: from, to_tile: to, is_YOLO: isYOLO,
@@ -622,6 +629,14 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
 });
 document.getElementById("btn-reset").addEventListener("click", async () => {
   turnInFlight = false;
+  vlmPlayerLastTurnKey = null;
+  // Wipe the VLM's vector-DB memory so the new game starts from a clean
+  // slate — past turns from the previous game must not bias the agent.
+  try {
+    await fetch(`${VLM_BASE}/api/vlm/memory`, { method: "DELETE" });
+  } catch (err) {
+    console.warn("reset: clear vlm memory failed", err);
+  }
   await postJson("/api/game/start", { board: "final" });
   await loadBoardVisual("final");
   await refreshState();

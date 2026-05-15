@@ -144,6 +144,14 @@ Red circles = user-owned, green = robot.
              normally.
 4.5.3. Properties owned during jail still collect rent from the
        opponent.
+4.5.4. **IN_JAIL is never landed on by dice movement.** Pieces only
+       end up on IN_JAIL via §4.5.1's GO_TO_JAIL teleport. During
+       normal dice movement, if the computed destination would be
+       IN_JAIL the piece advances one more tile (so a player at
+       Suwon (tile 1) rolling 2 ends on Electric Company (tile 4),
+       not on IN_JAIL (tile 3)). Passing over IN_JAIL is free as
+       always — the skip only kicks in when IN_JAIL itself would
+       be the stop.
 
 ### 4.6 GO tile / IN_JAIL tile (jail visit, not jailed) / blank tiles
 
@@ -224,6 +232,10 @@ fixed cash threshold.
      current snapshot to `saved_status.yaml` next to the server. Loading
      replaces the entire game state. Memory in the vector DB is not
      part of the save.
+8.2. **Reset game** also wipes the VLM's Qdrant memory
+     (`DELETE :8000/api/vlm/memory`) so the next game starts from a
+     clean slate — past Q&A pairs from the previous game cannot bias
+     the agent's decisions.
 
 ---
 
