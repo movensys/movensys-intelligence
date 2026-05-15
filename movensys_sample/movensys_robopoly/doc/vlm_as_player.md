@@ -104,13 +104,30 @@ that case it carries `property_id`, `current_tier`, `max_tier`.
 
 ## 3. System prompt
 
-On page load the agent reads the per-client slot
-(`GET /api/vlm/system_prompt?client=robopoly`). If the slot is empty
-it installs a default prompt that documents the action grammar
-above, the §2 rules (seed money, GO bonus, tier prices, rent, tax,
-chance, auto-liquidation, 5-lap cap), and a small set of buy/skip
-heuristics. A pre-existing custom prompt is **never overwritten** —
-edits saved via the Ask VLM sidebar's system-prompt editor win.
+On page load the agent installs its system prompt at
+`PUT :8000/api/vlm/system_prompt?client=robopoly`. The installed text
+has **two parts**:
+
+1. A fixed agent preamble (`VLM_PLAYER_SYSTEM_PROMPT` in
+   `static/app.js`) — defines the action grammar, the "you are NOT a
+   vision assistant" rule, and example replies.
+2. The **full authoritative game spec**, pulled from the robopoly
+   backend at `GET :7999/api/game/rules` (which serves
+   `doc/game_logic.md` verbatim as `text/markdown`). This way any
+   edit to the spec doc — jail flow, IN_JAIL skip, auto-liquidation
+   order, lap cap, etc. — auto-propagates into the agent's
+   knowledge without code changes.
+
+If `/api/game/rules` is unreachable (older server, stripped image),
+the agent installs just the preamble plus a compact rules summary
+inside it; the loop still works, only the verbose spec is missing.
+
+The install **overwrites** any previous prompt in the slot — a stale
+"vision assistant" prompt could otherwise cause the VLM to refuse
+with "I cannot physically roll dice for you" instead of emitting an
+action. To customize after boot, edit the textarea in the Ask VLM
+sidebar (the PUT from the sidebar wins over the auto-install for the
+rest of the session).
 
 ## 4. User turn (spec §4)
 

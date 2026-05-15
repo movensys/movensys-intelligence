@@ -1247,17 +1247,41 @@ function maybeAutoTriggerRobotTurn() {
   }
 }
 
+async function fetchGameRulesSpec() {
+  // Pull the authoritative spec (doc/game_logic.md) from the robopoly
+  // backend so any future spec edit auto-propagates into the agent's
+  // system prompt. Returns "" if the endpoint isn't available (older
+  // server, stripped image, etc.); the caller falls back to the
+  // hard-coded rules summary in VLM_PLAYER_SYSTEM_PROMPT.
+  try {
+    const r = await fetch("/api/game/rules");
+    if (!r.ok) return "";
+    return await r.text();
+  } catch (err) {
+    console.warn("[vlm-player] fetch rules spec failed:", err);
+    return "";
+  }
+}
+
 async function ensureVlmPlayerSystemPrompt() {
   // Always install the agent prompt on boot — otherwise a leftover
   // vision-assistant prompt can cause the VLM to refuse with
   // "I cannot physically roll dice for you" instead of emitting the
   // JSON action. The user can still edit the prompt afterwards via
   // the Ask VLM sidebar's system-prompt editor.
+  //
+  // We also append the full game_logic.md spec so the agent has the
+  // entire rulebook (auto-liquidation order, jail flow, IN_JAIL skip,
+  // lap cap, etc.) — not just the hand-written summary.
+  const spec = await fetchGameRulesSpec();
+  const prompt = spec
+    ? `${VLM_PLAYER_SYSTEM_PROMPT}\n\n----- AUTHORITATIVE GAME SPEC (doc/game_logic.md) -----\n${spec}\n----- END SPEC -----\nUse the spec above to decide. The state JSON in each prompt is current; the spec is the rules. Respond with ONLY the JSON action.`
+    : VLM_PLAYER_SYSTEM_PROMPT;
   try {
     await fetch(`${VLM_BASE}/api/vlm/system_prompt?client=robopoly`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ system_prompt: VLM_PLAYER_SYSTEM_PROMPT }),
+      body: JSON.stringify({ system_prompt: prompt }),
     });
   } catch (err) {
     console.warn("[vlm-player] system prompt setup:", err);
