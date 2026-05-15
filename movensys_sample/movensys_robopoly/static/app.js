@@ -1034,45 +1034,75 @@ function setupVlm() {
 // through the existing /api endpoints (so all rules / pick-and-place logic
 // stay server-side).
 
-const VLM_PLAYER_SYSTEM_PROMPT = `You are the "robot" player in robopoly, a 2-player Monopoly-style game.
+const VLM_PLAYER_SYSTEM_PROMPT = `You are a game-playing AGENT for robopoly, a 2-player Monopoly-style game.
+You are an action-emitter for an automated game loop.
+
+Each prompt may include a top-down image of the physical board AND a JSON
+state snapshot. The JSON state is the source of truth for your decision —
+the image is additional grounding only. Do NOT describe the image. Do NOT
+explain what you see. Do NOT refuse with "I cannot roll dice" — you ARE
+rolling the dice by emitting the JSON action below; the code reads it and
+tells the arm to act.
+
 Players: "user" (red cube), "robot" (you, green cube). Turns alternate.
 
-Every prompt includes the current game state as JSON. Respond with EXACTLY one
-JSON action object and nothing else (no prose, no markdown fences).
+OUTPUT FORMAT — strict:
+  Your entire reply MUST be a single JSON object. No prose. No greetings.
+  No apologies. No markdown. No code fences. No explanation of capabilities.
+  If you reply with anything other than one JSON object, the turn FAILS.
 
-Actions:
-1. {"action": "roll_and_move", "player": "user" | "robot"}
-   Use when fsm == "TURN_START". player must match state.turn.
-2. {"action": "decide", "choice": "skip" | "buy" | "build" | "build_hotel"}
-   Use ONLY when state has decision_pending (you landed on a buyable tile).
-   - "buy"         → buy land for $100
-   - "build"       → upgrade to house tier (delta cost = (2 - current_tier) * 100)
-   - "build_hotel" → upgrade to hotel tier (delta cost = (3 - current_tier) * 100)
-   - "skip"        → pass on the purchase
+ACTIONS — exactly two are valid:
 
-Rules summary:
-- Seed money $1000; GO bonus $100 (whether passing or landing).
+1. {"action": "roll_and_move", "player": "user"}
+   {"action": "roll_and_move", "player": "robot"}
+     Use when fsm == "TURN_START". "player" MUST equal state.turn.
+
+2. {"action": "decide", "choice": "skip"}
+   {"action": "decide", "choice": "buy"}
+   {"action": "decide", "choice": "build"}
+   {"action": "decide", "choice": "build_hotel"}
+     Use when state.decision_pending is present (fsm == "AWAIT_DECISION").
+       buy         → buy land for $100
+       build       → upgrade to house tier (delta = (2 - current_tier) * 100)
+       build_hotel → upgrade to hotel tier (delta = (3 - current_tier) * 100)
+       skip        → pass
+
+EXAMPLES (these are the entire reply — nothing else):
+  {"action": "roll_and_move", "player": "robot"}
+  {"action": "decide", "choice": "buy"}
+
+DO NOT reply with text like "I cannot roll dice" — you ARE rolling the dice
+by emitting the JSON. The code reads your JSON and tells the arm to act.
+
+RULES (for choosing actions):
+- Seed money $1000; GO bonus $100 (passing or landing).
 - Tiers: land $100, house $200, hotel $300. Rent: $100 / $200 / $300 by tier.
-- Tax tile flat $100. Chance: ±$200 coin flip.
-- Auto-liquidation runs hotels → houses → land if you can't pay.
-- 5 laps to win on cap; bankruptcy ends the game immediately.
+- Tax tile $100. Chance: ±$200 coin flip.
+- Auto-liquidation: hotels → houses → land if you can't pay.
+- 5 laps wins on cap; bankruptcy ends the game immediately.
 
-Heuristics (you can deviate when state warrants):
-- Buy land when liquid >= $300.
-- Upgrade to house when liquid >= $400 and you already own the tile.
-- Upgrade to hotel when liquid >= $500.
-- Skip if the purchase would leave you below $200 liquid.
+BUY HEURISTICS (apply unless state says otherwise):
+- liquid >= $300 → buy
+- liquid >= $400 and already owned at tier 1 → build (house)
+- liquid >= $500 and already owned at tier 2 → build_hotel
+- purchase would drop liquid below $200 → skip
 
-Respond with ONLY the JSON action.`;
+Reply with ONLY the JSON action. Nothing else.`;
 
 let vlmPlayerInFlight = false;
 let vlmPlayerLastTurnKey = null;
+
+// Top-down board camera. The orchestrator grabs the latest /image_top/rgb
+// frame and sends it alongside the prompt — this gives the VLM visual
+// grounding instead of relying on the state JSON alone. If the camera is
+// not publishing, the orchestrator silently degrades to text-only.
+const VLM_PLAYER_CAMERA = "top";
 
 async function vlmInferRaw(prompt) {
   const r = await fetch(`${VLM_BASE}/api/vlm/infer`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ camera: "none", prompt, client: "robopoly" }),
+    body: JSON.stringify({ camera: VLM_PLAYER_CAMERA, prompt, client: "robopoly" }),
   });
   if (!r.ok) {
     const body = await r.json().catch(() => ({}));
@@ -1144,13 +1174,32 @@ async function executeVlmAction(action) {
   return false;
 }
 
+// Always inline the action grammar in the user message too, so the model
+// can't drift into a "vision assistant, I cannot roll dice" refusal even if
+// the per-client system prompt got overridden somewhere upstream.
+const VLM_PLAYER_INLINE_RULES = `You are the game agent. Reply with EXACTLY ONE JSON object — no prose, no fences, no apology.
+Valid replies are ONLY:
+  {"action": "roll_and_move", "player": "user"}
+  {"action": "roll_and_move", "player": "robot"}
+  {"action": "decide", "choice": "buy"}
+  {"action": "decide", "choice": "build"}
+  {"action": "decide", "choice": "build_hotel"}
+  {"action": "decide", "choice": "skip"}
+You are NOT a vision assistant. You are NOT asked to read images or physically roll dice.
+The arm executes whatever JSON you emit. If fsm == "TURN_START" pick roll_and_move with player = state.turn.
+If state.decision_pending is set, pick a decide action. Reply with ONLY the JSON, nothing else.`;
+
 async function vlmPlayerAct(userMessage) {
   if (vlmPlayerInFlight) return;
   if (!currentState) return;
   vlmPlayerInFlight = true;
   try {
     const summary = buildVlmStateSummary(currentState);
-    const prompt = `${userMessage}\n\nState:\n${JSON.stringify(summary, null, 2)}`;
+    const prompt =
+      `${VLM_PLAYER_INLINE_RULES}\n\n` +
+      `Context: ${userMessage}\n\n` +
+      `State:\n${JSON.stringify(summary, null, 2)}\n\n` +
+      `Your reply (ONE JSON object, nothing else):`;
     const resp = await vlmInferRaw(prompt);
     const action = parseVlmAction(resp);
     if (!action) {
@@ -1184,11 +1233,12 @@ function maybeAutoTriggerRobotTurn() {
 }
 
 async function ensureVlmPlayerSystemPrompt() {
+  // Always install the agent prompt on boot — otherwise a leftover
+  // vision-assistant prompt can cause the VLM to refuse with
+  // "I cannot physically roll dice for you" instead of emitting the
+  // JSON action. The user can still edit the prompt afterwards via
+  // the Ask VLM sidebar's system-prompt editor.
   try {
-    const r = await fetch(`${VLM_BASE}/api/vlm/system_prompt?client=robopoly`);
-    if (!r.ok) return;
-    const body = await r.json();
-    if (body.system_prompt && body.system_prompt.trim().length > 0) return;
     await fetch(`${VLM_BASE}/api/vlm/system_prompt?client=robopoly`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },

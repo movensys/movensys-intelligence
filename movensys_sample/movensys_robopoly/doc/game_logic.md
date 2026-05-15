@@ -27,11 +27,24 @@ end are TODOs against the implementation, not contradictions.
 
 ## 3. Turn flow (same for both players)
 
-A turn is driven by a **single button — *Roll dice*** — that chains
-roll → move → tile resolution → end-turn automatically. The only
-human interruption is the property-buy modal (§4.1.1 / §4.1.2); rent,
-tax, chance, and auto-liquidation all resolve server-side without
+A turn is driven by a **single chained flow** — roll → move → tile
+resolution → end-turn — that runs automatically. The only human
+interruption is the property-buy modal (§4.1.1 / §4.1.2); rent, tax,
+chance, and auto-liquidation all resolve server-side without
 prompting.
+
+The trigger differs by player (see `vlm_as_player.md` for the full
+agent protocol):
+
+- **User turn**: the user types in the **Ask VLM** textbox; the
+  frontend routes that message through the VLM agent, which returns
+  a `roll_and_move` action and the page dispatches the chain. A
+  fallback *Roll dice* button on the Dice Status card runs the same
+  chain without the VLM.
+- **Robot turn**: when the WebSocket reports `turn=robot,
+  fsm=TURN_START`, the frontend auto-prompts the VLM with the
+  current state; the VLM replies with `roll_and_move` and (if the
+  robot lands on a buyable tile) `decide`. No human input.
 
 3.1. **Roll the dice** — clicking *Roll dice* runs the YOLO robot
      pipeline:
@@ -190,9 +203,12 @@ fixed cash threshold.
 7.2. **Game state card** (top-right): turn, last dice, both positions,
      `is_YOLO` toggle, save/load buttons.
 7.3. **Dice Status card**: dice face + two buttons — **Roll dice**
-     (drives the full §3 chain) and **Reset game** (restart the
-     current board from turn 1). The previous *Apply move* and
-     *End turn* buttons are removed; both actions are automatic.
+     (manual fallback that drives the full §3 chain without the VLM)
+     and **Reset game** (restart the current board from turn 1). The
+     previous *Apply move* and *End turn* buttons are removed; both
+     actions are automatic. Under normal play, user turns are
+     triggered from the Ask VLM textbox and robot turns auto-trigger
+     — see `vlm_as_player.md`.
 7.4. **Events** card: raw event log (debugging).
 7.5. **Notification banner** under the board: human-readable
      announcements ("It's robot's turn", "robot bought Seoul", "user
