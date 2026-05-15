@@ -518,6 +518,7 @@ function renderState(state) {
 async function refreshState() {
   currentState = await fetchJson("/api/game/state");
   renderState(currentState);
+  if (typeof maybeAutoTriggerRobotTurn === "function") maybeAutoTriggerRobotTurn();
 }
 
 // ---- WebSocket stream ----------------------------------------------------
@@ -531,6 +532,7 @@ function openStream() {
     if (env.type === "hello" && env.payload.snapshot) {
       currentState = env.payload.snapshot;
       renderState(currentState);
+      if (typeof maybeAutoTriggerRobotTurn === "function") maybeAutoTriggerRobotTurn();
       return;
     }
     if (env.type === "tile_property_arrival_buyable" && env.payload.needs_decision) {
@@ -691,6 +693,32 @@ function setupVlm() {
 
   async function askOnce() {
     if (inFlight) return;
+    // Spec doc/vlm_as_player.md §4.2: when the user types during their
+    // TURN_START, the textbox is the user-turn trigger — route the message
+    // through the VLM-player action loop instead of the free-form Q&A path.
+    if (currentState && currentState.turn === "user"
+        && currentState.fsm === "TURN_START" && !currentState.winner) {
+      const msg = (prompt.value || "").trim() || "I rolled the dice.";
+      inFlight = true;
+      askBtn.disabled = true;
+      askBtn.textContent = "Playing…";
+      respEl.className = "vlm-response";
+      respEl.textContent = "Acting on your turn…";
+      try {
+        await vlmPlayerAct(msg);
+        respEl.textContent = "(turn dispatched)";
+        const ts = new Date().toLocaleTimeString();
+        metaEl.textContent = ts;
+      } catch (err) {
+        respEl.className = "vlm-response error";
+        respEl.textContent = String(err);
+      } finally {
+        inFlight = false;
+        askBtn.disabled = false;
+        askBtn.textContent = "Ask";
+      }
+      return;
+    }
     inFlight = true;
     askBtn.disabled = true;
     askBtn.textContent = "Thinking…";
@@ -998,6 +1026,179 @@ function setupVlm() {
   };
 }
 
+// ==== VLM as robot player (doc/vlm_as_player.md) ===========================
+// Single agent loop: the orchestrator's VLM plays the "robot" side. On the
+// user's turn the user types in the Ask VLM textbox to nudge the same agent;
+// on the robot's turn the agent fires automatically. The VLM never touches
+// the arm directly — it emits a JSON action and the frontend dispatches it
+// through the existing /api endpoints (so all rules / pick-and-place logic
+// stay server-side).
+
+const VLM_PLAYER_SYSTEM_PROMPT = `You are the "robot" player in robopoly, a 2-player Monopoly-style game.
+Players: "user" (red cube), "robot" (you, green cube). Turns alternate.
+
+Every prompt includes the current game state as JSON. Respond with EXACTLY one
+JSON action object and nothing else (no prose, no markdown fences).
+
+Actions:
+1. {"action": "roll_and_move", "player": "user" | "robot"}
+   Use when fsm == "TURN_START". player must match state.turn.
+2. {"action": "decide", "choice": "skip" | "buy" | "build" | "build_hotel"}
+   Use ONLY when state has decision_pending (you landed on a buyable tile).
+   - "buy"         → buy land for $100
+   - "build"       → upgrade to house tier (delta cost = (2 - current_tier) * 100)
+   - "build_hotel" → upgrade to hotel tier (delta cost = (3 - current_tier) * 100)
+   - "skip"        → pass on the purchase
+
+Rules summary:
+- Seed money $1000; GO bonus $100 (whether passing or landing).
+- Tiers: land $100, house $200, hotel $300. Rent: $100 / $200 / $300 by tier.
+- Tax tile flat $100. Chance: ±$200 coin flip.
+- Auto-liquidation runs hotels → houses → land if you can't pay.
+- 5 laps to win on cap; bankruptcy ends the game immediately.
+
+Heuristics (you can deviate when state warrants):
+- Buy land when liquid >= $300.
+- Upgrade to house when liquid >= $400 and you already own the tile.
+- Upgrade to hotel when liquid >= $500.
+- Skip if the purchase would leave you below $200 liquid.
+
+Respond with ONLY the JSON action.`;
+
+let vlmPlayerInFlight = false;
+let vlmPlayerLastTurnKey = null;
+
+async function vlmInferRaw(prompt) {
+  const r = await fetch(`${VLM_BASE}/api/vlm/infer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ camera: "none", prompt, client: "robopoly" }),
+  });
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({}));
+    throw new Error(body.detail || `HTTP ${r.status}`);
+  }
+  const body = await r.json();
+  return body.response || "";
+}
+
+function parseVlmAction(text) {
+  if (!text) return null;
+  // Strip any ```json … ``` fences the model may emit despite the system prompt.
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = (fenced ? fenced[1] : text).trim();
+  // Take the first balanced { … } block.
+  const m = candidate.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try { return JSON.parse(m[0]); } catch { return null; }
+}
+
+function buildVlmStateSummary(state) {
+  const summary = {
+    turn: state.turn,
+    fsm: state.fsm,
+    turn_number: state.turn_number,
+    positions: { ...(state.positions || {}) },
+    balances: {},
+    lap_count: { ...(state.lap_count || {}) },
+    properties_owned: { user: [], robot: [] },
+    last_dice: state.last_dice,
+    last_dice_sum: state.last_dice_sum,
+  };
+  for (const [pid, ps] of Object.entries(state.players || {})) {
+    summary.balances[pid] = ps.balance;
+  }
+  for (const p of Object.values(state.properties || {})) {
+    if (!p.owner) continue;
+    const tier = p.has_hotel ? 3 : (p.houses > 0 ? 2 : 1);
+    summary.properties_owned[p.owner].push({ id: p.id, tile_index: p.tile_index, tier });
+  }
+  if (pendingDecision) {
+    summary.decision_pending = {
+      property_id: pendingDecision.property_id,
+      current_tier: pendingDecision.current_tier ?? 0,
+      max_tier: pendingDecision.max_tier ?? 3,
+    };
+  }
+  return summary;
+}
+
+async function executeVlmAction(action) {
+  if (!action || typeof action !== "object") return false;
+  if (action.action === "roll_and_move") {
+    // Reuse the existing Roll-dice chain — it handles roll, physical move,
+    // tile resolution, auto-rent, auto-jail PnP, and auto end-turn.
+    const btn = document.getElementById("btn-roll-dice");
+    if (btn && !btn.disabled) { btn.click(); return true; }
+    return false;
+  }
+  if (action.action === "decide") {
+    const c = action.choice;
+    if (c === "build") { await submitDecision("build", 1); return true; }
+    if (["skip", "buy", "build_hotel"].includes(c)) {
+      await submitDecision(c);
+      return true;
+    }
+    return false;
+  }
+  return false;
+}
+
+async function vlmPlayerAct(userMessage) {
+  if (vlmPlayerInFlight) return;
+  if (!currentState) return;
+  vlmPlayerInFlight = true;
+  try {
+    const summary = buildVlmStateSummary(currentState);
+    const prompt = `${userMessage}\n\nState:\n${JSON.stringify(summary, null, 2)}`;
+    const resp = await vlmInferRaw(prompt);
+    const action = parseVlmAction(resp);
+    if (!action) {
+      console.warn("[vlm-player] no parseable action in:", resp);
+      return;
+    }
+    await executeVlmAction(action);
+  } catch (err) {
+    console.warn("[vlm-player]:", err);
+  } finally {
+    vlmPlayerInFlight = false;
+  }
+}
+
+// Auto-trigger on robot's TURN_START or AWAIT_DECISION. Idempotent per
+// (turn, fsm, turn_number, pending_property) so we don't spam the VLM on
+// every WS event during the same logical step.
+function maybeAutoTriggerRobotTurn() {
+  if (!currentState || currentState.winner) return;
+  if (currentState.turn !== "robot") return;
+  const pendingPid = pendingDecision ? pendingDecision.property_id : "";
+  const key = `${currentState.turn}|${currentState.fsm}|${currentState.turn_number}|${pendingPid}`;
+  if (vlmPlayerLastTurnKey === key) return;
+  if (currentState.fsm === "TURN_START") {
+    vlmPlayerLastTurnKey = key;
+    vlmPlayerAct("It's your turn (robot). Roll the dice and move your cube.");
+  } else if (currentState.fsm === "AWAIT_DECISION" && pendingDecision) {
+    vlmPlayerLastTurnKey = key;
+    vlmPlayerAct("You landed on a buyable property. Decide buy / build / build_hotel / skip.");
+  }
+}
+
+async function ensureVlmPlayerSystemPrompt() {
+  try {
+    const r = await fetch(`${VLM_BASE}/api/vlm/system_prompt?client=robopoly`);
+    if (!r.ok) return;
+    const body = await r.json();
+    if (body.system_prompt && body.system_prompt.trim().length > 0) return;
+    await fetch(`${VLM_BASE}/api/vlm/system_prompt?client=robopoly`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ system_prompt: VLM_PLAYER_SYSTEM_PROMPT }),
+    });
+  } catch (err) {
+    console.warn("[vlm-player] system prompt setup:", err);
+  }
+}
+
 // ---- boot -----------------------------------------------------------------
 
 (async () => {
@@ -1008,4 +1209,8 @@ function setupVlm() {
   await refreshState();
   openStream();
   setupVlm();
+  await ensureVlmPlayerSystemPrompt();
+  // First call after we have a snapshot — kicks the robot if the saved
+  // state already has turn=robot on load.
+  maybeAutoTriggerRobotTurn();
 })();
