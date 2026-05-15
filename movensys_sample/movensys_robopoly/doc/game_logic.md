@@ -105,7 +105,7 @@ Red circles = user-owned, green = robot.
 ### 4.5 Go-to-jail tile
 
 4.5.1. The player's piece is teleported to the **IN_JAIL** tile
-       immediately. Their turn ends.
+       immediately. Their turn ends. robot arm need pick and place automatically for this.
 4.5.2. While in jail, the player must either:
     4.5.2.1. Roll **6** on their next turn (any face counts — single
              die) to escape and move 6 spaces from IN_JAIL, **or**
@@ -117,8 +117,9 @@ Red circles = user-owned, green = robot.
 
 ### 4.6 GO tile / IN_JAIL tile (jail visit, not jailed) / blank tiles
 
-4.6.1. No effect on arrival (other than the GO start bonus which
-       triggers on **passing** GO, not on landing).
+4.6.1. The GO start bonus is granted whether the player **passes**
+       GO or **lands** on it. IN_JAIL (as a visitor, not jailed) and
+       blank tiles have no arrival effect.
 
 ## 5. Out-of-money handling
 

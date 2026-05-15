@@ -402,7 +402,50 @@ async def move_apply_robot(request: Request, body: MoveApplyRobotRequest) -> dic
     except RuleError as exc:
         raise HTTPException(**_http_kwargs(exc))
     result["robot"] = {"cube": cube, "board_pos": board_pos}
+
+    # Spec §4.5.1: landing on GO_TO_JAIL teleports the player's position to
+    # IN_JAIL in-engine; physically move the cube there too so the board
+    # state matches the game state.
+    jail_resolved = next(
+        (r for r in result.get("resolved", {}).get("tiles", [])
+         if r.get("kind") == "go_to_jail"),
+        None,
+    )
+    if jail_resolved is not None:
+        jail_pnp = await _pick_and_place_to_jail(script, cube, body.is_YOLO)
+        result["robot_jail"] = jail_pnp
     return result
+
+
+async def _pick_and_place_to_jail(
+    script: Path, cube: str, is_yolo: bool,
+) -> dict[str, Any]:
+    """Run pick_and_place.py <cube> IN_JAIL <is_YOLO> for the §4.5.1
+    auto-jail move. Raises HTTPException on subprocess failure so the
+    caller sees the same error envelope as the primary apply_robot path.
+    """
+    is_yolo_arg = "true" if is_yolo else "false"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "python3", str(script), cube, "IN_JAIL", is_yolo_arg,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500,
+                            detail={"code": "SCRIPT_NOT_FOUND", "message": str(exc)})
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "PNP_JAIL_FAILED",
+                "message": f"jail pick_and_place exited with code {proc.returncode}",
+                "stdout": stdout.decode("utf-8", "replace"),
+                "stderr": stderr.decode("utf-8", "replace"),
+            },
+        )
+    return {"cube": cube, "board_pos": "IN_JAIL"}
 
 
 # ---- property -------------------------------------------------------------
