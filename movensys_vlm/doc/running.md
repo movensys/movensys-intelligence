@@ -26,9 +26,9 @@ COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml up -d
 # Setup Vector Db
 ```
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
-docker compose -f vectordb.yaml down
-docker compose -f vectordb.yaml build
-docker compose -f vectordb.yaml up -d
+COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml down
+COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml build
+COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml up -d
 ```
 
 
