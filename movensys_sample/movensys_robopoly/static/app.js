@@ -322,6 +322,15 @@ async function submitDecision(action, houseCount = 0) {
                    { action, house_count: houseCount });
   } catch (err) { console.warn("decide:", err); }
   hideDecision();
+  // Spec §3.4: end-turn is automatic. After the buy/skip/build choice
+  // the FSM is back at RESOLVE_TILE, so end_turn is safe to call.
+  try {
+    await postJson("/api/game/end_turn");
+  } catch (err) {
+    console.warn("post-decide end_turn:", err);
+  } finally {
+    turnInFlight = false;
+  }
 }
 
 // ---- announcement (human-readable banner below the board) -----------------
@@ -453,6 +462,10 @@ function renderYoloStatus() {
 // ---- state reconciliation -------------------------------------------------
 
 let currentState = null;
+// Spec §3: one button drives the whole turn. This flag gates Roll-dice
+// while the roll → move → resolve → end-turn chain is in flight (including
+// while the Buy modal is open waiting for a choice).
+let turnInFlight = false;
 
 function renderState(state) {
   if (state.config && typeof state.config.is_YOLO === "boolean") {
@@ -489,10 +502,10 @@ function renderState(state) {
   renderMoney(money, assets);
 
   const winner = state.winner;
-  document.getElementById("btn-apply-move").disabled = state.fsm !== "MOVING";
-  document.getElementById("btn-roll-dice").disabled = state.fsm !== "TURN_START";
-  document.getElementById("btn-end-turn").disabled =
-    !["RESOLVE_TILE", "END_TURN"].includes(state.fsm) || winner;
+  // Spec §3: Roll dice is the only turn button; it chains move + end-turn
+  // automatically. Disabled while a turn is in flight or a buy modal is open.
+  document.getElementById("btn-roll-dice").disabled =
+    state.fsm !== "TURN_START" || winner || turnInFlight;
 
   // Whose turn is it? — announce when it flips. Skip if a winner has been
   // declared so the "X wins" banner isn't overwritten by a stale turn label.
@@ -537,66 +550,76 @@ function openStream() {
 
 // ---- manual controls ------------------------------------------------------
 
+// Spec §3: Roll dice chains roll → physical move → tile resolution → end turn.
+// The only pause for human input is the Buy modal (§4.1.1 / §4.1.2); rent,
+// tax, chance, and auto-liquidation all resolve server-side.
 document.getElementById("btn-roll-dice").addEventListener("click", async () => {
-  // The robot runs pick_and_place.py dice GO; after pnp.get_piece_info() the
-  // server reads the face value from /yolo_dice_detector/dice_number and
-  // submits it as the dice roll. Disable the button while we wait.
+  if (turnInFlight) return;
   const btn = document.getElementById("btn-roll-dice");
   const prevText = btn.textContent;
+  turnInFlight = true;
   btn.disabled = true;
   btn.textContent = "Rolling…";
-  let rolled = false;
+
   try {
-    const result = await postJson("/api/dice/roll_robot", { is_YOLO: isYOLO });
-    if (result && typeof result.dice_number === "number") {
-      renderDiceFace(result.dice_number);
-      rolled = true;
+    // 1. Roll the dice (physical arm).
+    const rollRes = await postJson("/api/dice/roll_robot", { is_YOLO: isYOLO });
+    if (rollRes && typeof rollRes.dice_number === "number") {
+      renderDiceFace(rollRes.dice_number);
     }
-  } catch (err) {
-    console.warn("roll_robot:", err);
-  } finally {
-    btn.textContent = prevText;
-    // On success the WS fsm_transition event will set disabled correctly via
-    // renderState. On failure no event fires, so re-enable here so the user
-    // can retry.
-    if (!rolled) btn.disabled = false;
-  }
-});
-document.getElementById("btn-apply-move").addEventListener("click", async () => {
-  if (!currentState || !currentState.last_dice_sum) return;
-  const player = currentState.turn;
-  const from = currentState.positions[player];
-  const size = BOARD_LAYOUTS[currentState.board_id]
-    ? Object.keys(BOARD_LAYOUTS[currentState.board_id].centers).length
-    : 40;
-  const to = (from + currentState.last_dice_sum) % size;
-  // /api/move/apply_robot runs pick_and_place.py (red_cube for user,
-  // green_cube for robot) and only applies the game-state move once the
-  // physical motion finishes — so the on-screen piece moves at the same
-  // moment the robot arrives at the new tile.
-  const btn = document.getElementById("btn-apply-move");
-  const prevText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = "Moving…";
-  let moved = false;
-  try {
-    await postJson("/api/move/apply_robot", {
+
+    // 1b. Jail-skip path: rules.submit_dice transitions straight to END_TURN
+    //     when the jailed player rolls a non-6 with turns_left > 0.
+    if (rollRes && rollRes.fsm === "END_TURN") {
+      await postJson("/api/game/end_turn");
+      return;
+    }
+    if (!rollRes || rollRes.fsm !== "MOVING") {
+      console.warn("roll_robot: unexpected fsm", rollRes && rollRes.fsm);
+      return;
+    }
+
+    // 2. Apply move (physical arm). Compute destination from the current
+    //    player's tile + dice sum, modulo the board size.
+    const player = currentState && currentState.turn;
+    if (!player || !currentState) {
+      console.warn("apply_robot: missing currentState");
+      return;
+    }
+    const from = currentState.positions[player];
+    const size = BOARD_LAYOUTS[currentState.board_id]
+      ? Object.keys(BOARD_LAYOUTS[currentState.board_id].centers).length
+      : 40;
+    const to = (from + rollRes.sum) % size;
+    btn.textContent = "Moving…";
+    const moveRes = await postJson("/api/move/apply_robot", {
       player, from_tile: from, to_tile: to, is_YOLO: isYOLO,
     });
-    moved = true;
+
+    // 3. If the tile arrival needs a human decision (Buy modal), stop here.
+    //    The WS event already popped the modal; submitDecision will call
+    //    end_turn after the user picks an option.
+    if (moveRes && moveRes.fsm === "AWAIT_DECISION") {
+      return;
+    }
+
+    // 4. Auto end-turn — rent / tax / chance / bankruptcy already resolved
+    //    inside apply_move on the server side.
+    await postJson("/api/game/end_turn");
   } catch (err) {
-    console.warn("apply_move:", err);
+    console.warn("roll-dice chain:", err);
   } finally {
     btn.textContent = prevText;
-    // On success the WS fsm_transition event drives renderState which sets
-    // disabled correctly. On failure no event fires, so re-enable here.
-    if (!moved) btn.disabled = false;
+    // Re-enable when the chain stops here (errors, jail-skip, or end_turn).
+    // If we're still mid-modal (AWAIT_DECISION), keep the flag set —
+    // submitDecision will clear it after the post-modal end_turn lands.
+    if (!currentState || currentState.fsm !== "AWAIT_DECISION") {
+      turnInFlight = false;
+    }
   }
 });
-document.getElementById("btn-end-turn").addEventListener("click", async () => {
-  await postJson("/api/game/end_turn");
-});
 document.getElementById("btn-reset").addEventListener("click", async () => {
+  turnInFlight = false;
   await postJson("/api/game/start", { board: "final" });
   await loadBoardVisual("final");
   await refreshState();

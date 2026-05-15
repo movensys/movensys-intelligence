@@ -27,6 +27,12 @@ end are TODOs against the implementation, not contradictions.
 
 ## 3. Turn flow (same for both players)
 
+A turn is driven by a **single button — *Roll dice*** — that chains
+roll → move → tile resolution → end-turn automatically. The only
+human interruption is the property-buy modal (§4.1.1 / §4.1.2); rent,
+tax, chance, and auto-liquidation all resolve server-side without
+prompting.
+
 3.1. **Roll the dice** — clicking *Roll dice* runs the YOLO robot
      pipeline:
     3.1.1. The arm picks the dice and drops it in the rolling area
@@ -36,15 +42,26 @@ end are TODOs against the implementation, not contradictions.
            via the orchestrator's `/api/topics/dice_number`.
     3.1.3. The detected value is submitted as the current player's
            dice roll.
-3.2. **Move** — clicking *Apply move* drives the player's cube to the
-     new tile via the orchestrator's `/api/move/*` endpoints (subprocess
+3.2. **Move (automatic)** — immediately after the dice value is
+     submitted, the client drives the player's cube to the computed
+     destination via `/api/move/apply_robot` (subprocess
      `pick_and_place.py <cube> <board_pos>`). The on-screen piece
      advances at the same moment.
-3.3. **Resolve the tile** — depends on the kind of tile landed on
-     (see §4).
-3.4. **End turn** — *End turn* button hands control to the other
-     player. Disabled until the tile has been resolved (or the player
-     is bankrupt).
+3.3. **Resolve the tile (automatic)** — runs server-side as part of
+     the move (see §4):
+    3.3.1. Property arrival on an unowned tile, or a self-owned tile
+           with an available upgrade, pops the **Buy modal** (the only
+           place the chain pauses for human input).
+    3.3.2. Rent owed to the opponent is paid automatically. If the
+           payer cannot cover the rent, the auto-liquidation pathway
+           in §5.2 runs first; if still short, the payer goes
+           bankrupt and the opponent wins.
+    3.3.3. Tax and chance cash deltas apply automatically; shortfalls
+           run the same auto-liquidation pathway.
+3.4. **End turn (automatic)** — control flips to the other player
+     as soon as the tile resolution completes (or, when the Buy
+     modal was shown, as soon as the player's choice is submitted).
+     There is no *End turn* button.
 
 ## 4. Arrival actions by tile kind
 
@@ -172,8 +189,10 @@ fixed cash threshold.
      ownership circles overlay.
 7.2. **Game state card** (top-right): turn, last dice, both positions,
      `is_YOLO` toggle, save/load buttons.
-7.3. **Dice Status card**: dice face + Roll/Apply/End-turn/Reset
-     buttons split around the dice image.
+7.3. **Dice Status card**: dice face + two buttons — **Roll dice**
+     (drives the full §3 chain) and **Reset game** (restart the
+     current board from turn 1). The previous *Apply move* and
+     *End turn* buttons are removed; both actions are automatic.
 7.4. **Events** card: raw event log (debugging).
 7.5. **Notification banner** under the board: human-readable
      announcements ("It's robot's turn", "robot bought Seoul", "user
