@@ -103,10 +103,10 @@ function renderOwnership(state) {
     const tile = layout.centers?.[p.tile_index];
     if (!tile) continue;
     const cx = (tile.user[0] + tile.robot[0]) / 2;
-    const cy = (tile.user[1] + tile.robot[1]) / 2 + 40;  // below the pieces
+    const cy = (tile.user[1] + tile.robot[1]) / 2 + 22;  // just below the pieces
     const tier = p.has_hotel ? 3 : (p.houses > 0 ? 2 : 1);
     const fill = p.owner === "user" ? "var(--user)" : "var(--robot)";
-    const r = 7, gap = 4;
+    const r = 21, gap = 12;
     const totalW = tier * 2 * r + (tier - 1) * gap;
     const startX = cx - totalW / 2 + r;
     for (let i = 0; i < tier; i++) {
@@ -116,7 +116,7 @@ function renderOwnership(state) {
       c.setAttribute("r", String(r));
       c.setAttribute("fill", fill);
       c.setAttribute("stroke", "#000");
-      c.setAttribute("stroke-width", "1.5");
+      c.setAttribute("stroke-width", "4.5");
       g.appendChild(c);
     }
   }

@@ -41,13 +41,13 @@ header .spacer { flex: 1; }
 /* Human-readable announcement below the board (turn changes, buys, etc.) */
 .notification {
   margin-top: 12px;
-  padding: 14px 18px;
+  padding: 42px 54px;
   background: var(--panel);
   border-radius: 10px;
   border-left: 5px solid var(--muted);
-  font-size: 16px; font-weight: 600;
+  font-size: 48px; font-weight: 600;
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  min-height: 48px;
+  min-height: 144px;
   display: flex; align-items: center;
   transition: border-color 200ms, background 200ms;
 }
@@ -58,7 +58,7 @@ header .spacer { flex: 1; }
 .notification.kind-buy   { border-left-color: #fbbf24; }
 .notification.kind-build { border-left-color: #34d399; }
 .notification.kind-money { border-left-color: #f97316; }
-.notification.kind-win   { border-left-color: #f87171; color: #fcd34d; font-size: 18px; }
+.notification.kind-win   { border-left-color: #f87171; color: #fcd34d; font-size: 54px; }
 .money-player {
   display: inline-flex; align-items: center; gap: 12px;
   background: var(--panel); padding: 12px 20px; border-radius: 12px;
