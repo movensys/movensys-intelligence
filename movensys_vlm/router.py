@@ -76,6 +76,9 @@ class VlmInferRequest(BaseModel):
     max_tokens: int = 512
     temperature: float = 0.2
     rotate180: bool = False
+    # Per-client namespace for the stored system prompt (e.g. "vlm",
+    # "robopoly"). Falls back to the shared "default" slot when omitted.
+    client: Optional[str] = None
 
     model_config = {
         "json_schema_extra": {
@@ -384,6 +387,7 @@ async def vlm_infer(body: VlmInferRequest):
             system_prompt=body.system_prompt,
             max_tokens=body.max_tokens,
             temperature=body.temperature,
+            client_id=body.client,
         )
     except Exception as exc:
         error = f"VLM inference failed: {exc}"
@@ -411,23 +415,30 @@ class VlmSystemPromptRequest(BaseModel):
 
 
 @router.get("/api/vlm/system_prompt")
-def vlm_get_system_prompt():
+def vlm_get_system_prompt(client: Optional[str] = None):
     return {
-        "system_prompt": vlm_client.get_system_prompt(),
+        "system_prompt": vlm_client.get_system_prompt(client),
         "default_system_prompt": vlm_client.DEFAULT_SYSTEM_PROMPT,
+        "client": client or vlm_client.DEFAULT_CLIENT,
     }
 
 
 @router.put("/api/vlm/system_prompt")
-def vlm_set_system_prompt(body: VlmSystemPromptRequest):
+def vlm_set_system_prompt(body: VlmSystemPromptRequest, client: Optional[str] = None):
     if not body.system_prompt.strip():
         raise HTTPException(400, detail="system_prompt must not be empty")
-    return {"system_prompt": vlm_client.set_system_prompt(body.system_prompt)}
+    return {
+        "system_prompt": vlm_client.set_system_prompt(body.system_prompt, client),
+        "client": client or vlm_client.DEFAULT_CLIENT,
+    }
 
 
 @router.delete("/api/vlm/system_prompt")
-def vlm_reset_system_prompt():
-    return {"system_prompt": vlm_client.reset_system_prompt()}
+def vlm_reset_system_prompt(client: Optional[str] = None):
+    return {
+        "system_prompt": vlm_client.reset_system_prompt(client),
+        "client": client or vlm_client.DEFAULT_CLIENT,
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -34,12 +34,6 @@ const BOARD_LAYOUTS = {
   "final": BOARD_FINAL_LAYOUT,
 };
 
-const COLOR_HEX = {
-  brown: "#8B4513", light_blue: "#87CEEB", pink: "#E91E63",
-  orange: "#FF9800", red: "#D32F2F", yellow: "#FDD835",
-  green: "#388E3C", dark_blue: "#1A237E",
-};
-
 // ---- HTTP helpers ----------------------------------------------------------
 
 async function fetchJson(path, init) {
@@ -68,7 +62,7 @@ async function loadBadges() {
   try {
     const m = await fetchJson("/api/modes");
     document.getElementById("modes").innerHTML =
-      modeBadge("STT", m.stt) + modeBadge("LLM", m.llm) +
+      modeBadge("STT", m.stt) + modeBadge("VLM", m.vlm) +
       modeBadge("Robot", m.robot) + modeBadge("ROS2", m.ros2);
   } catch (err) { console.warn("modes fetch failed:", err); }
 }
@@ -87,6 +81,45 @@ async function loadBoardVisual(boardId) {
   const boardJson = await fetchJson(`/assets/boards/board_${boardId}.json`);
   boardTiles = boardJson.tiles;
   host.innerHTML = `<img src="/assets/boards/${boardJson.physical_image}" alt="Board ${boardId}"/>`;
+}
+
+// Ownership circles overlay: for each owned property, draw 1/2/3 colored
+// circles next to that tile — 1=land, 2=house, 3=hotel. Red=user, green=robot.
+function renderOwnership(state) {
+  const svg = document.getElementById("pieces");
+  if (!svg) return;
+  const layout = BOARD_LAYOUTS[state?.board_id];
+  let g = document.getElementById("ownership-overlay");
+  if (g) g.replaceChildren();
+  if (!layout) return;
+  if (!g) {
+    g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    g.setAttribute("id", "ownership-overlay");
+    svg.insertBefore(g, svg.firstChild);  // behind pieces
+  }
+  const props = state?.properties || {};
+  for (const p of Object.values(props)) {
+    if (!p.owner) continue;
+    const tile = layout.centers?.[p.tile_index];
+    if (!tile) continue;
+    const cx = (tile.user[0] + tile.robot[0]) / 2;
+    const cy = (tile.user[1] + tile.robot[1]) / 2 + 22;  // just below the pieces
+    const tier = p.has_hotel ? 3 : (p.houses > 0 ? 2 : 1);
+    const fill = p.owner === "user" ? "var(--user)" : "var(--robot)";
+    const r = 21, gap = 12;
+    const totalW = tier * 2 * r + (tier - 1) * gap;
+    const startX = cx - totalW / 2 + r;
+    for (let i = 0; i < tier; i++) {
+      const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      c.setAttribute("cx", String(startX + i * (2 * r + gap)));
+      c.setAttribute("cy", String(cy));
+      c.setAttribute("r", String(r));
+      c.setAttribute("fill", fill);
+      c.setAttribute("stroke", "#000");
+      c.setAttribute("stroke-width", "4.5");
+      g.appendChild(c);
+    }
+  }
 }
 
 function movePiece(player, tileIndex, boardId) {
@@ -188,11 +221,11 @@ function setupPieceDragging() {
 // ---- money widget ---------------------------------------------------------
 
 const lastBalance = { user: null, robot: null };
-function renderMoney(snap) {
+function renderMoney(liquidSnap, assetsSnap) {
   for (const p of ["user", "robot"]) {
     const el = document.getElementById(`money-${p}-value`);
     const prev = lastBalance[p];
-    const curr = snap[p] ?? 0;
+    const curr = liquidSnap[p] ?? 0;
     el.textContent = `$${curr}`;
     if (prev !== null && curr !== prev) {
       el.classList.remove("flash-up", "flash-down");
@@ -201,47 +234,9 @@ function renderMoney(snap) {
       setTimeout(() => el.classList.remove("flash-up", "flash-down"), 600);
     }
     lastBalance[p] = curr;
-  }
-}
 
-// ---- property sidebar -----------------------------------------------------
-
-function groupByColor(properties) {
-  const groups = {};
-  for (const p of properties) {
-    const key = p.color_group || p.kind;
-    (groups[key] ??= []).push(p);
-  }
-  return groups;
-}
-
-function renderPropertyLists(properties) {
-  for (const player of ["user", "robot"]) {
-    const host = document.getElementById(`props-${player}`);
-    const mine = properties.filter(p => p.owner === player);
-    if (mine.length === 0) {
-      host.innerHTML = `<p class="muted" style="font-size:11px;color:var(--muted);margin:0">none yet</p>`;
-      continue;
-    }
-    const groups = groupByColor(mine);
-    const frags = [];
-    for (const [name, items] of Object.entries(groups)) {
-      frags.push(`<div class="property-group"><div class="property-group-name">${name}</div>`);
-      for (const p of items) {
-        const swatch = COLOR_HEX[p.color_group] || "#888";
-        const buildings = p.has_hotel ? "🏨" : "🏠".repeat(p.houses);
-        const cls = ["property-thumb"];
-        if (p.mortgaged) cls.push("mortgaged");
-        frags.push(
-          `<div class="${cls.join(" ")}" title="${p.name}">` +
-          `<span class="swatch" style="background:${swatch}"></span>` +
-          `<span class="name">${p.name}</span>` +
-          `<span class="buildings">${buildings}</span></div>`
-        );
-      }
-      frags.push(`</div>`);
-    }
-    host.innerHTML = frags.join("");
+    const aEl = document.getElementById(`money-${p}-assets`);
+    if (aEl) aEl.textContent = `$${assetsSnap?.[p] ?? 0}`;
   }
 }
 
@@ -278,18 +273,39 @@ let pendingDecision = null;  // { property_id, card }
 function showDecision(decision) {
   pendingDecision = decision;
   const { card } = decision;
+  const currentTier = decision.current_tier ?? 0;
+  const maxTier = decision.max_tier ?? (card.kind === "property" ? 3 : 1);
+  const tierLabel = ["unowned", "land", "house", "hotel"];
   const host = document.getElementById("decision-card");
-  const swatch = COLOR_HEX[card.color_group] || "#888";
+  const subtitle = currentTier > 0
+    ? `You already own this — current tier: ${tierLabel[currentTier]}`
+    : "Unowned — pick a tier to buy directly";
   host.innerHTML = `
-    <div class="card-preview" style="background:${swatch}; color:#fff; text-shadow:0 1px 1px rgba(0,0,0,.4)">
-      <div class="kind">${card.kind}${card.color_group ? ' · ' + card.color_group : ''}</div>
+    <div class="card-preview">
+      <div class="kind">${card.kind}</div>
       <div class="name">${card.name}</div>
-      <div class="price">Price $${card.price_buy}${card.price_building ? ` · build $${card.price_building}` : ''}</div>
+      <div class="price">${subtitle}</div>
     </div>
   `;
-  document.getElementById("decision-title").textContent = `Land on ${card.name}`;
-  const canBuild = card.kind === "property" && card.price_building !== null;
-  document.getElementById("btn-buy-build").style.display = canBuild ? "inline-block" : "none";
+  const title = currentTier > 0
+    ? `Upgrade ${card.name}`
+    : `Land on ${card.name}`;
+  document.getElementById("decision-title").textContent = title;
+
+  const btnBuy   = document.getElementById("btn-buy");        // → land  (tier 1)
+  const btnHouse = document.getElementById("btn-buy-build");  // → house (tier 2)
+  const btnHotel = document.getElementById("btn-buy-hotel");  // → hotel (tier 3)
+
+  // Show only the upgrade paths that actually advance the tier.
+  btnBuy.style.display   = currentTier < 1 ? "inline-block" : "none";
+  btnHouse.style.display = (currentTier < 2 && maxTier >= 2) ? "inline-block" : "none";
+  btnHotel.style.display = (currentTier < 3 && maxTier >= 3) ? "inline-block" : "none";
+
+  // Re-label with the actual delta cost from where the player is now.
+  btnBuy.textContent   = "Buy land ($100)";
+  btnHouse.textContent = `Buy + house ($${(2 - currentTier) * 100})`;
+  btnHotel.textContent = `Buy + hotel ($${(3 - currentTier) * 100})`;
+
   document.getElementById("decision-modal").classList.remove("hidden");
 }
 
@@ -306,6 +322,118 @@ async function submitDecision(action, houseCount = 0) {
                    { action, house_count: houseCount });
   } catch (err) { console.warn("decide:", err); }
   hideDecision();
+  // Spec §3.4: end-turn is automatic. After the buy/skip/build choice
+  // the FSM is back at RESOLVE_TILE, so end_turn is safe to call.
+  try {
+    await postJson("/api/game/end_turn");
+  } catch (err) {
+    console.warn("post-decide end_turn:", err);
+  } finally {
+    turnInFlight = false;
+  }
+}
+
+// ---- announcement (human-readable banner below the board) -----------------
+
+let lastAnnouncedTurn = null;
+
+function tileName(idx) {
+  if (idx === null || idx === undefined) return "—";
+  return boardTiles?.[idx]?.name ?? `tile ${idx}`;
+}
+
+function propertyName(pid) {
+  if (!pid) return "a property";
+  const prop = currentState?.properties?.[pid];
+  if (prop && typeof prop.tile_index === "number") return tileName(prop.tile_index);
+  // property_id is usually `${board_id}:${tile_name_slug}` — fall back to the suffix.
+  const idx = String(pid).lastIndexOf(":");
+  return idx >= 0 ? String(pid).slice(idx + 1).replace(/_/g, " ") : pid;
+}
+
+function announce(text, kind = "info") {
+  const el = document.getElementById("notification");
+  if (!el) return;
+  el.classList.remove("empty");
+  el.className = `notification kind-${kind}`;
+  el.textContent = text;
+}
+
+function announceFromEvent(env) {
+  const { type, payload = {} } = env;
+  switch (type) {
+    case "game_started":
+      announce("Game started", "turn");
+      lastAnnouncedTurn = null;
+      break;
+    case "dice_submitted": {
+      const player = currentState?.turn ?? "player";
+      const sum = payload.sum ?? payload.value;
+      announce(`${player} rolled ${sum}`, "dice");
+      break;
+    }
+    case "move_applied":
+      announce(`${payload.player} moved to ${tileName(payload.to_tile)}`, "move");
+      break;
+    case "lap_completed":
+      announce(`${payload.player} passed GO`, "move");
+      break;
+    case "start_bonus":
+      announce(`${payload.player} collected $${payload.amount} for passing GO`, "money");
+      break;
+    case "property_bought":
+      announce(`${payload.owner} bought ${propertyName(payload.property_id)} for $${payload.price}`, "buy");
+      break;
+    case "purchase_skipped":
+      announce(`Purchase skipped`, "buy");
+      break;
+    case "property_built": {
+      const label = payload.tier_label || (payload.tier === 3 ? "hotel" : "house");
+      announce(`Built ${label} on ${propertyName(payload.property_id)}`, "build");
+      break;
+    }
+    case "tier_sold": {
+      const labels = ["unowned", "land", "house", "hotel"];
+      const what = labels[payload.from_tier] || "tier";
+      announce(`Sold ${what} on ${propertyName(payload.property_id)} (+$${payload.refund})`, "money");
+      break;
+    }
+    case "tile_rent_paid":
+      announce(`Rent paid${payload.amount ? ` ($${payload.amount})` : ""}`, "money");
+      break;
+    case "tile_tax_paid":
+      announce(`Tax paid${payload.amount ? ` ($${payload.amount})` : ""}`, "money");
+      break;
+    case "chance_drawn": {
+      const dir = payload.direction;
+      const amt = payload.amount;
+      if (dir === "collect") announce(`Chance: collect $${amt}`, "money");
+      else if (dir === "pay") announce(`Chance: pay $${Math.abs(amt)}`, "money");
+      break;
+    }
+    case "jail_escaped":
+      announce(`${payload.player} rolled 6 and escaped jail!`, "turn");
+      break;
+    case "jail_skipped":
+      announce(`${payload.player} is in jail (${payload.turns_left} turn(s) left)`, "money");
+      break;
+    case "jail_released":
+      announce(`${payload.player} served their time and is free`, "turn");
+      break;
+    case "game_won":
+      if (payload.draw) {
+        const t = payload.totals || {};
+        announce(`🤝 Draw — both players at $${t.user ?? "?"}`, "win");
+      } else {
+        const reason = payload.reason === "lap_cap" ? " (5 laps)" : "";
+        announce(`🏆 ${payload.winner} wins the game!${reason}`, "win");
+      }
+      break;
+    case "state_loaded":
+      announce("Game state loaded", "turn");
+      lastAnnouncedTurn = null;
+      break;
+  }
 }
 
 // ---- event log ------------------------------------------------------------
@@ -334,6 +462,10 @@ function renderYoloStatus() {
 // ---- state reconciliation -------------------------------------------------
 
 let currentState = null;
+// Spec §3: one button drives the whole turn. This flag gates Roll-dice
+// while the roll → move → resolve → end-turn chain is in flight (including
+// while the Buy modal is open waiting for a choice).
+let turnInFlight = false;
 
 function renderState(state) {
   if (state.config && typeof state.config.is_YOLO === "boolean") {
@@ -358,24 +490,34 @@ function renderState(state) {
       pos === undefined ? "—" : (tileName ?? pos);
     if (pos !== undefined) movePiece(p, pos, state.board_id);
   }
+  renderOwnership(state);
   const money = {};
+  const assets = { user: 0, robot: 0 };
   for (const [pid, ps] of Object.entries(state.players || {})) money[pid] = ps.balance;
-  renderMoney(money);
+  for (const p of Object.values(state.properties || {})) {
+    if (!p.owner) continue;
+    const tier = p.has_hotel ? 3 : (p.houses > 0 ? 2 : 1);
+    assets[p.owner] = (assets[p.owner] ?? 0) + tier * 100;
+  }
+  renderMoney(money, assets);
 
   const winner = state.winner;
-  document.getElementById("btn-apply-move").disabled = state.fsm !== "MOVING";
-  document.getElementById("btn-roll-dice").disabled = state.fsm !== "TURN_START";
-  document.getElementById("btn-end-turn").disabled =
-    !["RESOLVE_TILE", "END_TURN"].includes(state.fsm) || winner;
+  // Spec §3: Roll dice is the only turn button; it chains move + end-turn
+  // automatically. Disabled while a turn is in flight or a buy modal is open.
+  document.getElementById("btn-roll-dice").disabled =
+    state.fsm !== "TURN_START" || winner || turnInFlight;
+
+  // Whose turn is it? — announce when it flips. Skip if a winner has been
+  // declared so the "X wins" banner isn't overwritten by a stale turn label.
+  if (!winner && state.turn && state.turn !== lastAnnouncedTurn) {
+    lastAnnouncedTurn = state.turn;
+    announce(`It's ${state.turn}'s turn`, "turn");
+  }
 }
 
 async function refreshState() {
   currentState = await fetchJson("/api/game/state");
   renderState(currentState);
-  try {
-    const props = await fetchJson("/api/properties");
-    renderPropertyLists(props);
-  } catch (err) { /* properties empty before start */ }
 }
 
 // ---- WebSocket stream ----------------------------------------------------
@@ -395,8 +537,11 @@ function openStream() {
       showDecision({
         property_id: env.payload.property_id,
         card: env.payload.card,
+        current_tier: env.payload.current_tier ?? 0,
+        max_tier: env.payload.max_tier,
       });
     }
+    announceFromEvent(env);
     await refreshState();
   };
   ws.onclose = () => setTimeout(openStream, 1500);
@@ -405,66 +550,76 @@ function openStream() {
 
 // ---- manual controls ------------------------------------------------------
 
+// Spec §3: Roll dice chains roll → physical move → tile resolution → end turn.
+// The only pause for human input is the Buy modal (§4.1.1 / §4.1.2); rent,
+// tax, chance, and auto-liquidation all resolve server-side.
 document.getElementById("btn-roll-dice").addEventListener("click", async () => {
-  // The robot runs pick_and_place.py dice GO; after pnp.get_piece_info() the
-  // server reads the face value from /yolo_dice_detector/dice_number and
-  // submits it as the dice roll. Disable the button while we wait.
+  if (turnInFlight) return;
   const btn = document.getElementById("btn-roll-dice");
   const prevText = btn.textContent;
+  turnInFlight = true;
   btn.disabled = true;
   btn.textContent = "Rolling…";
-  let rolled = false;
+
   try {
-    const result = await postJson("/api/dice/roll_robot", { is_YOLO: isYOLO });
-    if (result && typeof result.dice_number === "number") {
-      renderDiceFace(result.dice_number);
-      rolled = true;
+    // 1. Roll the dice (physical arm).
+    const rollRes = await postJson("/api/dice/roll_robot", { is_YOLO: isYOLO });
+    if (rollRes && typeof rollRes.dice_number === "number") {
+      renderDiceFace(rollRes.dice_number);
     }
-  } catch (err) {
-    console.warn("roll_robot:", err);
-  } finally {
-    btn.textContent = prevText;
-    // On success the WS fsm_transition event will set disabled correctly via
-    // renderState. On failure no event fires, so re-enable here so the user
-    // can retry.
-    if (!rolled) btn.disabled = false;
-  }
-});
-document.getElementById("btn-apply-move").addEventListener("click", async () => {
-  if (!currentState || !currentState.last_dice_sum) return;
-  const player = currentState.turn;
-  const from = currentState.positions[player];
-  const size = BOARD_LAYOUTS[currentState.board_id]
-    ? Object.keys(BOARD_LAYOUTS[currentState.board_id].centers).length
-    : 40;
-  const to = (from + currentState.last_dice_sum) % size;
-  // /api/move/apply_robot runs pick_and_place.py (red_cube for user,
-  // green_cube for robot) and only applies the game-state move once the
-  // physical motion finishes — so the on-screen piece moves at the same
-  // moment the robot arrives at the new tile.
-  const btn = document.getElementById("btn-apply-move");
-  const prevText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = "Moving…";
-  let moved = false;
-  try {
-    await postJson("/api/move/apply_robot", {
+
+    // 1b. Jail-skip path: rules.submit_dice transitions straight to END_TURN
+    //     when the jailed player rolls a non-6 with turns_left > 0.
+    if (rollRes && rollRes.fsm === "END_TURN") {
+      await postJson("/api/game/end_turn");
+      return;
+    }
+    if (!rollRes || rollRes.fsm !== "MOVING") {
+      console.warn("roll_robot: unexpected fsm", rollRes && rollRes.fsm);
+      return;
+    }
+
+    // 2. Apply move (physical arm). Compute destination from the current
+    //    player's tile + dice sum, modulo the board size.
+    const player = currentState && currentState.turn;
+    if (!player || !currentState) {
+      console.warn("apply_robot: missing currentState");
+      return;
+    }
+    const from = currentState.positions[player];
+    const size = BOARD_LAYOUTS[currentState.board_id]
+      ? Object.keys(BOARD_LAYOUTS[currentState.board_id].centers).length
+      : 40;
+    const to = (from + rollRes.sum) % size;
+    btn.textContent = "Moving…";
+    const moveRes = await postJson("/api/move/apply_robot", {
       player, from_tile: from, to_tile: to, is_YOLO: isYOLO,
     });
-    moved = true;
+
+    // 3. If the tile arrival needs a human decision (Buy modal), stop here.
+    //    The WS event already popped the modal; submitDecision will call
+    //    end_turn after the user picks an option.
+    if (moveRes && moveRes.fsm === "AWAIT_DECISION") {
+      return;
+    }
+
+    // 4. Auto end-turn — rent / tax / chance / bankruptcy already resolved
+    //    inside apply_move on the server side.
+    await postJson("/api/game/end_turn");
   } catch (err) {
-    console.warn("apply_move:", err);
+    console.warn("roll-dice chain:", err);
   } finally {
     btn.textContent = prevText;
-    // On success the WS fsm_transition event drives renderState which sets
-    // disabled correctly. On failure no event fires, so re-enable here.
-    if (!moved) btn.disabled = false;
+    // Re-enable when the chain stops here (errors, jail-skip, or end_turn).
+    // If we're still mid-modal (AWAIT_DECISION), keep the flag set —
+    // submitDecision will clear it after the post-modal end_turn lands.
+    if (!currentState || currentState.fsm !== "AWAIT_DECISION") {
+      turnInFlight = false;
+    }
   }
 });
-document.getElementById("btn-end-turn").addEventListener("click", async () => {
-  await postJson("/api/game/end_turn");
-});
 document.getElementById("btn-reset").addEventListener("click", async () => {
+  turnInFlight = false;
   await postJson("/api/game/start", { board: "final" });
   await loadBoardVisual("final");
   await refreshState();
@@ -514,50 +669,14 @@ document.getElementById("btn-load-state").addEventListener("click", async () => 
 document.getElementById("btn-skip").addEventListener("click", () => submitDecision("skip"));
 document.getElementById("btn-buy").addEventListener("click", () => submitDecision("buy"));
 document.getElementById("btn-buy-build").addEventListener("click", () => submitDecision("build", 1));
-
-// ---- camera thumbs --------------------------------------------------------
-
-const VLM_HOST = `${location.hostname}:8000`;
-
-function openCameraFeed(path, imgId, statusId, cellId, dotId) {
-  const img = document.getElementById(imgId);
-  const status = document.getElementById(statusId);
-  const cell = document.getElementById(cellId);
-  const dot = dotId ? document.getElementById(dotId) : null;
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(`${proto}//${VLM_HOST}${path}`);
-  ws.onmessage = (ev) => {
-    const payload = JSON.parse(ev.data);
-    if (payload.error || !payload.data?.data) {
-      cell.classList.remove("live");
-      if (dot) dot.classList.remove("live");
-      status.textContent = "No stream";
-      return;
-    }
-    cell.classList.add("live");
-    if (dot) dot.classList.add("live");
-    img.src = `data:image/jpeg;base64,${payload.data.data}`;
-    const enc = payload.data.encoding ? ` · ${payload.data.encoding}` : "";
-    status.textContent = `${payload.data.width}×${payload.data.height}${enc}`;
-  };
-  ws.onerror = () => {
-    cell.classList.remove("live");
-    if (dot) dot.classList.remove("live");
-  };
-  ws.onclose = () => {
-    cell.classList.remove("live");
-    if (dot) dot.classList.remove("live");
-    status.textContent = "No stream";
-    setTimeout(() => openCameraFeed(path, imgId, statusId, cellId, dotId), 3000);
-  };
-}
+document.getElementById("btn-buy-hotel").addEventListener("click", () => submitDecision("build_hotel"));
 
 // ---- VLM ask --------------------------------------------------------------
 
+const VLM_HOST = `${location.hostname}:8000`;
 const VLM_BASE = `${location.protocol}//${VLM_HOST}`;
 
 function setupVlm() {
-  const camera   = document.getElementById("vlm-camera");
   const prompt   = document.getElementById("vlm-prompt");
   const askBtn   = document.getElementById("vlm-ask");
   const repeat   = document.getElementById("vlm-repeat");
@@ -566,19 +685,9 @@ function setupVlm() {
   const metaEl   = document.getElementById("vlm-meta");
   const loopDot  = document.getElementById("vlm-loop-dot");
   const loopLbl  = document.getElementById("vlm-loop-status");
-  const sentImg  = document.getElementById("vlm-sent-image");
-  const imgPh    = document.getElementById("vlm-img-placeholder");
-  const imgMeta  = document.getElementById("vlm-img-meta");
-  const rotate   = document.getElementById("vlm-rotate180");
 
   let loopTimer = null;
   let inFlight  = false;
-
-  sentImg.addEventListener("error", () => {
-    sentImg.classList.remove("has-image");
-    imgPh.classList.remove("hidden");
-    imgPh.textContent = "Failed to render captured image.";
-  });
 
   async function askOnce() {
     if (inFlight) return;
@@ -592,27 +701,20 @@ function setupVlm() {
       const r = await fetch(`${VLM_BASE}/api/vlm/infer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ camera: camera.value, prompt: prompt.value.trim() || null, rotate180: rotate.checked }),
+        body: JSON.stringify({ camera: "none", prompt: prompt.value.trim() || null, client: "robopoly" }),
       });
       const body = await r.json();
       const elapsedMs = Math.round(performance.now() - started);
       if (!r.ok) {
         respEl.className = "vlm-response error";
         respEl.textContent = body.detail || `HTTP ${r.status}`;
-        metaEl.textContent = `camera=${camera.value} · ${elapsedMs} ms`;
+        metaEl.textContent = `${elapsedMs} ms`;
         return;
       }
       respEl.className = "vlm-response";
       respEl.textContent = body.response || "(empty response)";
-      const wh = (body.width && body.height) ? `${body.width}×${body.height}` : "—";
       const ts = new Date().toLocaleTimeString();
-      metaEl.textContent = `camera=${body.camera} · frame=${wh} · ${elapsedMs} ms · ${ts}`;
-      if (body.image) {
-        sentImg.src = `data:image/jpeg;base64,${body.image}`;
-        sentImg.classList.add("has-image");
-        imgPh.classList.add("hidden");
-        imgMeta.textContent = `${wh} · ${ts}`;
-      }
+      metaEl.textContent = `${elapsedMs} ms · ${ts}`;
     } catch (err) {
       respEl.className = "vlm-response error";
       respEl.textContent = String(err);
@@ -682,7 +784,7 @@ function setupVlm() {
   }
   async function loadSp() {
     try {
-      const r = await fetch(`${VLM_BASE}/api/vlm/system_prompt`);
+      const r = await fetch(`${VLM_BASE}/api/vlm/system_prompt?client=robopoly`);
       const body = await r.json();
       spServer = body.system_prompt || "";
       sp.value = spServer;
@@ -694,7 +796,7 @@ function setupVlm() {
     spSave.disabled = true;
     setSpStatus("saving…");
     try {
-      const r = await fetch(`${VLM_BASE}/api/vlm/system_prompt`, {
+      const r = await fetch(`${VLM_BASE}/api/vlm/system_prompt?client=robopoly`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ system_prompt: sp.value }),
@@ -711,7 +813,7 @@ function setupVlm() {
     if (!confirm("Reset system prompt to default?")) return;
     setSpStatus("resetting…");
     try {
-      const r = await fetch(`${VLM_BASE}/api/vlm/system_prompt`, { method: "DELETE" });
+      const r = await fetch(`${VLM_BASE}/api/vlm/system_prompt?client=robopoly`, { method: "DELETE" });
       const body = await r.json();
       if (!r.ok) { setSpStatus(body.detail || `HTTP ${r.status}`, true); return; }
       spServer = body.system_prompt;
@@ -725,17 +827,10 @@ function setupVlm() {
   spReset.addEventListener("click", resetSp);
   loadSp();
 
-  // Speech-to-text via OpenAI-compatible Whisper server
+  // Speech-to-text — routed through the orchestrator's /api/whisper/transcribe.
   const mic       = document.getElementById("vlm-mic");
-  const sttUrl    = document.getElementById("vlm-stt-url");
+  const micDevice = document.getElementById("vlm-mic-device");
   const sttStatus = document.getElementById("vlm-stt-status");
-
-  const STT_URL_KEY = "vlm-stt-url";
-  const savedSttUrl = localStorage.getItem(STT_URL_KEY);
-  if (savedSttUrl) sttUrl.value = savedSttUrl;
-  sttUrl.addEventListener("change", () => {
-    localStorage.setItem(STT_URL_KEY, sttUrl.value.trim());
-  });
 
   let sttRecorder = null;
   let sttChunks   = [];
@@ -751,23 +846,41 @@ function setupVlm() {
       sttStream = null;
     }
   }
+  async function populateMicDevices() {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioInputs = devices.filter((d) => d.kind === "audioinput");
+      const previous = micDevice.value;
+      micDevice.innerHTML = '<option value="">Default microphone</option>';
+      audioInputs.forEach((d, i) => {
+        const opt = document.createElement("option");
+        opt.value = d.deviceId;
+        opt.textContent = d.label || `Microphone ${i + 1}`;
+        micDevice.appendChild(opt);
+      });
+      if (previous && [...micDevice.options].some((o) => o.value === previous)) {
+        micDevice.value = previous;
+      }
+    } catch (err) {
+      console.warn("enumerateDevices failed:", err);
+    }
+  }
+  populateMicDevices();
+  navigator.mediaDevices?.addEventListener?.("devicechange", populateMicDevices);
+
   async function transcribeBlob(blob) {
-    const base = sttUrl.value.trim().replace(/\/+$/, "");
-    if (!base) { setSttStatus("Whisper URL is empty", true); return; }
-    const url = `${base}/v1/audio/transcriptions`;
     const form = new FormData();
     const ext = (blob.type.includes("webm") ? "webm"
                : blob.type.includes("ogg")  ? "ogg"
                : blob.type.includes("mp4")  ? "mp4"
                : "wav");
-    form.append("file", blob, `speech.${ext}`);
-    form.append("model", "whisper");
-    form.append("response_format", "json");
+    form.append("file", blob, `mic.${ext}`);
 
     setSttStatus("transcribing…");
     const started = performance.now();
     try {
-      const r = await fetch(url, { method: "POST", body: form });
+      const r = await fetch(`${VLM_BASE}/api/whisper/transcribe`, { method: "POST", body: form });
       const elapsedMs = Math.round(performance.now() - started);
       if (!r.ok) {
         let detail = `HTTP ${r.status}`;
@@ -776,6 +889,7 @@ function setupVlm() {
         return;
       }
       const body = await r.json();
+      if (body.error) { setSttStatus(`failed: ${body.error}`, true); return; }
       const text = (body.text || "").trim();
       if (text) {
         prompt.value = prompt.value
@@ -794,7 +908,11 @@ function setupVlm() {
       return;
     }
     try {
-      sttStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const deviceId = micDevice.value;
+      const constraints = { audio: deviceId ? { deviceId: { exact: deviceId } } : true };
+      sttStream = await navigator.mediaDevices.getUserMedia(constraints);
+      // Labels are only revealed after permission is granted — repopulate.
+      populateMicDevices();
     } catch (err) {
       setSttStatus(`mic denied: ${err.name || err}`, true);
       return;
@@ -809,8 +927,8 @@ function setupVlm() {
     sttRecorder.onstop = async () => {
       stopSttTracks();
       mic.classList.remove("recording");
-      mic.textContent = "🎤";
-      mic.title = "Record speech and transcribe via Whisper";
+      mic.textContent = "Rec";
+      mic.title = "Record voice and transcribe via Whisper";
       if (sttChunks.length === 0) { setSttStatus("no audio captured", true); return; }
       const blob = new Blob(sttChunks, { type: sttRecorder.mimeType || "audio/webm" });
       sttChunks = [];
@@ -818,7 +936,7 @@ function setupVlm() {
     };
     sttRecorder.start();
     mic.classList.add("recording");
-    mic.textContent = "⏹";
+    mic.textContent = "Stop";
     mic.title = "Stop recording";
     setSttStatus("recording…");
   }
@@ -833,6 +951,51 @@ function setupVlm() {
     if (sttRecorder && sttRecorder.state === "recording") stopRecording();
     else startRecording();
   });
+
+  // VLM memory (vector DB) — talks to the orchestrator at VLM_BASE.
+  const memStatus = document.getElementById("vlm-mem-status");
+  const memClear  = document.getElementById("vlm-mem-clear");
+
+  async function refreshMemoryStatus() {
+    try {
+      const r = await fetch(`${VLM_BASE}/api/vlm/memory`);
+      const body = await r.json();
+      if (!r.ok) { memStatus.textContent = "memory: error"; return; }
+      const tag = body.enabled ? "" : " (disabled)";
+      memStatus.textContent = body.count === null
+        ? `memory: unreachable${tag}`
+        : `memory: ${body.count} stored${tag}`;
+    } catch {
+      memStatus.textContent = "memory: unreachable";
+    }
+  }
+  async function clearMemory() {
+    if (!confirm("Delete all stored memories from the vector DB? This cannot be undone.")) return;
+    memClear.disabled = true;
+    const prev = memClear.textContent;
+    memClear.textContent = "Clearing…";
+    try {
+      const r = await fetch(`${VLM_BASE}/api/vlm/memory`, { method: "DELETE" });
+      const body = await r.json();
+      if (!r.ok || !body.ok) alert(`Clear failed: ${body.error || r.status}`);
+    } catch (err) {
+      alert(`Clear failed: ${err}`);
+    } finally {
+      memClear.disabled = false;
+      memClear.textContent = prev;
+      refreshMemoryStatus();
+    }
+  }
+  memClear.addEventListener("click", clearMemory);
+  refreshMemoryStatus();
+  setInterval(refreshMemoryStatus, 5000);
+
+  // Refresh memory counter right after every inference.
+  const _askOnceOrig = askOnce;
+  askOnce = async function() {
+    await _askOnceOrig();
+    refreshMemoryStatus();
+  };
 }
 
 // ---- boot -----------------------------------------------------------------
@@ -844,7 +1007,5 @@ function setupVlm() {
   renderYoloStatus();
   await refreshState();
   openStream();
-  openCameraFeed("/api/stream/image_top/rgb",   "feed-top-rgb",   "feed-top-rgb-status",   "feed-cell-top-rgb",   "feed-dot-top");
-  openCameraFeed("/api/stream/image_hand/rgb",  "feed-hand-rgb",  "feed-hand-rgb-status",  "feed-cell-hand-rgb",  "feed-dot-hand");
   setupVlm();
 })();

@@ -10,7 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 TileKind = Literal[
     "start",
@@ -31,7 +31,6 @@ class Tile(BaseModel):
     index: int
     kind: TileKind
     name: str = ""
-    color_group: str | None = None
     price_buy: int | None = None
     price_building: int | None = None
     rent_table: list[int] | None = None
@@ -49,10 +48,7 @@ class Board(BaseModel):
     tile_count: int
     seed_money: int = 0
     start_bonus: int = 0
-    monopoly_bonus_multiplier: int = 0
     tiles: list[Tile]
-    color_group_sizes: dict[str, int] = Field(default_factory=dict)
-    color_group_hex: dict[str, str] = Field(default_factory=dict)
     layout: BoardLayout | None = None
     physical_image: str | None = None
     blank_svg: str | None = None

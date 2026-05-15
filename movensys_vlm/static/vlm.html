@@ -155,7 +155,7 @@ async function askVlmOnce() {
     const r = await fetch('/api/vlm/infer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ camera, prompt: prompt || null, rotate180: vlmRotate180.checked }),
+      body: JSON.stringify({ camera, prompt: prompt || null, rotate180: vlmRotate180.checked, client: 'vlm' }),
     });
     const body = await r.json();
     const elapsedMs = Math.round(performance.now() - started);
@@ -374,7 +374,7 @@ function updateSPDirty() {
 
 async function loadSystemPrompt() {
   try {
-    const r = await fetch('/api/vlm/system_prompt');
+    const r = await fetch('/api/vlm/system_prompt?client=vlm');
     const body = await r.json();
     vlmSPServer = body.system_prompt || '';
     vlmSP.value = vlmSPServer;
@@ -389,7 +389,7 @@ async function saveSystemPrompt() {
   vlmSPSave.disabled = true;
   setSPStatus('saving…');
   try {
-    const r = await fetch('/api/vlm/system_prompt', {
+    const r = await fetch('/api/vlm/system_prompt?client=vlm', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ system_prompt: vlmSP.value }),
@@ -410,7 +410,7 @@ async function resetSystemPrompt() {
   if (!confirm('Reset system prompt to default?')) return;
   setSPStatus('resetting…');
   try {
-    const r = await fetch('/api/vlm/system_prompt', { method: 'DELETE' });
+    const r = await fetch('/api/vlm/system_prompt?client=vlm', { method: 'DELETE' });
     const body = await r.json();
     if (!r.ok) { setSPStatus(body.detail || `HTTP ${r.status}`, true); return; }
     vlmSPServer = body.system_prompt;

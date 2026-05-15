@@ -191,35 +191,11 @@ def test_skip_purchase_transitions_back() -> None:
 # ---- build / hotel --------------------------------------------------------
 
 
-def _own_brown_monopoly(state: GameState) -> None:
-    state.properties["board2:mediterranean_avenue"].owner = "user"
-    state.properties["board2:baltic_avenue"].owner = "user"
-
-
-def test_build_requires_monopoly_on_board2() -> None:
+def test_build_succeeds_once_owned() -> None:
     state = _fresh("2")
     state.properties["board2:mediterranean_avenue"].owner = "user"
-    with pytest.raises(RuleError) as exc:
-        build(state, load_board("2"), "user", "board2:mediterranean_avenue")
-    assert exc.value.code == "MONOPOLY_REQUIRED"
-
-
-def test_build_even_rule_enforced() -> None:
-    state = _fresh("2")
-    _own_brown_monopoly(state)
-    build(state, load_board("2"), "user", "board2:mediterranean_avenue")  # 0->1
-    with pytest.raises(RuleError):
-        # building a second house on Mediterranean before Baltic gets one
-        build(state, load_board("2"), "user", "board2:mediterranean_avenue")
-
-
-def test_build_succeeds_after_even_balance() -> None:
-    state = _fresh("2")
-    _own_brown_monopoly(state)
     build(state, load_board("2"), "user", "board2:mediterranean_avenue")
-    build(state, load_board("2"), "user", "board2:baltic_avenue")
     assert state.properties["board2:mediterranean_avenue"].houses == 1
-    assert state.properties["board2:baltic_avenue"].houses == 1
 
 
 def test_build_hotel_requires_four_houses() -> None:

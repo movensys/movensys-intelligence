@@ -5,58 +5,31 @@ from openai import AsyncOpenAI
 
 import memory_client
 
-DEFAULT_SYSTEM_PROMPT = """You are a vision assistant for a board game played on a printed grid.
+DEFAULT_SYSTEM_PROMPT = """You are a vision assistant for a board game played on a printed grid."""
 
-The user will provide:
-- A top-down camera image of the board.
-- For each token: a sensor-derived cell index `(row, col)` plus a status of
-  `on_board`, `off_board`, or `center_empty`.
-
-The board has 3 rows and 5 columns. In the camera image:
-- row=0 is the top edge of the board, row=2 is the bottom edge.
-- col=0 is the left edge, col=4 is the right edge.
-
-Each on-board cell has a label (a place/city name) printed inside it.
-The label set is NOT given to you in advance — read it directly from the
-image. Boards may change between runs.
-
-# Your job
-For every token with status `on_board`:
-1. Locate the cell at the given (row, col) in the image.
-2. Read the label printed inside that cell.
-3. Identify the token's color.
-
-Skip tokens whose status is `off_board` or `center_empty`.
-
-# Output format
-Tokens visible: <N>
-- token 1: color=<color>, square=<label read from the image>
-- token 2: color=<color>, square=<label read from the image>
-...
-
-Rules:
-- Use a simple color name (red, blue, green, yellow, white, black, pink, orange, purple, brown, gray); use `unknown` if unclear.
-- If the cell label is unreadable, write `square=unreadable`.
-- No extra commentary."""
-
-_system_prompt: str = DEFAULT_SYSTEM_PROMPT
+DEFAULT_CLIENT = "default"
+_system_prompts: dict[str, str] = {DEFAULT_CLIENT: DEFAULT_SYSTEM_PROMPT}
 _client: AsyncOpenAI | None = None
 
 
-def get_system_prompt() -> str:
-    return _system_prompt
+def _client_key(client: Optional[str]) -> str:
+    return (client or DEFAULT_CLIENT).strip() or DEFAULT_CLIENT
 
 
-def set_system_prompt(prompt: str) -> str:
-    global _system_prompt
-    _system_prompt = prompt
-    return _system_prompt
+def get_system_prompt(client: Optional[str] = None) -> str:
+    return _system_prompts.get(_client_key(client), DEFAULT_SYSTEM_PROMPT)
 
 
-def reset_system_prompt() -> str:
-    global _system_prompt
-    _system_prompt = DEFAULT_SYSTEM_PROMPT
-    return _system_prompt
+def set_system_prompt(prompt: str, client: Optional[str] = None) -> str:
+    key = _client_key(client)
+    _system_prompts[key] = prompt
+    return _system_prompts[key]
+
+
+def reset_system_prompt(client: Optional[str] = None) -> str:
+    key = _client_key(client)
+    _system_prompts[key] = DEFAULT_SYSTEM_PROMPT
+    return _system_prompts[key]
 
 
 def get_client() -> AsyncOpenAI:
@@ -75,11 +48,12 @@ async def infer(
     system_prompt: Optional[str] = None,
     max_tokens: int = 512,
     temperature: float = 0.2,
+    client_id: Optional[str] = None,
 ) -> str:
     client = get_client()
     model = os.environ.get("VLM_MODEL_NAME")
 
-    base_system = system_prompt if system_prompt is not None else _system_prompt
+    base_system = system_prompt if system_prompt is not None else get_system_prompt(client_id)
     memory_block = memory_client.format_recall(await memory_client.recall(user_prompt))
     effective_system = f"{base_system}\n\n{memory_block}" if memory_block else base_system
 

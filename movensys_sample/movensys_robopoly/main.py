@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from adapters import LLMAdapter, RobotAdapter, STTAdapter
+from adapters import RobotAdapter, STTAdapter, VLMAdapter
 from game.events import EventBus
 from game.manager import GameManager
 from router import api_router
@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     app.state.stt_adapter = STTAdapter.from_env()
-    app.state.llm_adapter = LLMAdapter.from_env()
+    app.state.vlm_adapter = VLMAdapter.from_env()
     app.state.robot_adapter = RobotAdapter.from_env()
     app.state.event_bus = EventBus()
     app.state.game = GameManager(bus=app.state.event_bus)
@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
         "startup",
         extra={
             "stt_mode": app.state.stt_adapter.mode,
-            "llm_mode": app.state.llm_adapter.mode,
+            "vlm_mode": app.state.vlm_adapter.mode,
             "robot_mode": app.state.robot_adapter.mode,
         },
     )
