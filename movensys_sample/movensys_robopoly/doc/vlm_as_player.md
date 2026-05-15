@@ -67,11 +67,21 @@ followed by an automatic `POST /api/game/end_turn`.
 
 Every call sends three things to the orchestrator's `/api/vlm/infer`:
 
-- `camera: "top"` — the orchestrator grabs the latest `/image_top/rgb`
-  frame from the top-down board camera and attaches it as image
-  grounding. If the camera is not publishing, the orchestrator silently
-  degrades to text-only (no error, the JSON state still drives the
-  decision).
+- `image_b64:` — a JPEG snapshot of the on-screen **GAME BOARD** block
+  captured client-side by `captureBoardImage()` in `static/app.js`.
+  The capture composites the board background PNG with the `#pieces`
+  SVG overlay (cubes + ownership circles) into a single canvas, then
+  exports as base64 JPEG at quality 0.8. The orchestrator passes this
+  string straight to `vlm_client.infer` without consulting any ROS
+  topic.
+  - `camera` is set to `"none"` in this case so the orchestrator
+    doesn't also try to grab a physical-camera frame.
+  - If the canvas capture fails (tainted canvas, no SVG element,
+    etc.), the call falls back to `camera: "top"` so the agent still
+    gets *some* visual grounding from the physical top-down camera.
+    If that camera isn't publishing either, the orchestrator
+    degrades to text-only and the JSON state alone drives the
+    decision.
 - `client: "robopoly"` — selects the per-client system-prompt slot
   (see §3).
 - `prompt:` — the inlined action grammar (so the model can't drift

@@ -1107,24 +1107,92 @@ Reply with ONLY the JSON action. Nothing else.`;
 let vlmPlayerInFlight = false;
 let vlmPlayerLastTurnKey = null;
 
-// Top-down board camera. The orchestrator grabs the latest /image_top/rgb
-// frame and sends it alongside the prompt — this gives the VLM visual
-// grounding instead of relying on the state JSON alone. If the camera is
-// not publishing, the orchestrator silently degrades to text-only.
-const VLM_PLAYER_CAMERA = "top";
+// The VLM sees the on-screen rendered game board (background PNG +
+// pieces + ownership circles, composited into a single JPEG) on every
+// inference call. If the canvas capture fails (e.g. tainted by a
+// cross-origin asset), we fall back to the physical top-down camera so
+// the agent still has *some* visual grounding.
+const VLM_PLAYER_FALLBACK_CAMERA = "top";
+
+async function captureBoardImage() {
+  try {
+    const svg = document.getElementById("pieces");
+    if (!svg) return null;
+    const vb = (svg.getAttribute("viewBox") || "0 0 1261 584").split(/\s+/).map(Number);
+    const w = vb[2] || 1261;
+    const h = vb[3] || 584;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, w, h);
+
+    // Background board image (same-origin under /assets).
+    const bgImg = document.querySelector("#board-host img");
+    if (bgImg) {
+      if (!(bgImg.complete && bgImg.naturalWidth > 0)) {
+        await new Promise((res, rej) => {
+          bgImg.addEventListener("load", res, { once: true });
+          bgImg.addEventListener("error", rej, { once: true });
+        });
+      }
+      ctx.drawImage(bgImg, 0, 0, w, h);
+    }
+
+    // Clone the SVG and inject a <style> resolving var(--user)/var(--robot)
+    // — standalone SVG images don't inherit the page's CSS variables.
+    const cloned = svg.cloneNode(true);
+    cloned.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    const cs = getComputedStyle(document.documentElement);
+    const userCol = (cs.getPropertyValue("--user") || "#EF5350").trim();
+    const robotCol = (cs.getPropertyValue("--robot") || "#2E7D32").trim();
+    const styleEl = document.createElementNS("http://www.w3.org/2000/svg", "style");
+    styleEl.textContent =
+      `:root { --user: ${userCol}; --robot: ${robotCol}; } ` +
+      `* { --user: ${userCol}; --robot: ${robotCol}; }`;
+    cloned.insertBefore(styleEl, cloned.firstChild);
+
+    const svgStr = new XMLSerializer().serializeToString(cloned);
+    const svgBlob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(svgBlob);
+    try {
+      await new Promise((res, rej) => {
+        const overlay = new Image();
+        overlay.onload = () => { ctx.drawImage(overlay, 0, 0, w, h); res(); };
+        overlay.onerror = rej;
+        overlay.src = url;
+      });
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+
+    // toDataURL returns "data:image/jpeg;base64,...". The orchestrator
+    // wants the bare base64 payload, so strip the prefix.
+    return canvas.toDataURL("image/jpeg", 0.8).split(",")[1] || null;
+  } catch (err) {
+    console.warn("[vlm-player] captureBoardImage failed:", err);
+    return null;
+  }
+}
 
 async function vlmInferRaw(prompt) {
+  const image_b64 = await captureBoardImage();
+  const body = image_b64
+    ? { camera: "none", image_b64, prompt, client: "robopoly" }
+    : { camera: VLM_PLAYER_FALLBACK_CAMERA, prompt, client: "robopoly" };
   const r = await fetch(`${VLM_BASE}/api/vlm/infer`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ camera: VLM_PLAYER_CAMERA, prompt, client: "robopoly" }),
+    body: JSON.stringify(body),
   });
   if (!r.ok) {
-    const body = await r.json().catch(() => ({}));
-    throw new Error(body.detail || `HTTP ${r.status}`);
+    const err = await r.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${r.status}`);
   }
-  const body = await r.json();
-  return body.response || "";
+  const respBody = await r.json();
+  return respBody.response || "";
 }
 
 function parseVlmAction(text) {
