@@ -29,6 +29,14 @@ services:
   embed:
     <<: *common
     container_name: embed_container
+    # Override host networking from x-common. TEI binds a Prometheus metrics
+    # listener on :9000 (not configurable in the cpu-1.6 CLI), which collides
+    # with vllm on the host. Bridge networking keeps that listener inside the
+    # container's namespace; only the API port is published. TEI does not need
+    # to reach qdrant, so it loses nothing by leaving the host network.
+    network_mode: bridge
+    ports:
+      - "9020:9020"
     # cpu-1.5 ships hf-hub 0.3.2 which mishandles an empty HF_TOKEN env var and
     # crashes with "relative URL without a base" before download even starts.
     # cpu-1.6+ has the fix. Token vars are intentionally NOT passed: the
