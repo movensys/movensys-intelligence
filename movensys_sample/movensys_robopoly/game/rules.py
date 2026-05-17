@@ -218,6 +218,12 @@ def apply_move(state: GameState, player: Player, from_tile: int, to_tile: int) -
 
     dice = state.pending_dice
     expected_to = (from_tile + dice) % size
+    # Spec §4.5.4: the IN_JAIL ("jail_visit") tile is never landed on
+    # during normal dice movement — players only end up there via the
+    # GO_TO_JAIL teleport (§4.5.1). If the dice arithmetic puts us on
+    # jail_visit, slide past it by one tile.
+    if board.tiles[expected_to].kind == "jail_visit":
+        expected_to = (expected_to + 1) % size
     if to_tile != expected_to:
         raise RuleError(
             "TILE_MISMATCH",

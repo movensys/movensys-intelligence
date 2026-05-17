@@ -201,6 +201,31 @@ async def game_next_prompt(request: Request) -> dict[str, str]:
     }
 
 
+_RULES_PATH = Path(__file__).resolve().parent / "doc" / "game_logic.md"
+
+
+@api_router.get("/game/rules")
+async def game_rules() -> "PlainTextResponse":
+    """Return the authoritative game spec as raw markdown. Used by the
+    VLM-player agent loop to seed the system prompt with the rules at
+    boot (see doc/vlm_as_player.md §3)."""
+    from fastapi.responses import PlainTextResponse
+    if not _RULES_PATH.exists():
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "NO_RULES_DOC",
+                    "message": f"rules doc not found at {_RULES_PATH}"},
+        )
+    try:
+        text = _RULES_PATH.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "RULES_READ_FAILED", "message": str(exc)},
+        )
+    return PlainTextResponse(text, media_type="text/markdown")
+
+
 # ---- dice & move ----------------------------------------------------------
 
 

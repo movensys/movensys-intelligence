@@ -70,7 +70,13 @@ class ScalesRequest(BaseModel):
     }
 
 class VlmInferRequest(BaseModel):
-    camera: str = "top"   # "top" or "hand"
+    camera: str = "top"   # "top", "hand", or "none"
+    # Optional caller-supplied image. When provided, this overrides the
+    # camera lookup — the orchestrator does not consult ros_node at all
+    # and passes this base64 string straight to vlm_client.infer. Lets
+    # browser clients send a captured screenshot of their own UI (e.g.
+    # robopoly's rendered game board) without needing a physical camera.
+    image_b64: Optional[str] = None
     prompt: Optional[str] = None
     system_prompt: Optional[str] = None
     max_tokens: int = 512
@@ -357,24 +363,30 @@ async def vlm_infer(body: VlmInferRequest):
     if rn.ros_node is None:
         raise HTTPException(503, detail="ROS node not running")
 
-    if body.camera == "hand":
-        img = rn.ros_node.latest_hand_rgb_image
-    elif body.camera == "top":
-        img = rn.ros_node.latest_top_rgb_image
-    elif body.camera == "none":
-        img = None
+    # Caller-supplied image overrides the camera lookup entirely. Useful
+    # for browser clients that want the VLM to "see" their own rendered
+    # UI instead of (or in addition to) the physical workspace camera.
+    img = None
+    if body.image_b64:
+        image_b64: Optional[str] = body.image_b64
     else:
-        raise HTTPException(400, detail="camera must be 'top', 'hand', or 'none'")
-
-    image_b64: Optional[str] = None
-    if img is not None:
-        image_b64 = img["data"]
-        if body.rotate180:
-            pil_img = Image.open(io.BytesIO(base64.b64decode(image_b64)))
-            pil_img = pil_img.rotate(180)
-            buf = io.BytesIO()
-            pil_img.save(buf, format="JPEG")
-            image_b64 = base64.b64encode(buf.getvalue()).decode()
+        if body.camera == "hand":
+            img = rn.ros_node.latest_hand_rgb_image
+        elif body.camera == "top":
+            img = rn.ros_node.latest_top_rgb_image
+        elif body.camera == "none":
+            img = None
+        else:
+            raise HTTPException(400, detail="camera must be 'top', 'hand', or 'none'")
+        image_b64 = None
+        if img is not None:
+            image_b64 = img["data"]
+    if image_b64 is not None and body.rotate180:
+        pil_img = Image.open(io.BytesIO(base64.b64decode(image_b64)))
+        pil_img = pil_img.rotate(180)
+        buf = io.BytesIO()
+        pil_img.save(buf, format="JPEG")
+        image_b64 = base64.b64encode(buf.getvalue()).decode()
 
     user_prompt = body.prompt or "Report the tokens on the board."
 

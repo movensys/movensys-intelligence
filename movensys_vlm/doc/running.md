@@ -48,7 +48,7 @@ cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
 ./vllm-intel-build.sh
 ./vllm-intel-run.sh
 ```
-## If memory stuck in Intel Panther Lake
+## If memory stuck in Intel Panther Lake and Jetson Thor
 ```
 sync && sudo sysctl vm.drop_caches=3
 ```
