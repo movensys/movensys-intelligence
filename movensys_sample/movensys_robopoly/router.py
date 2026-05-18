@@ -243,22 +243,22 @@ _DEFAULT_PNP_SCRIPT = Path(__file__).resolve().parent / "pick_and_place.py"
 _DICE_LINE_RE = re.compile(rb"DICE_NUMBER=(\d+)")
 
 # Board tile index → pick_and_place.py board_positions key. 14-tile board,
-# counter-clockwise from GO at bottom-left.
+# counter-clockwise from GO at bottom-left (Board3_v2).
 _TILE_INDEX_TO_BOARD_POS: dict[int, str] = {
     0:  "GO",
-    1:  "SUWON",
+    1:  "BOSTON",
     2:  "SEOUL",
-    3:  "IN_JAIL",
+    3:  "DESERT_ISLAND",
     4:  "ELECTRIC_COMPANY",
-    5:  "JEONJU",
-    6:  "DAEJEON",
+    5:  "TAIPEI",
+    6:  "SHANGHAI",
     7:  "NON-FREE_PARKING",
-    8:  "GYEONGJU",
+    8:  "TOKYO",
     9:  "BUSAN",
-    10: "GO_TO_JAIL",
-    11: "DAEGU",
+    10: "GO_TO_DESERT_ISLAND",
+    11: "NEW_YORK",
     12: "CHANCE",
-    13: "BUNDANG",
+    13: "LONDON",
 }
 _PLAYER_TO_CUBE: dict[str, str] = {"user": "red_cube", "robot": "green_cube"}
 
@@ -428,9 +428,9 @@ async def move_apply_robot(request: Request, body: MoveApplyRobotRequest) -> dic
         raise HTTPException(**_http_kwargs(exc))
     result["robot"] = {"cube": cube, "board_pos": board_pos}
 
-    # Spec §4.5.1: landing on GO_TO_JAIL teleports the player's position to
-    # IN_JAIL in-engine; physically move the cube there too so the board
-    # state matches the game state.
+    # Spec §4.5.1: landing on GO_TO_DESERT_ISLAND teleports the player's
+    # position to DESERT_ISLAND in-engine; physically move the cube there
+    # too so the board state matches the game state.
     jail_resolved = next(
         (r for r in result.get("resolved", {}).get("tiles", [])
          if r.get("kind") == "go_to_jail"),
@@ -445,14 +445,14 @@ async def move_apply_robot(request: Request, body: MoveApplyRobotRequest) -> dic
 async def _pick_and_place_to_jail(
     script: Path, cube: str, is_yolo: bool,
 ) -> dict[str, Any]:
-    """Run pick_and_place.py <cube> IN_JAIL <is_YOLO> for the §4.5.1
+    """Run pick_and_place.py <cube> DESERT_ISLAND <is_YOLO> for the §4.5.1
     auto-jail move. Raises HTTPException on subprocess failure so the
     caller sees the same error envelope as the primary apply_robot path.
     """
     is_yolo_arg = "true" if is_yolo else "false"
     try:
         proc = await asyncio.create_subprocess_exec(
-            "python3", str(script), cube, "IN_JAIL", is_yolo_arg,
+            "python3", str(script), cube, "DESERT_ISLAND", is_yolo_arg,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -470,7 +470,7 @@ async def _pick_and_place_to_jail(
                 "stderr": stderr.decode("utf-8", "replace"),
             },
         )
-    return {"cube": cube, "board_pos": "IN_JAIL"}
+    return {"cube": cube, "board_pos": "DESERT_ISLAND"}
 
 
 # ---- property -------------------------------------------------------------

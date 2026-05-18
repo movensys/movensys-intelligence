@@ -3,30 +3,35 @@
  *
  * 14-tile JSON model rendered on a 14-cell rectangular perimeter (5 wide × 4
  * tall grid). Indexing is counter-clockwise from GO at the bottom-left
- * corner. The viewBox matches board.png (1261×584 ≈ 2.16:1).
+ * corner. viewBox matches board.png (PDF page 1559 × 794 → ≈ 1.96:1).
  */
 
 // Cell geometry, corners 1.5× side cells:
-//   width  units: 1.5 + 1 + 1 + 1 + 1.5 = 6 → unit ≈ 210.17
-//   height units: 1.5 + 1 + 1 + 1.5     = 5 → unit ≈ 116.8
-//   corner ≈ 315×175, top/bot side ≈ 210×175, left/right side ≈ 315×117
+//   width  units: 1.5 + 1 + 1 + 1 + 1.5 = 6 → unit ≈ 259.83
+//   height units: 1.5 + 1 + 1 + 1.5     = 5 → unit ≈ 158.80
+//   corner ≈ 390×238, top/bot side ≈ 260×238, left/right side ≈ 390×159
+//
+// Piece centers below sit at the geometric centre of each cell. The pieces
+// in #pieces are pointer-draggable (see setupPieceDragging) so the
+// operator can fine-tune on the printed board and read the new coords off
+// the board-coords readout.
 const BOARD_FINAL_LAYOUT = {
-  viewBox: { w: 1261, h: 584 },
+  viewBox: { w: 1559, h: 794 },
   centers: {
-    0:  { user: [61.70,   531.05], robot: [135.03,  531.05] },  // GO (BL)
-    1:  { user: [54.10,   384.18], robot: [123.63,  383.32] },  // SUWON (left, lower mid)
-    2:  { user: [51.57,   242.38], robot: [119.83,  242.78] },  // SEOUL (left, upper mid)
-    3:  { user: [52.83,   99.32],  robot: [118.57,  98.45]  },  // IN JAIL (TL)
-    4:  { user: [298.45,  106.91], robot: [365.45,  106.05] },  // ELECTRIC COMPANY (top)
-    5:  { user: [546.61,  105.65], robot: [611.07,  104.78] },  // JEONJU (top)
-    6:  { user: [803.62,  105.65], robot: [870.62,  104.78] },  // DAEJEON (top)
-    7:  { user: [1049.24, 108.18], robot: [1114.97, 107.31] },  // NON-FREE PARKING (TR)
-    8:  { user: [1050.51, 243.65], robot: [1114.97, 244.05] },  // GYEONGJU (right, upper mid)
-    9:  { user: [1051.77, 385.45], robot: [1114.97, 384.58] },  // BUSAN (right, lower mid)
-    10: { user: [1051.77, 536.11], robot: [1117.51, 536.51] },  // GO TO JAIL (BR)
-    11: { user: [801.09,  536.11], robot: [865.56,  536.51] },  // DAEGU (bottom)
-    12: { user: [554.20,  537.38], robot: [619.94,  537.78] },  // CHANCE (bottom)
-    13: { user: [300.99,  537.38], robot: [366.72,  537.78] },  // BUNDANG (bottom)
+    0:  { user: [159.9,  674.9], robot: [229.9,  674.9] },  // GO (BL)
+    1:  { user: [159.9,  476.4], robot: [229.9,  476.4] },  // BOSTON (left, lower mid)
+    2:  { user: [159.9,  317.6], robot: [229.9,  317.6] },  // SEOUL (left, upper mid)
+    3:  { user: [159.9,  119.1], robot: [229.9,  119.1] },  // IN THE DESERT ISLAND (TL)
+    4:  { user: [484.7,  119.1], robot: [554.7,  119.1] },  // ELECTRIC COMPANY (top)
+    5:  { user: [744.5,  119.1], robot: [814.5,  119.1] },  // TAIPEI (top)
+    6:  { user: [1004.3, 119.1], robot: [1074.3, 119.1] },  // SHANGHAI (top)
+    7:  { user: [1329.1, 119.1], robot: [1399.1, 119.1] },  // NON-FREE PARKING (TR)
+    8:  { user: [1329.1, 317.6], robot: [1399.1, 317.6] },  // TOKYO (right, upper mid)
+    9:  { user: [1329.1, 476.4], robot: [1399.1, 476.4] },  // BUSAN (right, lower mid)
+    10: { user: [1329.1, 674.9], robot: [1399.1, 674.9] },  // GO TO DESERT ISLAND (BR)
+    11: { user: [1004.3, 674.9], robot: [1074.3, 674.9] },  // NEW YORK (bottom)
+    12: { user: [744.5,  674.9], robot: [814.5,  674.9] },  // CHANCE (bottom)
+    13: { user: [484.7,  674.9], robot: [554.7,  674.9] },  // LONDON (bottom)
   },
 };
 
@@ -1196,9 +1201,9 @@ async function captureBoardImage() {
   try {
     const svg = document.getElementById("pieces");
     if (!svg) return null;
-    const vb = (svg.getAttribute("viewBox") || "0 0 1261 584").split(/\s+/).map(Number);
-    const w = vb[2] || 1261;
-    const h = vb[3] || 584;
+    const vb = (svg.getAttribute("viewBox") || "0 0 1559 794").split(/\s+/).map(Number);
+    const w = vb[2] || 1559;
+    const h = vb[3] || 794;
 
     const canvas = document.createElement("canvas");
     canvas.width = w;

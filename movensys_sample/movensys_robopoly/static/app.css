@@ -196,7 +196,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .board-wrap {
   position: relative;
   width: 100%;
-  aspect-ratio: 1261/584;
+  aspect-ratio: 1559/794;
 }
 #board-host {
   width: 100%; height: 100%;
