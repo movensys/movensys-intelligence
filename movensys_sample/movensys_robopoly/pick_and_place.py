@@ -319,11 +319,25 @@ class PnP:
             absolute_cartesian_base([-0.18, 0.035, 0.52], [3.141, 0.0, -3.141])
 
     @_timed_method("toward_target")
-    def _toward_target(self, target_pos: list = [0.0, 0.0, 0.0], target_ori: list = [0.0, 0.0, 0.0]):
-        if self.is_YOLO:
-            relative_cartesian_tool(target_pos, target_ori)
+    def _toward_target(self, target_object: str = "dice", target_pos: list = [0.0, 0.0, 0.0], target_ori: list = [0.0, 0.0, 0.0]):
+        if target_object == "dice":
+            if self.is_YOLO:
+                relative_cartesian_tool(target_pos, target_ori)
+            else:
+                absolute_cartesian_base(target_pos, target_ori)
+
+            # Go down
+            relative_cartesian_tool([0.0,0.0,0.01], [0.0,0.0,0.0])
         else:
-            absolute_cartesian_base(target_pos, target_ori)
+            # Go upside of the piece
+            if self.is_YOLO:
+                print(target_pos)
+                relative_cartesian_tool(target_pos, target_ori)
+            else:
+                absolute_cartesian_base(target_pos, target_ori)
+
+            # Go down
+            relative_cartesian_tool([0.0,0.0,0.025], [0.0,0.0,0.0])
 
     @_timed_method("dest_move")
     def _dest_move(self, target_object: str = "dice", board_pos: str = "GO"):
@@ -335,12 +349,19 @@ class PnP:
             gripper(close=False)
             _sleep(_GRIPPER_SETTLE_S)
         else:
+            # Go up
+            relative_cartesian_tool([0.0,0.0,-0.050], [0.0,0.0,0.0])
+
+            # Go upper side of target pos.
             if self.is_YOLO:
                 target_pos = board_positions[board_pos][target_object]["pos"]
             else:
                 target_pos = board_positions[board_pos][target_object]["sim_pos"]
-            target_pos[2] = target_pos[2] - 0.02
+            target_pos[2] = target_pos[2] + 0.035
             absolute_cartesian_base(target_pos, board_positions[board_pos][target_object]["ori"])
+
+            # Go down
+            relative_cartesian_tool([0.0,0.0,0.055], [0.0,0.0,0.0])
 
             # place
             gripper(close=False)
@@ -498,20 +519,20 @@ class PnP:
         # move toward target
         if self.is_YOLO:
             if self.target_object == "dice":
-                target_pos = [self.pos['x'], self.pos['y'], 0.13]
+                target_pos = [self.pos['x'], self.pos['y'], 0.12]
             else:
-                target_pos = [self.pos['x'], self.pos['y'], 0.245]
+                target_pos = [self.pos['x'], self.pos['y'], 0.22]
             target_ori = [0.0, 0.0, self.yaw]
             logger.info(f"{self.target_object}: x={self.pos['x']}, y={self.pos['y']}, z={self.pos['z']}, yaw={self.yaw}")
         else:
             if self.target_object == "dice":
-                target_pos = [self.pos['y'], -self.pos['x'], 0.29]
+                target_pos = [self.pos['y'], -self.pos['x'], 0.3]
             else:
-                target_pos = [self.pos['y'], -self.pos['x'], 0.275]
+                target_pos = [self.pos['y'], -self.pos['x'], 0.3]
             target_ori = [-3.14, 0.0, self.yaw]
             logger.info(f"{self.target_object}: x={self.pos['y']}, y={-self.pos['x']}, z={self.pos['z']}, yaw={self.yaw}")
-
-        self._toward_target(target_pos, target_ori)
+        
+        self._toward_target(self.target_object, target_pos, target_ori)
 
         # grasp
         gripper(close=True)
