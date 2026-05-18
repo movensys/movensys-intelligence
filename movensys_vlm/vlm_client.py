@@ -85,6 +85,6 @@ async def infer(
     if use_memory:
         asyncio.create_task(memory_client.store(
             f"Q: {user_prompt}\nA: {answer}",
-            metadata={"prompt": user_prompt, "model": model},
+            metadata={"model": model},
         ))
     return answer
