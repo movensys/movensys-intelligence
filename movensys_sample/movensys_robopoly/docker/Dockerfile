@@ -37,6 +37,7 @@ COPY *.py ./
 COPY adapters/ ./adapters/
 COPY game/ ./game/
 COPY static/ ./static/
+COPY doc/ ./doc/
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

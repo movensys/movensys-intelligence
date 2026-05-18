@@ -1,5 +1,6 @@
 import logging
 import math
+import os
 import random
 import sys
 import time
@@ -180,37 +181,70 @@ board_positions = {
 
 URL = "http://localhost:8000"
 
+# When MOVENSYS_PNP_DRY_RUN is truthy, every HTTP call to the manipulator
+# stack is skipped — motion/gripper requests log and return {} instead of
+# hitting the arm. get_piece_info synthesizes a fixed pose so the rest of
+# pick_and_place() runs end-to-end without hardware. Use for testing the
+# monopoly server flow on a workstation with no robot attached.
+DRY_RUN = os.environ.get("MOVENSYS_PNP_DRY_RUN", "").strip().lower() in (
+    "1", "true", "yes", "y", "on",
+)
+
+
+def _post(path: str, payload: dict):
+    if DRY_RUN:
+        logger.info("[dry-run] POST %s %s", path, payload)
+        return {}
+    return requests.post(f"{URL}{path}", json=payload).json()
+
+
+def _get(path: str):
+    if DRY_RUN:
+        logger.info("[dry-run] GET %s", path)
+        return {}
+    return requests.get(f"{URL}{path}").json()
+
+
+def _sleep(seconds: float) -> None:
+    # Real-hardware sleeps pace the arm between motion segments. In
+    # dry-run the HTTP calls are stubbed instantly, so the sleeps become
+    # pure wall-clock waste (~13s per dice roll) — skip them.
+    if DRY_RUN:
+        return
+    time.sleep(seconds)
+
+
 def move_base():
     absolute_joint_pose([0.0, 0.0, 0.5], [3.141, 0.0, -3.141])
 
 # 6 motion movements
 def absolute_cartesian_base(pos, ori):
-    return requests.post(f"{URL}/api/move/absolute_cartesian_base", json={"pos": pos, "ori": ori}).json()
+    return _post("/api/move/absolute_cartesian_base", {"pos": pos, "ori": ori})
 
 def relative_cartesian_base(pos, ori):
-    return requests.post(f"{URL}/api/move/relative_cartesian_base", json={"pos": pos, "ori": ori}).json()
+    return _post("/api/move/relative_cartesian_base", {"pos": pos, "ori": ori})
 
 def relative_cartesian_tool(pos, ori):
-    return requests.post(f"{URL}/api/move/relative_cartesian_tool", json={"pos": pos, "ori": ori}).json()
+    return _post("/api/move/relative_cartesian_tool", {"pos": pos, "ori": ori})
 
 def absolute_joint_pose(pos, ori):
-    return requests.post(f"{URL}/api/move/absolute_joint_pose", json={"pos": pos, "ori": ori}).json()
+    return _post("/api/move/absolute_joint_pose", {"pos": pos, "ori": ori})
 
 def joint_absolute(names, values):
-    return requests.post(f"{URL}/api/move/joint_absolute", json={"joint_names": names, "joint_values": values}).json()
+    return _post("/api/move/joint_absolute", {"joint_names": names, "joint_values": values})
 
 def joint_relative(names, values):
-    return requests.post(f"{URL}/api/move/joint_relative", json={"joint_names": names, "joint_values": values}).json()
+    return _post("/api/move/joint_relative", {"joint_names": names, "joint_values": values})
 
 # 3 assistance functions
 def gripper(close: bool):
-    return requests.post(f"{URL}/api/services/gripper", json={"data": close}).json()
+    return _post("/api/services/gripper", {"data": close})
 
 def get_eef_pose():
-    return requests.get(f"{URL}/api/services/get_eef_pose").json()
+    return _get("/api/services/get_eef_pose")
 
 def set_scales(vel, acc):
-    return requests.post(f"{URL}/api/config/scales", json={"vel_scale": vel, "acc_scale": acc}).json()
+    return _post("/api/config/scales", {"vel_scale": vel, "acc_scale": acc})
 
 class PnP:
     _BIN_CENTERS = (0.0, -math.pi / 2, -math.pi, math.pi / 2)
@@ -261,10 +295,10 @@ class PnP:
         if target_object == "dice":
             if self.is_YOLO:
                 relative_cartesian_tool(target_pos, target_ori)
-                time.sleep(delay_exec)
+                _sleep(delay_exec)
             else:
                 absolute_cartesian_base(target_pos, target_ori)
-                time.sleep(delay_exec)
+                _sleep(delay_exec)
             
             # Go down
             relative_cartesian_tool([0.0,0.0,0.01], [0.0,0.0,0.0])
@@ -273,10 +307,10 @@ class PnP:
             if self.is_YOLO:
                 print(target_pos)
                 relative_cartesian_tool(target_pos, target_ori)
-                time.sleep(delay_exec)
+                _sleep(delay_exec)
             else:
                 absolute_cartesian_base(target_pos, target_ori)
-                time.sleep(delay_exec)
+                _sleep(delay_exec)
 
             # Go down
             relative_cartesian_tool([0.0,0.0,0.025], [0.0,0.0,0.0])
@@ -285,15 +319,15 @@ class PnP:
         if target_object == "dice":
             # Go up
             relative_cartesian_tool([0.0,0.0,-0.1], [0.0,0.0,0.0])
-            time.sleep(delay_exec)
+            _sleep(delay_exec)
 
             # place
             gripper(close=False)
-            time.sleep(delay_exec)
+            _sleep(delay_exec)
         else:
             # Go up
             relative_cartesian_tool([0.0,0.0,-0.050], [0.0,0.0,0.0])
-            time.sleep(delay_exec)
+            _sleep(delay_exec)
 
             # Go upper side of target pos.
             if self.is_YOLO:
@@ -302,22 +336,32 @@ class PnP:
                 target_pos = board_positions[board_pos][target_object]["sim_pos"]
             target_pos[2] = target_pos[2] + 0.035
             absolute_cartesian_base(target_pos, board_positions[board_pos][target_object]["ori"])
-            time.sleep(delay_exec)
+            _sleep(delay_exec)
 
             # Go down
             relative_cartesian_tool([0.0,0.0,0.055], [0.0,0.0,0.0])
-            time.sleep(delay_exec)
+            _sleep(delay_exec)
 
             # place
             gripper(close=False)
-            time.sleep(delay_exec)
+            _sleep(delay_exec)
 
             # Go up and prepare to go init pos
             relative_cartesian_tool([0.0,0.0,-0.06], [0.0,0.0,0.0])
-            time.sleep(delay_exec)
+            _sleep(delay_exec)
 
     def get_piece_info(self) -> bool:
         _target_object = self.TARGET_STR[self.target_num]
+
+        if DRY_RUN:
+            # Synthetic pose — pick_and_place math (yaw checks, target_pos
+            # construction) needs non-None values. Numbers are arbitrary
+            # but in the same shape the real topic would return.
+            self.pos = {"x": 0.0, "y": 0.0, "z": 0.3}
+            self.ori = {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}
+            self.yaw = 0.0
+            logger.info("[dry-run] synthetic piece info for %s", _target_object)
+            return True
 
         if self.is_YOLO:
             resp = requests.get(f"{URL}/api/topics/yolo_tf")
@@ -374,7 +418,7 @@ class PnP:
             raise ValueError(f"Unknown board_pos '{board_pos}'. Choose one of: {list(board_positions)}")
 
         gripper(close=False)
-        time.sleep(self.delay_exec)
+        _sleep(self.delay_exec)
         # move to initial position
         
         # For YOLO, we need to set offset
@@ -424,15 +468,15 @@ class PnP:
             logger.info(f"{self.target_object}: x={self.pos['y']}, y={-self.pos['x']}, z={self.pos['z']}, yaw={self.yaw}")
         
         self._toward_target(self.target_object, self.delay_exec, target_pos, target_ori)
-        time.sleep(self.delay_exec)
+        _sleep(self.delay_exec)
 
         # grasp
         gripper(close=True)
-        time.sleep(self.delay_exec)
+        _sleep(self.delay_exec)
 
         # move to destination
         self._dest_move(self.target_object, self.delay_exec, board_pos)
-        time.sleep(self.delay_exec)
+        _sleep(self.delay_exec)
 
 
 
@@ -464,7 +508,7 @@ def main():
 
     # init
     pnp._init_move(sys.argv[1])
-    time.sleep(3.0)
+    _sleep(3.0)
 
     # pick and place
     if not pnp.get_piece_info():

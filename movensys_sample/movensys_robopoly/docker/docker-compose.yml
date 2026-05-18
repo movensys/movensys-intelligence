@@ -30,6 +30,11 @@ services:
       - MOVENSYS_VLM_URL=${MOVENSYS_VLM_URL:-}
       # Isaac Sim card-spawn publisher (PRD 11.5)
       - MONOPOLY_ISAAC_TOPIC_CARD_SPAWN=${MONOPOLY_ISAAC_TOPIC_CARD_SPAWN:-/isaac/card_spawn}
+      # Dry-run mode for pick_and_place.py: when truthy, all manipulator
+      # HTTP calls are stubbed (no arm motion, no gripper). Used for
+      # testing the monopoly server without a robot attached. Off by
+      # default — set MOVENSYS_PNP_DRY_RUN=1 in the shell to enable.
+      - MOVENSYS_PNP_DRY_RUN=${MOVENSYS_PNP_DRY_RUN:-}
       # Optional persistence (PRD 11.3)
       - MONOPOLY_PERSISTENCE_PATH=${MONOPOLY_PERSISTENCE_PATH:-}
     restart: unless-stopped
