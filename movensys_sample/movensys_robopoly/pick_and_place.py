@@ -238,7 +238,7 @@ def _timed_method(label: str):
 # pacing sleep is needed between motions. The gripper SetBool service
 # returns before the jaws physically settle — keep a small post-gripper
 # wait so subsequent motion doesn't drag/drop the cube.
-_GRIPPER_SETTLE_S = 0.3
+_GRIPPER_SETTLE_S = 0.6
 
 
 def move_base():
@@ -447,7 +447,7 @@ class PnP:
         ("right", ( 0.0,  -0.05)),
         ("left",  ( 0.0,   0.05)),
     )
-    _SEARCH_SETTLE_S = 1.5
+    _SEARCH_SETTLE_S = 2.5
 
     @_timed_method("search_for_target")
     def _search_for_target(self) -> bool:
