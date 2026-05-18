@@ -11,31 +11,68 @@
     <h1>movensys-monopoly</h1>
     <span class="badge" id="milestone">Movensys board</span>
     <div class="spacer"></div>
-    <div class="money-bar">
-      <div class="money-player" id="money-user">
-        <span class="money-color" style="background:var(--user)"></span>
-        <span class="money-label">user</span>
-        <span class="money-value" id="money-user-value">$0</span>
-      </div>
-      <div class="money-player" id="money-robot">
-        <span class="money-color" style="background:var(--robot)"></span>
-        <span class="money-label">robot</span>
-        <span class="money-value" id="money-robot-value">$0</span>
-      </div>
-    </div>
     <div class="badges" id="modes"></div>
   </header>
 
   <main class="grid">
     <aside class="sidebar sidebar-left">
-      <div class="card">
-        <h2>robot properties</h2>
-        <div class="property-groups" id="props-robot"></div>
-      </div>
+      <div class="vlm-section">
+        <div class="vlm-header">
+          <h2>Ask VLM</h2>
+          <span class="stream-dot" id="vlm-loop-dot" style="margin-left:auto"></span>
+          <span class="vlm-loop-status" id="vlm-loop-status">idle</span>
+        </div>
+        <div class="vlm-body">
+          <div class="vlm-col vlm-col-query">
+            <div class="vlm-col-header">
+              <span class="vlm-col-title">Query &amp; response</span>
+            </div>
+            <div class="vlm-controls">
+              <input id="vlm-prompt" type="text"
+                     placeholder="Ask about the board… (empty = default description)">
+              <button id="vlm-ask" class="vlm-btn">Ask</button>
+            </div>
+            <div class="vlm-mic-bay">
+              <select id="vlm-mic-device" class="vlm-mic-select" title="Microphone device">
+                <option value="">Default microphone</option>
+              </select>
+              <button id="vlm-mic" class="vlm-mic-circle" type="button"
+                      title="Record voice and transcribe via Whisper">Rec</button>
+              <span class="vlm-meta" id="vlm-stt-status"></span>
+            </div>
+            <div class="vlm-controls">
+              <label class="vlm-check">
+                <input id="vlm-repeat" type="checkbox">
+                <span>Repeat every</span>
+              </label>
+              <select id="vlm-interval" title="Repeat interval">
+                <option value="5">5 s</option>
+                <option value="10" selected>10 s</option>
+                <option value="20">20 s</option>
+                <option value="30">30 s</option>
+                <option value="60">60 s</option>
+              </select>
+              <span class="vlm-meta" id="vlm-mem-status" style="margin-left:auto">memory: —</span>
+              <button id="vlm-mem-clear" class="vlm-btn vlm-btn-secondary"
+                      title="Delete all stored memories from the vector DB">Clear memory</button>
+            </div>
+            <div id="vlm-response" class="vlm-response empty">No response yet.</div>
+            <div id="vlm-meta" class="vlm-meta"></div>
+          </div>
 
-      <div class="card">
-        <h2>user properties</h2>
-        <div class="property-groups" id="props-user"></div>
+          <div class="vlm-col vlm-col-prompt">
+            <div class="vlm-col-header">
+              <span class="vlm-col-title">System prompt</span>
+              <span class="vlm-meta" id="vlm-sp-status"></span>
+            </div>
+            <textarea id="vlm-system-prompt" class="vlm-textarea"
+                      placeholder="Loading system prompt…" spellcheck="false"></textarea>
+            <div class="vlm-controls">
+              <button id="vlm-sp-save" class="vlm-btn">Save</button>
+              <button id="vlm-sp-reset" class="vlm-btn vlm-btn-secondary" title="Reset to default">Reset</button>
+            </div>
+          </div>
+        </div>
       </div>
     </aside>
 
@@ -49,49 +86,62 @@
         </svg>
       </div>
       <div class="board-coords" id="board-coords">user: (—, —)  |  robot: (—, —)</div>
+      <div class="money-bar">
+        <div class="money-player" id="money-user">
+          <span class="money-color" style="background:var(--user)"></span>
+          <span class="money-label">user</span>
+          <div class="money-stack">
+            <span class="money-row"><span class="money-row-label">Liquid</span><span class="money-value" id="money-user-value">$0</span></span>
+            <span class="money-row"><span class="money-row-label">Assets</span><span class="money-assets" id="money-user-assets">$0</span></span>
+          </div>
+        </div>
+        <div class="money-player" id="money-robot">
+          <span class="money-color" style="background:var(--robot)"></span>
+          <span class="money-label">robot</span>
+          <div class="money-stack">
+            <span class="money-row"><span class="money-row-label">Liquid</span><span class="money-value" id="money-robot-value">$0</span></span>
+            <span class="money-row"><span class="money-row-label">Assets</span><span class="money-assets" id="money-robot-assets">$0</span></span>
+          </div>
+        </div>
+      </div>
+      <div class="notification empty" id="notification">Waiting for the game to start…</div>
     </section>
 
     <aside class="sidebar sidebar-right">
       <div class="card">
         <h2>Game state</h2>
-        <dl>
-          <dt>Turn</dt>      <dd id="st-turn">—</dd>
-          <dt>Dice</dt>      <dd id="st-dice">—</dd>
-          <dt>User pos</dt>  <dd id="st-pos-user">—</dd>
-          <dt>Robot pos</dt> <dd id="st-pos-robot">—</dd>
-          <dt>is_YOLO</dt>
-          <dd class="yolo-row">
-            <span id="st-is-yolo">ON</span>
-            <button id="btn-toggle-yolo" class="btn-secondary btn-inline"
-                    title="Toggle is_YOLO flag passed to pick_and_place.py">
-              Toggle
-            </button>
-          </dd>
-        </dl>
-        <div class="row">
-          <button id="btn-save-state" class="btn-secondary"
-                  title="Save current game state to saved_status.yaml">
-            SAVE STATE
-          </button>
-          <button id="btn-load-state" class="btn-secondary"
-                  title="Load game state from saved_status.yaml">
-            LOAD STATE
-          </button>
+        <div class="state-body">
+          <dl>
+            <dt>Turn</dt>      <dd id="st-turn">—</dd>
+            <dt>Dice</dt>      <dd id="st-dice">—</dd>
+            <dt>User pos</dt>  <dd id="st-pos-user">—</dd>
+            <dt>Robot pos</dt> <dd id="st-pos-robot">—</dd>
+            <dt>is_YOLO</dt>
+            <dd class="yolo-row">
+              <span id="st-is-yolo">ON</span>
+              <button id="btn-toggle-yolo" class="btn-secondary btn-inline"
+                      title="Toggle is_YOLO flag passed to pick_and_place.py">Toggle</button>
+            </dd>
+          </dl>
+          <div class="state-actions">
+            <button id="btn-save-state" class="btn-secondary"
+                    title="Save current game state to saved_status.yaml">SAVE</button>
+            <button id="btn-load-state" class="btn-secondary"
+                    title="Load game state from saved_status.yaml">LOAD</button>
+          </div>
         </div>
       </div>
 
       <div class="card">
         <h2>Dice Status</h2>
-        <div class="dice-face empty" id="dice-face"></div>
-        <div class="row">
-          <button id="btn-roll-dice">Roll dice</button>
-        </div>
-        <div class="row">
-          <button id="btn-apply-move" title="Applies the move the server is expecting">Apply move</button>
-          <button id="btn-end-turn">End turn</button>
-        </div>
-        <div class="row">
-          <button id="btn-reset" class="btn-secondary" title="Restart the current board from turn 1">Reset game</button>
+        <div class="dice-row">
+          <div class="dice-actions-col">
+            <button id="btn-roll-dice">Roll dice</button>
+          </div>
+          <div class="dice-face empty" id="dice-face"></div>
+          <div class="dice-actions-col">
+            <button id="btn-reset" class="btn-secondary" title="Restart the current board from turn 1">Reset game</button>
+          </div>
         </div>
       </div>
 
@@ -102,120 +152,6 @@
     </aside>
   </main>
 
-  <hr class="section-divider">
-
-  <section class="cam-feeds">
-    <div class="vlm-section">
-      <div class="vlm-header">
-        <h2>Ask VLM</h2>
-        <span class="stream-dot" id="vlm-loop-dot" style="margin-left:auto"></span>
-        <span class="vlm-loop-status" id="vlm-loop-status">idle</span>
-      </div>
-      <div class="vlm-split">
-        <div class="vlm-col vlm-col-query">
-          <div class="vlm-col-header">
-            <span class="vlm-col-title">Query &amp; response</span>
-          </div>
-          <div class="vlm-controls">
-            <select id="vlm-camera" title="Source camera">
-              <option value="top">top camera</option>
-              <option value="hand">hand camera</option>
-            </select>
-            <input id="vlm-prompt" type="text"
-                   placeholder="Ask about the board… (empty = default description)">
-            <button id="vlm-mic" class="vlm-btn vlm-btn-secondary" type="button"
-                    title="Record speech and transcribe via Whisper">🎤</button>
-            <button id="vlm-ask" class="vlm-btn">Ask</button>
-          </div>
-          <div class="vlm-controls">
-            <label class="vlm-check" for="vlm-stt-url" style="white-space:nowrap">
-              <span>Whisper URL</span>
-            </label>
-            <input id="vlm-stt-url" type="text" spellcheck="false"
-                   value="http://localhost:9010"
-                   title="Base URL of the Whisper STT server (OpenAI-compatible)">
-            <span class="vlm-meta" id="vlm-stt-status"></span>
-          </div>
-          <div class="vlm-controls">
-            <label class="vlm-check">
-              <input id="vlm-repeat" type="checkbox">
-              <span>Repeat every</span>
-            </label>
-            <select id="vlm-interval" title="Repeat interval">
-              <option value="5">5 s</option>
-              <option value="10" selected>10 s</option>
-              <option value="20">20 s</option>
-              <option value="30">30 s</option>
-              <option value="60">60 s</option>
-            </select>
-          </div>
-          <div id="vlm-response" class="vlm-response empty">No response yet.</div>
-          <div id="vlm-meta" class="vlm-meta"></div>
-        </div>
-
-        <div class="vlm-col vlm-col-image">
-          <div class="vlm-col-header">
-            <span class="vlm-col-title">Image sent to VLM</span>
-            <label class="vlm-check" style="margin-left:auto">
-              <input id="vlm-rotate180" type="checkbox">
-              <span>Rotate 180°</span>
-            </label>
-            <span class="vlm-meta" id="vlm-img-meta"></span>
-          </div>
-          <div class="vlm-sent-frame">
-            <img id="vlm-sent-image" class="vlm-sent-img" alt="">
-            <div class="vlm-sent-placeholder" id="vlm-img-placeholder">No image yet — click Ask to capture.</div>
-          </div>
-        </div>
-
-        <div class="vlm-col vlm-col-prompt">
-          <div class="vlm-col-header">
-            <span class="vlm-col-title">System prompt</span>
-            <span class="vlm-meta" id="vlm-sp-status"></span>
-          </div>
-          <textarea id="vlm-system-prompt" class="vlm-textarea"
-                    placeholder="Loading system prompt…" spellcheck="false"></textarea>
-          <div class="vlm-controls">
-            <button id="vlm-sp-save" class="vlm-btn">Save</button>
-            <button id="vlm-sp-reset" class="vlm-btn vlm-btn-secondary" title="Reset to default">Reset</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <h2>Camera Feeds</h2>
-
-    <div class="cam-feed-row">
-      <div class="cam-feed-section">
-        <div class="cam-feed-header">
-          <span class="stream-dot" id="feed-dot-top"></span>
-          <h3>/image_top</h3>
-        </div>
-        <div class="cam-feed-grid cam-feed-grid-single">
-          <div class="cam-feed-cell" id="feed-cell-top-rgb">
-            <div class="cam-feed-label">RGB</div>
-            <img id="feed-top-rgb" class="cam-feed-img" alt="Top RGB">
-            <div class="cam-feed-status" id="feed-top-rgb-status">Waiting for stream…</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="cam-feed-section">
-        <div class="cam-feed-header">
-          <span class="stream-dot" id="feed-dot-hand"></span>
-          <h3>/image_hand</h3>
-        </div>
-        <div class="cam-feed-grid cam-feed-grid-single">
-          <div class="cam-feed-cell" id="feed-cell-hand-rgb">
-            <div class="cam-feed-label">RGB</div>
-            <img id="feed-hand-rgb" class="cam-feed-img" alt="Hand RGB">
-            <div class="cam-feed-status" id="feed-hand-rgb-status">Waiting for stream…</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
   <!-- Property arrival / decision modal -->
   <div class="modal-backdrop hidden" id="decision-modal">
     <div class="modal">
@@ -223,8 +159,9 @@
       <div id="decision-card"></div>
       <div class="modal-buttons">
         <button id="btn-skip" class="btn-secondary">Skip</button>
-        <button id="btn-buy">Buy</button>
-        <button id="btn-buy-build">Buy + build 1</button>
+        <button id="btn-buy" title="Buy land — 1 circle">Buy land</button>
+        <button id="btn-buy-build" title="Buy land + 1 house — 2 circles">Buy + house</button>
+        <button id="btn-buy-hotel" title="Buy land + hotel directly — 3 circles">Buy + hotel</button>
       </div>
     </div>
   </div>

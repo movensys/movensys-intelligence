@@ -1,0 +1,182 @@
+import logging
+import os
+import time
+import uuid
+from typing import Any, Optional
+
+import httpx
+
+logger = logging.getLogger(__name__)
+
+_qdrant_client: httpx.AsyncClient | None = None
+_embed_client: httpx.AsyncClient | None = None
+_collection_ready: bool = False
+
+
+def is_enabled() -> bool:
+    return os.environ.get("MEMORY_ENABLED", "false").lower() in ("1", "true", "yes")
+
+
+def _collection() -> str:
+    return os.environ.get("MEMORY_COLLECTION", "vlm_memory")
+
+
+def _vector_size() -> int:
+    return int(os.environ.get("MEMORY_VECTOR_SIZE", "384"))
+
+
+def _top_k() -> int:
+    return int(os.environ.get("MEMORY_TOP_K", "3"))
+
+
+def _timeout() -> float:
+    return float(os.environ.get("MEMORY_TIMEOUT", "10"))
+
+
+def _min_score() -> Optional[float]:
+    v = os.environ.get("MEMORY_MIN_SCORE")
+    return float(v) if v else None
+
+
+def _max_store_chars() -> int:
+    return int(os.environ.get("MEMORY_MAX_STORE_CHARS", "1500"))
+
+
+def _qdrant() -> httpx.AsyncClient:
+    global _qdrant_client
+    if _qdrant_client is None:
+        base = os.environ.get("MEMORY_QDRANT_URL", "http://localhost:6333")
+        _qdrant_client = httpx.AsyncClient(base_url=base, timeout=_timeout())
+    return _qdrant_client
+
+
+def _embed() -> httpx.AsyncClient:
+    global _embed_client
+    if _embed_client is None:
+        base = os.environ.get("MEMORY_EMBED_BASE_URL", "http://localhost:9020")
+        _embed_client = httpx.AsyncClient(base_url=base, timeout=_timeout())
+    return _embed_client
+
+
+async def _ensure_collection() -> None:
+    global _collection_ready
+    if _collection_ready:
+        return
+    name = _collection()
+    q = _qdrant()
+    r = await q.get(f"/collections/{name}")
+    if r.status_code == 200:
+        _collection_ready = True
+        return
+    r = await q.put(
+        f"/collections/{name}",
+        json={"vectors": {"size": _vector_size(), "distance": "Cosine"}},
+    )
+    r.raise_for_status()
+    _collection_ready = True
+
+
+async def embed_text(text: str) -> list[float]:
+    r = await _embed().post("/embed", json={"inputs": text})
+    r.raise_for_status()
+    data = r.json()
+    # TEI returns either [[...]] for single input or [[...], [...]] for batch.
+    return data[0] if isinstance(data[0], list) else data
+
+
+async def store(text: str, metadata: Optional[dict[str, Any]] = None) -> Optional[str]:
+    """Embed `text` and upsert into Qdrant. Returns the point id, or None on failure."""
+    if not is_enabled() or not text:
+        return None
+    text = text[: _max_store_chars()]
+    try:
+        await _ensure_collection()
+        vector = await embed_text(text)
+        point_id = str(uuid.uuid4())
+        payload = {"text": text, "ts": time.time()}
+        if metadata:
+            payload.update(metadata)
+        r = await _qdrant().put(
+            f"/collections/{_collection()}/points?wait=true",
+            json={"points": [{"id": point_id, "vector": vector, "payload": payload}]},
+        )
+        r.raise_for_status()
+        return point_id
+    except Exception as exc:
+        logger.warning("memory.store failed: %s", exc)
+        return None
+
+
+async def clear() -> dict[str, Any]:
+    """Drop the collection so it's recreated empty on next use.
+
+    Always callable (ignores MEMORY_ENABLED) — operators may want to wipe
+    stored memories even while recall/store is disabled.
+    """
+    global _collection_ready
+    name = _collection()
+    try:
+        r = await _qdrant().delete(f"/collections/{name}")
+        # 200 = deleted, 404 = already gone — both are success.
+        if r.status_code not in (200, 404):
+            r.raise_for_status()
+        _collection_ready = False
+        return {"ok": True, "collection": name}
+    except Exception as exc:
+        logger.warning("memory.clear failed: %s", exc)
+        return {"ok": False, "collection": name, "error": str(exc)}
+
+
+async def count() -> Optional[int]:
+    """Return the number of stored points, or None on failure."""
+    try:
+        r = await _qdrant().get(f"/collections/{_collection()}")
+        if r.status_code == 404:
+            return 0
+        r.raise_for_status()
+        return r.json().get("result", {}).get("points_count", 0)
+    except Exception as exc:
+        logger.warning("memory.count failed: %s", exc)
+        return None
+
+
+async def recall(query: str, top_k: Optional[int] = None) -> list[dict[str, Any]]:
+    """Return up to `top_k` payloads most similar to `query`. Empty list on failure."""
+    if not is_enabled() or not query:
+        return []
+    try:
+        await _ensure_collection()
+        vector = await embed_text(query)
+        body: dict[str, Any] = {
+            "vector": vector,
+            "limit": top_k if top_k is not None else _top_k(),
+            "with_payload": True,
+        }
+        ms = _min_score()
+        if ms is not None:
+            body["score_threshold"] = ms
+        r = await _qdrant().post(
+            f"/collections/{_collection()}/points/search",
+            json=body,
+        )
+        r.raise_for_status()
+        return r.json().get("result", [])
+    except Exception as exc:
+        logger.warning("memory.recall failed: %s", exc)
+        return []
+
+
+def format_recall(hits: list[dict[str, Any]]) -> str:
+    """Render recall results as a compact bullet list for prompt injection."""
+    if not hits:
+        return ""
+    lines = []
+    for h in hits:
+        payload = h.get("payload") or {}
+        text = payload.get("text", "").strip()
+        if not text:
+            continue
+        lines.append(f"- {text}")
+    if not lines:
+        return ""
+    return "Relevant past observations:\n" + "\n".join(lines)

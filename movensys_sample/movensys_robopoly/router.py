@@ -43,16 +43,16 @@ async def stt_health(request: Request) -> dict[str, object]:
     return request.app.state.stt_adapter.health()
 
 
-@api_router.get("/llm/health")
-async def llm_health(request: Request) -> dict[str, object]:
-    return request.app.state.llm_adapter.health()
+@api_router.get("/vlm/health")
+async def vlm_health(request: Request) -> dict[str, object]:
+    return request.app.state.vlm_adapter.health()
 
 
 @api_router.get("/modes")
 async def modes(request: Request) -> dict[str, dict[str, object]]:
     return {
         "stt":   request.app.state.stt_adapter.health(),
-        "llm":   request.app.state.llm_adapter.health(),
+        "vlm":   request.app.state.vlm_adapter.health(),
         "robot": request.app.state.robot_adapter.health(),
     }
 
@@ -92,7 +92,7 @@ class ConfigPatch(BaseModel):
 
 
 class DecideRequest(BaseModel):
-    action: Literal["skip", "buy", "build"]
+    action: Literal["skip", "buy", "build", "build_hotel"]
     house_count: int = Field(default=0, ge=0, le=5)
 
 
@@ -402,7 +402,50 @@ async def move_apply_robot(request: Request, body: MoveApplyRobotRequest) -> dic
     except RuleError as exc:
         raise HTTPException(**_http_kwargs(exc))
     result["robot"] = {"cube": cube, "board_pos": board_pos}
+
+    # Spec §4.5.1: landing on GO_TO_JAIL teleports the player's position to
+    # IN_JAIL in-engine; physically move the cube there too so the board
+    # state matches the game state.
+    jail_resolved = next(
+        (r for r in result.get("resolved", {}).get("tiles", [])
+         if r.get("kind") == "go_to_jail"),
+        None,
+    )
+    if jail_resolved is not None:
+        jail_pnp = await _pick_and_place_to_jail(script, cube, body.is_YOLO)
+        result["robot_jail"] = jail_pnp
     return result
+
+
+async def _pick_and_place_to_jail(
+    script: Path, cube: str, is_yolo: bool,
+) -> dict[str, Any]:
+    """Run pick_and_place.py <cube> IN_JAIL <is_YOLO> for the §4.5.1
+    auto-jail move. Raises HTTPException on subprocess failure so the
+    caller sees the same error envelope as the primary apply_robot path.
+    """
+    is_yolo_arg = "true" if is_yolo else "false"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "python3", str(script), cube, "IN_JAIL", is_yolo_arg,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500,
+                            detail={"code": "SCRIPT_NOT_FOUND", "message": str(exc)})
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "PNP_JAIL_FAILED",
+                "message": f"jail pick_and_place exited with code {proc.returncode}",
+                "stdout": stdout.decode("utf-8", "replace"),
+                "stderr": stderr.decode("utf-8", "replace"),
+            },
+        )
+    return {"cube": cube, "board_pos": "IN_JAIL"}
 
 
 # ---- property -------------------------------------------------------------
@@ -450,31 +493,9 @@ async def property_build(request: Request, pid: str, body: BuildRequest) -> dict
         raise HTTPException(**_http_kwargs(exc))
 
 
-@api_router.post("/properties/{pid}/mortgage")
-async def property_mortgage(request: Request, pid: str) -> dict[str, Any]:
-    game = request.app.state.game
-    try:
-        return await game.mortgage(game.state.turn, pid)
-    except RuleError as exc:
-        raise HTTPException(**_http_kwargs(exc))
-
-
-@api_router.post("/properties/{pid}/unmortgage")
-async def property_unmortgage(request: Request, pid: str) -> dict[str, Any]:
-    game = request.app.state.game
-    try:
-        return await game.unmortgage(game.state.turn, pid)
-    except RuleError as exc:
-        raise HTTPException(**_http_kwargs(exc))
-
-
-@api_router.post("/properties/{pid}/sell_building")
-async def property_sell_building(request: Request, pid: str) -> dict[str, Any]:
-    game = request.app.state.game
-    try:
-        return await game.sell_building(game.state.turn, pid)
-    except RuleError as exc:
-        raise HTTPException(**_http_kwargs(exc))
+# Voluntary mortgage / unmortgage / sell_building routes are intentionally
+# removed (spec §5.1: no voluntary selling). The only sell path is
+# auto-liquidation, which is internal to rules.py.
 
 
 # ---- money ---------------------------------------------------------------
@@ -556,8 +577,7 @@ async def stream_board(ws: WebSocket) -> None:
 @api_router.websocket("/stream/money")
 async def stream_money(ws: WebSocket) -> None:
     await _stream_events(ws, "money", {"effect_applied", "property_bought",
-                                        "property_built", "property_mortgaged",
-                                        "property_unmortgaged", "building_sold",
+                                        "property_built", "tier_sold",
                                         "tile_rent_paid", "tile_tax_paid",
                                         "tile_rent_bankruptcy", "tile_tax_bankruptcy"})
 
@@ -565,8 +585,7 @@ async def stream_money(ws: WebSocket) -> None:
 @api_router.websocket("/stream/properties")
 async def stream_properties(ws: WebSocket) -> None:
     await _stream_events(ws, "properties", {"property_bought", "property_built",
-                                             "property_mortgaged", "property_unmortgaged",
-                                             "building_sold"})
+                                             "tier_sold"})
 
 
 # ---- HTTPException helper --------------------------------------------------
@@ -575,7 +594,7 @@ async def stream_properties(ws: WebSocket) -> None:
 def _http_kwargs(exc: RuleError) -> dict[str, Any]:
     """FastAPI's HTTPException flow cooperates with our error envelope middleware."""
     status = 409 if exc.code in ("TILE_MISMATCH", "INVALID_STATE", "PROPERTY_OWNED",
-                                  "NOT_OWNER", "INSUFFICIENT_FUNDS", "MONOPOLY_REQUIRED",
+                                  "NOT_OWNER", "INSUFFICIENT_FUNDS",
                                   "JAIL_EXIT_UNAVAILABLE") else 400
     if exc.code == "NOT_FOUND":
         status = 404

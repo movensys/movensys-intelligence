@@ -12,6 +12,7 @@ from movensys_manipulator_moveit_config.srv import GetEefPose, MovePose, MoveJoi
 from fastapi import APIRouter, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
+import memory_client
 import ros2_node as rn
 import vlm_client
 import whisper_client
@@ -72,9 +73,12 @@ class VlmInferRequest(BaseModel):
     camera: str = "top"   # "top" or "hand"
     prompt: Optional[str] = None
     system_prompt: Optional[str] = None
-    max_tokens: int = 512
+    max_tokens: int = 128
     temperature: float = 0.2
     rotate180: bool = False
+    # Per-client namespace for the stored system prompt (e.g. "vlm",
+    # "robopoly"). Falls back to the shared "default" slot when omitted.
+    client: Optional[str] = None
 
     model_config = {
         "json_schema_extra": {
@@ -383,6 +387,7 @@ async def vlm_infer(body: VlmInferRequest):
             system_prompt=body.system_prompt,
             max_tokens=body.max_tokens,
             temperature=body.temperature,
+            client_id=body.client,
         )
     except Exception as exc:
         error = f"VLM inference failed: {exc}"
@@ -410,23 +415,44 @@ class VlmSystemPromptRequest(BaseModel):
 
 
 @router.get("/api/vlm/system_prompt")
-def vlm_get_system_prompt():
+def vlm_get_system_prompt(client: Optional[str] = None):
     return {
-        "system_prompt": vlm_client.get_system_prompt(),
+        "system_prompt": vlm_client.get_system_prompt(client),
         "default_system_prompt": vlm_client.DEFAULT_SYSTEM_PROMPT,
+        "client": client or vlm_client.DEFAULT_CLIENT,
     }
 
 
 @router.put("/api/vlm/system_prompt")
-def vlm_set_system_prompt(body: VlmSystemPromptRequest):
+def vlm_set_system_prompt(body: VlmSystemPromptRequest, client: Optional[str] = None):
     if not body.system_prompt.strip():
         raise HTTPException(400, detail="system_prompt must not be empty")
-    return {"system_prompt": vlm_client.set_system_prompt(body.system_prompt)}
+    return {
+        "system_prompt": vlm_client.set_system_prompt(body.system_prompt, client),
+        "client": client or vlm_client.DEFAULT_CLIENT,
+    }
 
 
 @router.delete("/api/vlm/system_prompt")
-def vlm_reset_system_prompt():
-    return {"system_prompt": vlm_client.reset_system_prompt()}
+def vlm_reset_system_prompt(client: Optional[str] = None):
+    return {
+        "system_prompt": vlm_client.reset_system_prompt(client),
+        "client": client or vlm_client.DEFAULT_CLIENT,
+    }
+
+
+# ---------------------------------------------------------------------------
+# VLM memory (vector DB)
+# ---------------------------------------------------------------------------
+
+@router.get("/api/vlm/memory")
+async def vlm_memory_stats():
+    return {"count": await memory_client.count(), "enabled": memory_client.is_enabled()}
+
+
+@router.delete("/api/vlm/memory")
+async def vlm_memory_clear():
+    return await memory_client.clear()
 
 
 # ---------------------------------------------------------------------------

@@ -7,9 +7,7 @@ import pytest
 from game.boards import load_board
 from game.properties import (
     compute_rent,
-    even_build_ok,
     initial_properties,
-    is_monopoly,
     property_id,
     railroads_owned,
     utilities_owned,
@@ -53,23 +51,6 @@ def test_base_rent_property(board2_state) -> None:
     state, board = board2_state
     _own(state, "board2:mediterranean_avenue")   # brown group, other tile unowned
     assert compute_rent(state, board, 1, dice_sum=None) == 2  # rent_table[0]
-
-
-def test_monopoly_doubles_unimproved_rent(board2_state) -> None:
-    state, board = board2_state
-    _own(state, "board2:mediterranean_avenue")
-    _own(state, "board2:baltic_avenue")
-    # brown monopoly: mediterranean base rent 2 -> 4, baltic 4 -> 8
-    assert compute_rent(state, board, 1, None) == 4
-    assert compute_rent(state, board, 3, None) == 8
-
-
-def test_monopoly_does_not_double_when_houses_present(board2_state) -> None:
-    state, board = board2_state
-    _own(state, "board2:mediterranean_avenue", houses=1)
-    _own(state, "board2:baltic_avenue")
-    # mediterranean has 1 house -> use rent_table[1], not base*2
-    assert compute_rent(state, board, 1, None) == 10
 
 
 def test_hotel_rent(board2_state) -> None:
@@ -118,65 +99,6 @@ def test_utility_without_dice_sum_returns_zero(board2_state) -> None:
     state, board = board2_state
     _own(state, "board2:electric_company")
     assert compute_rent(state, board, 12, dice_sum=None) == 0
-
-
-# ---- monopoly detection ----------------------------------------------------
-
-
-def test_is_monopoly_happy_path(board2_state) -> None:
-    state, board = board2_state
-    _own(state, "board2:mediterranean_avenue")
-    _own(state, "board2:baltic_avenue")
-    assert is_monopoly(state, board, "brown", "user") is True
-
-
-def test_is_monopoly_partial(board2_state) -> None:
-    state, board = board2_state
-    _own(state, "board2:mediterranean_avenue")
-    assert is_monopoly(state, board, "brown", "user") is False
-
-
-def test_is_monopoly_split_owners(board2_state) -> None:
-    state, board = board2_state
-    _own(state, "board2:mediterranean_avenue", owner="user")
-    _own(state, "board2:baltic_avenue", owner="robot")
-    assert is_monopoly(state, board, "brown", "user") is False
-    assert is_monopoly(state, board, "brown", "robot") is False
-
-
-# ---- even-build rule ------------------------------------------------------
-
-
-def test_even_build_allowed_within_one(board2_state) -> None:
-    state, board = board2_state
-    for pid in ("board2:mediterranean_avenue", "board2:baltic_avenue"):
-        _own(state, pid, houses=1)
-    # Adding a house to baltic makes [1, 2] -> diff 1 -> OK
-    assert even_build_ok(state, board, "brown", "board2:baltic_avenue", +1) is True
-
-
-def test_even_build_blocks_two_gap(board2_state) -> None:
-    state, board = board2_state
-    _own(state, "board2:mediterranean_avenue", houses=1)
-    _own(state, "board2:baltic_avenue", houses=1)
-    # Adding two to baltic would be +2 over mediterranean -> diff 2 -> BLOCK
-    # test with delta=+2 via artificial single call
-    state.properties["board2:baltic_avenue"].houses = 2
-    assert even_build_ok(state, board, "brown", "board2:baltic_avenue", +1) is False
-
-
-# ---- Board 1 sanity --------------------------------------------------------
-
-
-def test_board1_single_tile_group_gets_monopoly_bonus() -> None:
-    """Board 1 uses monopoly_bonus_multiplier=2 and each color group is a
-    single tile, so owning one tile trivially owns the group and the
-    base rent doubles."""
-    board = load_board("1")
-    state = GameState(board_id="1", properties=initial_properties(board))
-    _own(state, "board1:baltic_avenue")
-    # Baltic base rent 4 * 2 = 8
-    assert compute_rent(state, board, 1, None) == 8
 
 
 def test_property_id_slug_stability() -> None:

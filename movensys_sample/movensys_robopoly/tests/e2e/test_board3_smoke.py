@@ -106,7 +106,7 @@ async def test_modes_aggregate_snapshot(client: AsyncClient) -> None:
     resp = await client.get("/api/modes")
     assert resp.status_code == 200
     body = resp.json()
-    assert set(body) == {"stt", "llm", "robot"}
+    assert set(body) == {"stt", "vlm", "robot"}
     assert body["stt"]["mode"] == "stub"
-    assert body["llm"]["mode"] == "stub"
+    assert body["vlm"]["mode"] == "stub"
     assert body["robot"]["mode"] == "stub"

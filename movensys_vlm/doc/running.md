@@ -9,41 +9,65 @@ export XPU_CORE=nvidia-gpu              #support{nvidia-gpu, intel-xpu}
 source ~/.bashrc
 ```
 
-# Setup Vllm 
-## For Nvidia Desktop, Jetson Thor, Intel B60 
+# Step 1: Stop and delete existed docker
+```
+cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml down
+COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml down
+COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml down
+```
+## Step 2: For Nvidia Desktop, Jetson Thor, Intel B60
+```
+cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
+COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml down
+```
+## Step 3: Release memory stuck for Jetson Thor and Intel Panther lake
+```
+sync && sudo sysctl vm.drop_caches=3
+```
+
+
+
+
+# Setup Docker 
+## Step 4a: VLLM For Nvidia Desktop, Jetson Thor, Intel B60 
 ```
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
 COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml down
 COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml build
 COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml up -d  
 ```
-## For Intel Panther Lake [Docker setup is failed]
+## Step 4b: VLLM For Intel Panther Lake [Docker setup is failed]
 ```
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
 ./vllm-intel-build.sh
 ./vllm-intel-run.sh
 ```
-## If memory stuck in Intel Panther Lake
-```
-sync && sudo sysctl vm.drop_caches=3
-```
+Wait until `application startup complete` in docker logs or terminal
 
 
-# Setup Whisper
+
+## Step 5: setup Movensys_vlm and vector DB
 ```
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
-COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml down
-COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml build
-COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml up -d  
-```
-
-# Setup movensys_vlm
-```
-cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
-COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml down
 COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml build
+COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml build
+COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml build
 COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml up -d
+COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml up -d
+COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml up -d 
 ```
+
+
+
+
+
+
+
+
+
+
+ 
 
 # Running
 open `localhost:8000` for robot controller

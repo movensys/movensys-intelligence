@@ -2,7 +2,7 @@
 # Local reproduction of .github/workflows/movensys-monopoly.yml.
 # Keep in 1:1 lockstep with the workflow YAML (see PRD.md §14).
 #
-# External FastAPI URLs are intentionally empty — proves stub-mode invariant.
+# MOVENSYS_VLM_URL is intentionally empty — proves stub-mode invariant.
 
 set -euo pipefail
 
@@ -10,9 +10,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 cd "$ROOT"
 
-export STT_SERVICE_URL=''
-export LLM_SERVICE_URL=''
-export ROBOT_SERVICE_URL=''
+export MOVENSYS_VLM_URL=''
 
 step() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL:\033[0m %s\n' "$*"; exit 1; }
@@ -72,7 +70,7 @@ if [ -f main.py ]; then
   robot=$(curl -sf http://127.0.0.1:7999/api/robot/health) || fail "/api/robot/health did not respond"
   echo "  robot: $robot"
   echo "$robot" | grep -Eq '"mode"[[:space:]]*:[[:space:]]*"stub"' \
-    || fail "adapter not in stub mode with empty ROBOT_SERVICE_URL"
+    || fail "adapter not in stub mode with empty MOVENSYS_VLM_URL"
 
   cleanup
   trap - EXIT INT TERM

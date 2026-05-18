@@ -137,17 +137,21 @@ def grant_jail_free_card(state: GameState, player: Player) -> dict[str, Any]:
 
 
 def go_to_jail(state: GameState, board: Board, player: Player) -> dict[str, Any]:
-    """Move the player to jail_visit. The in_jail FSM lands in M3 (PRD
-    §7.3.1); until then no board has an exit mechanism, so go_to_jail
-    is a pure teleport and we deliberately do not set the in_jail flag.
+    """Teleport to the jail_visit tile and set the in_jail flag (spec §4.5).
+
+    `jail_turns_left = 2` means the player will be stuck for the next two
+    of their own turns; on the third they auto-release. Rolling a 6 on any
+    of those turns also escapes immediately.
     """
     jail_visit = next((t.index for t in board.tiles if t.kind == "jail_visit"), None)
     if jail_visit is None:
         return {"kind": "go_to_jail", "player": player, "found": False}
     current = state.positions[player]
     state.positions[player] = jail_visit
+    state.players[player].in_jail = True
+    state.players[player].jail_turns_left = 2
     return {"kind": "go_to_jail", "player": player, "from": current, "to": jail_visit,
-            "jail_fsm": False}
+            "jail_fsm": True}
 
 
 # ---- dispatcher ------------------------------------------------------------
