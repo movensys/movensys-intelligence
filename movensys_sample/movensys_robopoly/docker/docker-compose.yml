@@ -37,6 +37,21 @@ services:
       - MOVENSYS_PNP_DRY_RUN=${MOVENSYS_PNP_DRY_RUN:-}
       # Optional persistence (PRD 11.3)
       - MONOPOLY_PERSISTENCE_PATH=${MONOPOLY_PERSISTENCE_PATH:-}
+    # Bind-mount the live source tree over the image's baked /app so the
+    # container always runs the current working-copy code without a rebuild.
+    # uvicorn (entrypoint.sh) execs in /app, so editing main.py/router.py/
+    # adapters/game/static/doc on the host is picked up on container restart
+    # (or on uvicorn reload, if you switch entrypoint to --reload). Rebuild
+    # is only needed when requirements.txt or the Dockerfile itself changes.
+    volumes:
+      - ../main.py:/app/main.py
+      - ../router.py:/app/router.py
+      - ../pick_and_place.py:/app/pick_and_place.py
+      - ../adapters:/app/adapters
+      - ../game:/app/game
+      - ../static:/app/static
+      - ../doc:/app/doc
+      - ../saved_status.yaml:/app/saved_status.yaml
     restart: unless-stopped
     network_mode: host
     # Docker-native readiness probe — surfaces in `docker ps` as
