@@ -81,7 +81,7 @@ async def infer(
             {"role": "user", "content": user_content},
         ],
     )
-    answer = response.choices[0].message.content
+    answer = response.choices[0].message.content or ""
     if use_memory:
         asyncio.create_task(memory_client.store(
             f"Q: {user_prompt}\nA: {answer}",
