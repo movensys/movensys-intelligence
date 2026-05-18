@@ -234,6 +234,13 @@ def _timed_method(label: str):
     return deco
 
 
+# Motion API calls (/api/move/*) are blocking ROS service calls, so no
+# pacing sleep is needed between motions. The gripper SetBool service
+# returns before the jaws physically settle — keep a small post-gripper
+# wait so subsequent motion doesn't drag/drop the cube.
+_GRIPPER_SETTLE_S = 0.3
+
+
 def move_base():
     absolute_joint_pose([0.0, 0.0, 0.5], [3.141, 0.0, -3.141])
 
@@ -312,15 +319,13 @@ class PnP:
             absolute_cartesian_base([-0.18, 0.035, 0.52], [3.141, 0.0, -3.141])
 
     @_timed_method("toward_target")
-    def _toward_target(self, target_object: str = "dice", delay_exec: float = 0.2, target_pos: list = [0.0, 0.0, 0.0], target_ori: list = [0.0, 0.0, 0.0]):
+    def _toward_target(self, target_object: str = "dice", target_pos: list = [0.0, 0.0, 0.0], target_ori: list = [0.0, 0.0, 0.0]):
         if target_object == "dice":
             if self.is_YOLO:
                 relative_cartesian_tool(target_pos, target_ori)
-                _sleep(delay_exec)
             else:
                 absolute_cartesian_base(target_pos, target_ori)
-                _sleep(delay_exec)
-            
+
             # Go down
             relative_cartesian_tool([0.0,0.0,0.01], [0.0,0.0,0.0])
         else:
@@ -328,28 +333,24 @@ class PnP:
             if self.is_YOLO:
                 print(target_pos)
                 relative_cartesian_tool(target_pos, target_ori)
-                _sleep(delay_exec)
             else:
                 absolute_cartesian_base(target_pos, target_ori)
-                _sleep(delay_exec)
 
             # Go down
             relative_cartesian_tool([0.0,0.0,0.025], [0.0,0.0,0.0])
 
     @_timed_method("dest_move")
-    def _dest_move(self, target_object: str = "dice", delay_exec: float = 0.2, board_pos: str = "GO"):
+    def _dest_move(self, target_object: str = "dice", board_pos: str = "GO"):
         if target_object == "dice":
             # Go up
             relative_cartesian_tool([0.0,0.0,-0.1], [0.0,0.0,0.0])
-            _sleep(delay_exec)
 
             # place
             gripper(close=False)
-            _sleep(delay_exec)
+            _sleep(_GRIPPER_SETTLE_S)
         else:
             # Go up
             relative_cartesian_tool([0.0,0.0,-0.050], [0.0,0.0,0.0])
-            _sleep(delay_exec)
 
             # Go upper side of target pos.
             if self.is_YOLO:
@@ -358,19 +359,16 @@ class PnP:
                 target_pos = board_positions[board_pos][target_object]["sim_pos"]
             target_pos[2] = target_pos[2] + 0.035
             absolute_cartesian_base(target_pos, board_positions[board_pos][target_object]["ori"])
-            _sleep(delay_exec)
 
             # Go down
             relative_cartesian_tool([0.0,0.0,0.055], [0.0,0.0,0.0])
-            _sleep(delay_exec)
 
             # place
             gripper(close=False)
-            _sleep(delay_exec)
+            _sleep(_GRIPPER_SETTLE_S)
 
             # Go up and prepare to go init pos
             relative_cartesian_tool([0.0,0.0,-0.06], [0.0,0.0,0.0])
-            _sleep(delay_exec)
 
     @_timed_method("get_piece_info")
     def get_piece_info(self, min_received_at: Optional[float] = None) -> bool:
@@ -485,7 +483,7 @@ class PnP:
             raise ValueError(f"Unknown board_pos '{board_pos}'. Choose one of: {list(board_positions)}")
 
         gripper(close=False)
-        _sleep(self.delay_exec)
+        _sleep(_GRIPPER_SETTLE_S)
         # move to initial position
         
         # For YOLO, we need to set offset
@@ -534,16 +532,14 @@ class PnP:
             target_ori = [-3.14, 0.0, self.yaw]
             logger.info(f"{self.target_object}: x={self.pos['y']}, y={-self.pos['x']}, z={self.pos['z']}, yaw={self.yaw}")
         
-        self._toward_target(self.target_object, self.delay_exec, target_pos, target_ori)
-        _sleep(self.delay_exec)
+        self._toward_target(self.target_object, target_pos, target_ori)
 
         # grasp
         gripper(close=True)
-        _sleep(self.delay_exec)
+        _sleep(_GRIPPER_SETTLE_S)
 
         # move to destination
-        self._dest_move(self.target_object, self.delay_exec, board_pos)
-        _sleep(self.delay_exec)
+        self._dest_move(self.target_object, board_pos)
 
 
 
