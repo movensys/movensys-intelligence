@@ -47,7 +47,7 @@ async def infer(
     image_b64: Optional[str] = None,
     user_prompt: str = "Report the tokens on the board and the die value.",
     system_prompt: Optional[str] = None,
-    max_tokens: int = 512,
+    max_tokens: int = 128,
     temperature: float = 0.2,
     client_id: Optional[str] = None,
 ) -> str:
