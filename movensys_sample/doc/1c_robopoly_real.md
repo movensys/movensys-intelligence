@@ -33,13 +33,20 @@ ros2 run rqt_image_view rqt_image_view /yolo_cube_detector/debug_image
 ### Step 7: Running movensys_vlm
 ```
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
-docker compose down
-docker compose build
-docker compose up
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml down
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml build
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml up -d
 ```
 
 ### Step 8: Running movensys_robopoly
+#### Only first run
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 ```
+
+#### Running movensys_robopoly
+```bash
 cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly
 python3 -m uvicorn main:app --host 0.0.0.0 --port 7999
 ```
