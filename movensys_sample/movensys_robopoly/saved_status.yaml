@@ -1,14 +1,14 @@
 board_id: final
 fsm: TURN_START
-turn: user
-turn_number: 1
+turn: robot
+turn_number: 2
 positions:
-  user: 0
+  user: 5
   robot: 0
 players:
   user:
     id: user
-    balance: 1000
+    balance: 700
     in_jail: false
     jail_turns_left: 0
     has_jail_free_card: false
@@ -45,9 +45,9 @@ properties:
   boardfinal:jeonju:
     id: boardfinal:jeonju
     tile_index: 5
-    owner: null
+    owner: user
     houses: 0
-    has_hotel: false
+    has_hotel: true
     mortgaged: false
   boardfinal:daejeon:
     id: boardfinal:daejeon

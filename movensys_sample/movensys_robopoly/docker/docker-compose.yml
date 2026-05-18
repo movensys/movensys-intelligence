@@ -25,9 +25,10 @@ services:
       - MONOPOLY_DEBUG_ROUTES=${MONOPOLY_DEBUG_ROUTES:-true}
       # External FastAPI adapters all route through the movensys_vlm
       # orchestrator (PRD 8.x). Empty -> stub mode for STT/LLM/Robot.
-      # Default to http://localhost:8000 when the orchestrator is up on
-      # the same host (network_mode: host is in effect).
-      - MOVENSYS_VLM_URL=${MOVENSYS_VLM_URL:-}
+      # Defaults to http://localhost:8000 since network_mode: host is in
+      # effect and the orchestrator typically runs on the same host;
+      # override with `MOVENSYS_VLM_URL=` (empty) to force stub mode.
+      - MOVENSYS_VLM_URL=${MOVENSYS_VLM_URL-http://localhost:8000}
       # Isaac Sim card-spawn publisher (PRD 11.5)
       - MONOPOLY_ISAAC_TOPIC_CARD_SPAWN=${MONOPOLY_ISAAC_TOPIC_CARD_SPAWN:-/isaac/card_spawn}
       # Dry-run mode for pick_and_place.py: when truthy, all manipulator

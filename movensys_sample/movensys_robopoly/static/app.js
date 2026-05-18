@@ -353,10 +353,88 @@ function propertyName(pid) {
 
 function announce(text, kind = "info") {
   const el = document.getElementById("notification");
+  if (el) {
+    el.classList.remove("empty");
+    el.className = `notification kind-${kind}`;
+    el.textContent = text;
+  }
+  // Mirror the same string into the chat transcript as a system bubble so
+  // the operator sees turn changes / buys / etc. inline with the dialogue.
+  // We only mirror the "high-signal" notifications that map to a single
+  // chat-worthy event — the noisy ones (rent, tax, move spam) stay on the
+  // banner only.
+  const CHAT_KINDS = new Set(["turn", "win", "buy", "build"]);
+  if (CHAT_KINDS.has(kind)) appendChat({ role: "sys", text });
+}
+
+// ---- chat transcript (Query & response panel) ----------------------------
+
+const CHAT_BOTTOM_THRESHOLD = 40;
+let chatStickToBottom = true;
+
+function chatEl() { return document.getElementById("vlm-chat"); }
+
+function appendChat({ role, text, meta = "", error = false, pending = false }) {
+  const host = chatEl();
+  if (!host) return null;
+  // Lock scroll behaviour to whether the user is currently pinned to the
+  // bottom — if they scrolled up to read history we don't drag them back.
+  const distFromBottom = host.scrollHeight - host.scrollTop - host.clientHeight;
+  const wasAtBottom = distFromBottom <= CHAT_BOTTOM_THRESHOLD;
+
+  const msg = document.createElement("div");
+  const classes = ["vlm-msg", role];
+  if (error) classes.push("error");
+  if (pending) classes.push("pending");
+  msg.className = classes.join(" ");
+
+  if (role !== "sys") {
+    const role_el = document.createElement("div");
+    role_el.className = "vlm-msg-role";
+    role_el.textContent = role === "me" ? "you" : "vlm";
+    msg.appendChild(role_el);
+  }
+
+  const body = document.createElement("div");
+  body.textContent = text;
+  msg.appendChild(body);
+
+  if (meta) {
+    const m = document.createElement("div");
+    m.className = "vlm-msg-meta";
+    m.textContent = meta;
+    msg.appendChild(m);
+  }
+  host.appendChild(msg);
+  if (wasAtBottom) host.scrollTop = host.scrollHeight;
+  return msg;
+}
+
+function updateChatMsg(node, { text, meta, error = false, pending = false }) {
+  if (!node) return;
+  const bodyNode = node.querySelector("div:not(.vlm-msg-role):not(.vlm-msg-meta)");
+  if (bodyNode && text !== undefined) bodyNode.textContent = text;
+  const metaNode = node.querySelector(".vlm-msg-meta");
+  if (meta !== undefined) {
+    if (metaNode) metaNode.textContent = meta;
+    else if (meta) {
+      const m = document.createElement("div");
+      m.className = "vlm-msg-meta";
+      m.textContent = meta;
+      node.appendChild(m);
+    }
+  }
+  node.classList.toggle("error", !!error);
+  node.classList.toggle("pending", !!pending);
+  const host = chatEl();
+  if (host) host.scrollTop = host.scrollHeight;
+}
+
+function setHotkeyState(text, isError = false) {
+  const el = document.getElementById("vlm-hotkey-state");
   if (!el) return;
-  el.classList.remove("empty");
-  el.className = `notification kind-${kind}`;
-  el.textContent = text;
+  el.textContent = text || "";
+  el.classList.toggle("error", isError);
 }
 
 function announceFromEvent(env) {
@@ -698,8 +776,6 @@ function setupVlm() {
   const askBtn   = document.getElementById("vlm-ask");
   const repeat   = document.getElementById("vlm-repeat");
   const interval = document.getElementById("vlm-interval");
-  const respEl   = document.getElementById("vlm-response");
-  const metaEl   = document.getElementById("vlm-meta");
   const loopDot  = document.getElementById("vlm-loop-dot");
   const loopLbl  = document.getElementById("vlm-loop-status");
 
@@ -708,63 +784,65 @@ function setupVlm() {
 
   async function askOnce() {
     if (inFlight) return;
+    const userText = (prompt.value || "").trim();
     // Spec doc/vlm_as_player.md §4.2: when the user types during their
     // TURN_START, the textbox is the user-turn trigger — route the message
     // through the VLM-player action loop instead of the free-form Q&A path.
     if (currentState && currentState.turn === "user"
         && currentState.fsm === "TURN_START" && !currentState.winner) {
-      const msg = (prompt.value || "").trim() || "I rolled the dice.";
+      const msg = userText || "I rolled the dice.";
       inFlight = true;
       askBtn.disabled = true;
       askBtn.textContent = "Playing…";
-      respEl.className = "vlm-response";
-      respEl.textContent = "Acting on your turn…";
+      appendChat({ role: "me", text: msg });
+      const pending = appendChat({ role: "bot", text: "Acting on your turn…", pending: true });
       try {
         await vlmPlayerAct(msg);
-        respEl.textContent = "(turn dispatched)";
-        const ts = new Date().toLocaleTimeString();
-        metaEl.textContent = ts;
+        updateChatMsg(pending, { text: "(turn dispatched)", meta: new Date().toLocaleTimeString() });
       } catch (err) {
-        respEl.className = "vlm-response error";
-        respEl.textContent = String(err);
+        updateChatMsg(pending, { text: String(err), error: true });
       } finally {
         inFlight = false;
         askBtn.disabled = false;
         askBtn.textContent = "Ask";
+        prompt.value = "";
       }
       return;
     }
     inFlight = true;
     askBtn.disabled = true;
     askBtn.textContent = "Thinking…";
-    respEl.className = "vlm-response empty";
-    respEl.textContent = "Waiting for VLM response…";
+    if (userText) appendChat({ role: "me", text: userText });
+    const pending = appendChat({ role: "bot", text: "Waiting for VLM response…", pending: true });
     const started = performance.now();
     try {
       const r = await fetch(`${VLM_BASE}/api/vlm/infer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ camera: "none", prompt: prompt.value.trim() || null, client: "robopoly" }),
+        body: JSON.stringify({ camera: "none", prompt: userText || null, client: "robopoly" }),
       });
       const body = await r.json();
       const elapsedMs = Math.round(performance.now() - started);
       if (!r.ok) {
-        respEl.className = "vlm-response error";
-        respEl.textContent = body.detail || `HTTP ${r.status}`;
-        metaEl.textContent = `${elapsedMs} ms`;
+        updateChatMsg(pending, {
+          text: body.detail || `HTTP ${r.status}`,
+          meta: `${elapsedMs} ms`,
+          error: true,
+        });
         return;
       }
-      respEl.className = "vlm-response";
-      respEl.textContent = body.response || "(empty response)";
       const ts = new Date().toLocaleTimeString();
-      metaEl.textContent = `${elapsedMs} ms · ${ts}`;
+      updateChatMsg(pending, {
+        text: body.response || "(empty response)",
+        meta: `${elapsedMs} ms · ${ts}`,
+      });
     } catch (err) {
-      respEl.className = "vlm-response error";
-      respEl.textContent = String(err);
+      updateChatMsg(pending, { text: String(err), error: true });
     } finally {
       inFlight = false;
       askBtn.disabled = false;
       askBtn.textContent = "Ask";
+      prompt.value = "";
     }
   }
 
@@ -1356,6 +1434,387 @@ async function ensureVlmPlayerSystemPrompt() {
   }
 }
 
+// ==== Robot-state stream (localhost:8000 WS) ===============================
+// Three persistent WebSockets feed the X-hotkey Q&A path with the latest
+// joint angles + EEF cartesian pose. We just cache the most recent frame
+// from each socket — no polling, no re-fetch on hotkey press.
+
+const robotState = { eef_pose: null, eef_rpy: null, joint_states: null };
+
+function setupRobotStateStream() {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  // VLM_HOST = "<hostname>:8000" — the orchestrator hosting the joint /
+  // EEF topics (see movensys_vlm/router.py /api/stream/*).
+  const base = `${proto}//${VLM_HOST}`;
+  const subs = [
+    { path: "/api/stream/eef_pose", key: "eef_pose" },
+    { path: "/api/stream/eef_rpy", key: "eef_rpy" },
+    { path: "/api/stream/joint_states", key: "joint_states" },
+  ];
+  for (const s of subs) connectRobotWs(base + s.path, s.key);
+}
+
+function connectRobotWs(url, key) {
+  let backoff = 1000;
+  const open = () => {
+    let ws;
+    try { ws = new WebSocket(url); }
+    catch { setTimeout(open, backoff); backoff = Math.min(backoff * 2, 10000); return; }
+    ws.onopen = () => { backoff = 1000; };
+    ws.onmessage = (ev) => {
+      try {
+        const env = JSON.parse(ev.data);
+        if (env && env.error == null && env.data != null) robotState[key] = env.data;
+      } catch { /* drop malformed frame */ }
+    };
+    ws.onerror = () => { try { ws.close(); } catch {} };
+    ws.onclose = () => {
+      setTimeout(open, backoff);
+      backoff = Math.min(backoff * 2, 10000);
+    };
+  };
+  open();
+}
+
+function snapshotRobotState() {
+  // Trim noisy fields so the prompt stays compact. We keep the
+  // human-meaningful joint angles + xyz/rpy and drop covariances /
+  // raw header buffers that are never used by the VLM.
+  const out = {};
+  const js = robotState.joint_states;
+  if (js && Array.isArray(js.name) && Array.isArray(js.position)) {
+    const joints = {};
+    js.name.forEach((n, i) => { joints[n] = Number((js.position[i] ?? 0).toFixed(4)); });
+    out.joint_positions_rad = joints;
+  }
+  const ep = robotState.eef_pose;
+  if (ep && ep.position) {
+    out.eef_pose_m = {
+      x: Number((ep.position.x ?? 0).toFixed(4)),
+      y: Number((ep.position.y ?? 0).toFixed(4)),
+      z: Number((ep.position.z ?? 0).toFixed(4)),
+    };
+    if (ep.orientation) {
+      out.eef_quat = {
+        x: Number((ep.orientation.x ?? 0).toFixed(4)),
+        y: Number((ep.orientation.y ?? 0).toFixed(4)),
+        z: Number((ep.orientation.z ?? 0).toFixed(4)),
+        w: Number((ep.orientation.w ?? 0).toFixed(4)),
+      };
+    }
+  }
+  const er = robotState.eef_rpy;
+  if (er && er.vector) {
+    out.eef_rpy_rad = {
+      roll: Number((er.vector.x ?? 0).toFixed(4)),
+      pitch: Number((er.vector.y ?? 0).toFixed(4)),
+      yaw: Number((er.vector.z ?? 0).toFixed(4)),
+    };
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+// ==== Push-to-talk hotkeys (Z = act, X = ask) ==============================
+// One shared MediaRecorder bay reused by both keys — only one capture can
+// be in flight at a time. We re-acquire the mic stream per press so the
+// user can swap mic devices through the existing dropdown without
+// reloading the page.
+
+const HOTKEY = { ACT: "z", ASK: "x" };
+let hotkeyState = "idle";        // "idle" | "armed" | "recording" | "busy"
+let hotkeyMode = null;            // "act" | "ask"
+let hotkeyRecorder = null;
+let hotkeyChunks = [];
+let hotkeyStream = null;
+
+function setHotkeyKbd(mode, active) {
+  // Mirror the press state into two indicators:
+  //   1. The pills next to "idle" in the Ask VLM header (always present).
+  //   2. The <kbd>Z</kbd>/<kbd>X</kbd> tokens in the legend under the
+  //      Query & response title (only present if the hint row is in the DOM).
+  const zPill = document.getElementById("hotkey-pill-z");
+  const xPill = document.getElementById("hotkey-pill-x");
+  if (zPill) zPill.classList.toggle("live", !!(active && mode === "act"));
+  if (xPill) xPill.classList.toggle("live", !!(active && mode === "ask"));
+
+  const root = document.querySelector(".vlm-hotkey-hint");
+  if (root) {
+    const tokens = root.querySelectorAll("kbd");
+    tokens.forEach((k) => k.classList.remove("live"));
+    if (active) {
+      const target = mode === "act" ? "Z" : "X";
+      tokens.forEach((k) => { if (k.textContent.trim() === target) k.classList.add("live"); });
+    }
+  }
+}
+
+async function hotkeyStartRecording(mode) {
+  if (hotkeyState !== "idle") return;
+  hotkeyState = "armed";
+  hotkeyMode = mode;
+  setHotkeyState(`${mode === "act" ? "Z" : "X"} — listening…`);
+  setHotkeyKbd(mode, true);
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setHotkeyState("mic not available", true);
+    hotkeyState = "idle"; hotkeyMode = null; setHotkeyKbd(null, false);
+    return;
+  }
+  try {
+    const micSelect = document.getElementById("vlm-mic-device");
+    const deviceId = micSelect ? micSelect.value : "";
+    const constraints = { audio: deviceId ? { deviceId: { exact: deviceId } } : true };
+    hotkeyStream = await navigator.mediaDevices.getUserMedia(constraints);
+  } catch (err) {
+    setHotkeyState(`mic denied: ${err.name || err}`, true);
+    hotkeyState = "idle"; hotkeyMode = null; setHotkeyKbd(null, false);
+    return;
+  }
+  // If the user released the key before permission resolved, abandon the
+  // capture instead of starting a recording the user never asked for.
+  if (hotkeyState !== "armed") {
+    hotkeyStream.getTracks().forEach((t) => t.stop());
+    hotkeyStream = null;
+    return;
+  }
+  hotkeyChunks = [];
+  const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+    ? "audio/webm;codecs=opus"
+    : (MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "");
+  hotkeyRecorder = mime ? new MediaRecorder(hotkeyStream, { mimeType: mime })
+                        : new MediaRecorder(hotkeyStream);
+  hotkeyRecorder.ondataavailable = (e) => {
+    if (e.data && e.data.size > 0) hotkeyChunks.push(e.data);
+  };
+  hotkeyRecorder.onstop = onHotkeyRecorderStop;
+  hotkeyRecorder.start();
+  hotkeyState = "recording";
+}
+
+function hotkeyStopRecording() {
+  if (hotkeyState === "armed") {
+    // The mic stream was still being negotiated — flip state so the
+    // pending getUserMedia resolver tears down before MediaRecorder starts.
+    hotkeyState = "idle";
+    setHotkeyState("");
+    setHotkeyKbd(null, false);
+    return;
+  }
+  if (hotkeyState !== "recording") return;
+  hotkeyState = "busy";
+  setHotkeyState(`${hotkeyMode === "act" ? "Z" : "X"} — transcribing…`);
+  try { hotkeyRecorder.stop(); }
+  catch (err) { console.warn("[hotkey] stop:", err); resetHotkey(); }
+}
+
+function resetHotkey() {
+  if (hotkeyStream) hotkeyStream.getTracks().forEach((t) => t.stop());
+  hotkeyStream = null;
+  hotkeyRecorder = null;
+  hotkeyChunks = [];
+  hotkeyState = "idle";
+  hotkeyMode = null;
+  setHotkeyKbd(null, false);
+}
+
+async function onHotkeyRecorderStop() {
+  const mode = hotkeyMode;
+  const chunks = hotkeyChunks;
+  const recMime = hotkeyRecorder ? hotkeyRecorder.mimeType : "audio/webm";
+  if (hotkeyStream) hotkeyStream.getTracks().forEach((t) => t.stop());
+  hotkeyStream = null;
+  hotkeyRecorder = null;
+  hotkeyChunks = [];
+
+  setHotkeyKbd(null, false);
+  if (!chunks.length) {
+    setHotkeyState("no audio captured", true);
+    appendChat({ role: "sys", text: "Heard nothing — hold the key longer." });
+    hotkeyState = "idle"; hotkeyMode = null;
+    return;
+  }
+  const blob = new Blob(chunks, { type: recMime || "audio/webm" });
+
+  let text = "";
+  try {
+    text = await whisperTranscribe(blob);
+  } catch (err) {
+    appendChat({ role: "sys", text: `STT failed: ${err}` });
+    setHotkeyState(`stt failed: ${err}`, true);
+    hotkeyState = "idle"; hotkeyMode = null;
+    return;
+  }
+  text = (text || "").trim();
+  if (!text) {
+    appendChat({ role: "sys", text: "Heard nothing — try again." });
+    setHotkeyState("empty transcript", true);
+    hotkeyState = "idle"; hotkeyMode = null;
+    return;
+  }
+  appendChat({ role: "me", text });
+  setHotkeyState("");
+
+  try {
+    if (mode === "act") await dispatchVoiceAction(text);
+    else await askVlmAboutState(text);
+  } catch (err) {
+    appendChat({ role: "bot", text: String(err), error: true });
+  } finally {
+    hotkeyState = "idle";
+    hotkeyMode = null;
+  }
+}
+
+async function whisperTranscribe(blob) {
+  const form = new FormData();
+  const ext = blob.type.includes("webm") ? "webm"
+            : blob.type.includes("ogg")  ? "ogg"
+            : blob.type.includes("mp4")  ? "mp4"
+            : "wav";
+  form.append("file", blob, `mic.${ext}`);
+  const r = await fetch(`${VLM_BASE}/api/whisper/transcribe`, { method: "POST", body: form });
+  if (!r.ok) {
+    let detail = `HTTP ${r.status}`;
+    try { const j = await r.json(); if (j.detail) detail = j.detail; } catch {}
+    throw new Error(detail);
+  }
+  const body = await r.json();
+  if (body.error) throw new Error(body.error);
+  return body.text || "";
+}
+
+async function dispatchVoiceAction(text) {
+  // Z-key: route the transcript through the existing VLM-player agent.
+  // It already handles TURN_START (roll+move) and AWAIT_DECISION (decide).
+  if (!currentState) {
+    appendChat({ role: "sys", text: "No game state yet — ignored." });
+    return;
+  }
+  if (currentState.winner) {
+    appendChat({ role: "sys", text: "Game is over — ignored." });
+    return;
+  }
+  const fsm = currentState.fsm;
+  if (fsm !== "TURN_START" && fsm !== "AWAIT_DECISION") {
+    appendChat({ role: "sys", text: `Ignored — wrong phase (${fsm}).` });
+    return;
+  }
+  if (fsm === "TURN_START" && currentState.turn !== "user") {
+    appendChat({ role: "sys", text: "Not your turn — wait for the robot." });
+    return;
+  }
+  const pending = appendChat({ role: "bot", text: "Dispatching action…", pending: true });
+  try {
+    await vlmPlayerAct(text);
+    updateChatMsg(pending, {
+      text: fsm === "AWAIT_DECISION" ? "(decision sent)" : "(turn dispatched)",
+      meta: new Date().toLocaleTimeString(),
+    });
+  } catch (err) {
+    updateChatMsg(pending, { text: String(err), error: true });
+  }
+}
+
+// X-key: contextual Q&A. The transcript becomes a question; we attach the
+// current game-state JSON + the latest robot snapshot from the WS cache.
+const VLM_QA_SYSTEM_PROMPT = `You are a helpful, concise assistant for a Movensys-Monopoly demo.
+The user may ask about:
+  - the current state of the 6-DOF arm (joint angles in radians, EEF cartesian pose in metres)
+  - the current game state, including why certain property decisions were made
+
+Answer in plain prose. No JSON, no code fences, no markdown headings. Keep it
+to 1–4 sentences when possible. If the user asks WHY a particular property
+buy/skip/build choice was made, ground your reasoning in the JSON game state
+(liquid cash, owned properties and their tiers, distance to opponent's
+holdings, lap count, fsm phase). If the robot pose / joint fields are
+missing, say so briefly rather than inventing values.`;
+
+let vlmQaPromptInstalled = false;
+async function ensureVlmQaSystemPrompt() {
+  if (vlmQaPromptInstalled) return;
+  try {
+    await fetch(`${VLM_BASE}/api/vlm/system_prompt?client=robopoly_qa`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ system_prompt: VLM_QA_SYSTEM_PROMPT }),
+    });
+    vlmQaPromptInstalled = true;
+  } catch (err) {
+    console.warn("[vlm-qa] system prompt install failed:", err);
+  }
+}
+
+async function askVlmAboutState(question) {
+  await ensureVlmQaSystemPrompt();
+  const summary = currentState ? buildVlmStateSummary(currentState) : null;
+  const robot = snapshotRobotState();
+  const prompt =
+    `User question: ${question}\n\n` +
+    `Game state JSON (current):\n${JSON.stringify(summary, null, 2)}\n\n` +
+    `Robot state (latest from joint_states / eef_pose WS):\n` +
+    `${robot ? JSON.stringify(robot, null, 2) : "(no robot telemetry available)"}\n\n` +
+    `Answer the user. Plain prose, 1–4 sentences.`;
+  const pending = appendChat({ role: "bot", text: "Thinking…", pending: true });
+  const started = performance.now();
+  try {
+    const r = await fetch(`${VLM_BASE}/api/vlm/infer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        camera: "none",
+        prompt,
+        client: "robopoly_qa",
+        max_tokens: 512,
+        temperature: 0.4,
+      }),
+    });
+    const body = await r.json();
+    const elapsedMs = Math.round(performance.now() - started);
+    if (!r.ok) {
+      updateChatMsg(pending, {
+        text: body.detail || `HTTP ${r.status}`,
+        meta: `${elapsedMs} ms`,
+        error: true,
+      });
+      return;
+    }
+    updateChatMsg(pending, {
+      text: body.response || "(empty response)",
+      meta: `${elapsedMs} ms · ${new Date().toLocaleTimeString()}`,
+    });
+  } catch (err) {
+    updateChatMsg(pending, { text: String(err), error: true });
+  }
+}
+
+function isTypingTarget(el) {
+  if (!el) return false;
+  if (el.isContentEditable) return true;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
+
+function setupHotkeys() {
+  document.addEventListener("keydown", (e) => {
+    if (e.repeat) return;
+    if (document.hidden) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (isTypingTarget(e.target)) return;
+    const k = e.key.toLowerCase();
+    if (k === HOTKEY.ACT) { e.preventDefault(); hotkeyStartRecording("act"); return; }
+    if (k === HOTKEY.ASK) { e.preventDefault(); hotkeyStartRecording("ask"); return; }
+  });
+  document.addEventListener("keyup", (e) => {
+    const k = e.key.toLowerCase();
+    if (k === HOTKEY.ACT && hotkeyMode === "act") { e.preventDefault(); hotkeyStopRecording(); return; }
+    if (k === HOTKEY.ASK && hotkeyMode === "ask") { e.preventDefault(); hotkeyStopRecording(); return; }
+  });
+  // If the user tabs out mid-press, drop the recording so we don't ship
+  // half-captured audio when they come back.
+  window.addEventListener("blur", () => {
+    if (hotkeyState === "recording" || hotkeyState === "armed") hotkeyStopRecording();
+  });
+}
+
 // ---- boot -----------------------------------------------------------------
 
 (async () => {
@@ -1366,6 +1825,8 @@ async function ensureVlmPlayerSystemPrompt() {
   await refreshState();
   openStream();
   setupVlm();
+  setupRobotStateStream();
+  setupHotkeys();
   await ensureVlmPlayerSystemPrompt();
   // First call after we have a snapshot — kicks the robot if the saved
   // state already has turn=robot on load.
