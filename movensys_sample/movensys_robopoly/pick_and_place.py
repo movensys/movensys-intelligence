@@ -195,14 +195,22 @@ def _post(path: str, payload: dict):
     if DRY_RUN:
         logger.info("[dry-run] POST %s %s", path, payload)
         return {}
-    return requests.post(f"{URL}{path}", json=payload).json()
+    start = time.perf_counter()
+    try:
+        return requests.post(f"{URL}{path}", json=payload).json()
+    finally:
+        logger.info("[timing] POST %s: %.1f ms", path, (time.perf_counter() - start) * 1000.0)
 
 
 def _get(path: str):
     if DRY_RUN:
         logger.info("[dry-run] GET %s", path)
         return {}
-    return requests.get(f"{URL}{path}").json()
+    start = time.perf_counter()
+    try:
+        return requests.get(f"{URL}{path}").json()
+    finally:
+        logger.info("[timing] GET %s: %.1f ms", path, (time.perf_counter() - start) * 1000.0)
 
 
 def _sleep(seconds: float) -> None:
@@ -212,6 +220,25 @@ def _sleep(seconds: float) -> None:
     if DRY_RUN:
         return
     time.sleep(seconds)
+
+
+def _timed_method(label: str):
+    def deco(fn):
+        def wrapper(*args, **kwargs):
+            start = time.perf_counter()
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                logger.info("[timing] %s: %.1f ms", label, (time.perf_counter() - start) * 1000.0)
+        return wrapper
+    return deco
+
+
+# Motion API calls (/api/move/*) are blocking ROS service calls, so no
+# pacing sleep is needed between motions. The gripper SetBool service
+# returns before the jaws physically settle — keep a small post-gripper
+# wait so subsequent motion doesn't drag/drop the cube.
+_GRIPPER_SETTLE_S = 0.6
 
 
 def move_base():
@@ -291,15 +318,14 @@ class PnP:
             # absolute_cartesian_base([-0.12857, 0.0, 0.3500], [3.141, 0.0, -3.141])
             absolute_cartesian_base([-0.18, 0.035, 0.52], [3.141, 0.0, -3.141])
 
-    def _toward_target(self, target_object: str = "dice", delay_exec: float = 0.2, target_pos: list = [0.0, 0.0, 0.0], target_ori: list = [0.0, 0.0, 0.0]):
+    @_timed_method("toward_target")
+    def _toward_target(self, target_object: str = "dice", target_pos: list = [0.0, 0.0, 0.0], target_ori: list = [0.0, 0.0, 0.0]):
         if target_object == "dice":
             if self.is_YOLO:
                 relative_cartesian_tool(target_pos, target_ori)
-                _sleep(delay_exec)
             else:
                 absolute_cartesian_base(target_pos, target_ori)
-                _sleep(delay_exec)
-            
+
             # Go down
             relative_cartesian_tool([0.0,0.0,0.01], [0.0,0.0,0.0])
         else:
@@ -307,27 +333,24 @@ class PnP:
             if self.is_YOLO:
                 print(target_pos)
                 relative_cartesian_tool(target_pos, target_ori)
-                _sleep(delay_exec)
             else:
                 absolute_cartesian_base(target_pos, target_ori)
-                _sleep(delay_exec)
 
             # Go down
             relative_cartesian_tool([0.0,0.0,0.025], [0.0,0.0,0.0])
 
-    def _dest_move(self, target_object: str = "dice", delay_exec: float = 0.2, board_pos: str = "GO"):
+    @_timed_method("dest_move")
+    def _dest_move(self, target_object: str = "dice", board_pos: str = "GO"):
         if target_object == "dice":
             # Go up
             relative_cartesian_tool([0.0,0.0,-0.1], [0.0,0.0,0.0])
-            _sleep(delay_exec)
 
             # place
             gripper(close=False)
-            _sleep(delay_exec)
+            _sleep(_GRIPPER_SETTLE_S)
         else:
             # Go up
             relative_cartesian_tool([0.0,0.0,-0.050], [0.0,0.0,0.0])
-            _sleep(delay_exec)
 
             # Go upper side of target pos.
             if self.is_YOLO:
@@ -336,20 +359,18 @@ class PnP:
                 target_pos = board_positions[board_pos][target_object]["sim_pos"]
             target_pos[2] = target_pos[2] + 0.035
             absolute_cartesian_base(target_pos, board_positions[board_pos][target_object]["ori"])
-            _sleep(delay_exec)
 
             # Go down
             relative_cartesian_tool([0.0,0.0,0.055], [0.0,0.0,0.0])
-            _sleep(delay_exec)
 
             # place
             gripper(close=False)
-            _sleep(delay_exec)
+            _sleep(_GRIPPER_SETTLE_S)
 
             # Go up and prepare to go init pos
             relative_cartesian_tool([0.0,0.0,-0.06], [0.0,0.0,0.0])
-            _sleep(delay_exec)
 
+    @_timed_method("get_piece_info")
     def get_piece_info(self, min_received_at: Optional[float] = None) -> bool:
         _target_object = self.TARGET_STR[self.target_num]
 
@@ -426,8 +447,9 @@ class PnP:
         ("right", ( 0.0,  -0.05)),
         ("left",  ( 0.0,   0.05)),
     )
-    _SEARCH_SETTLE_S = 1.5
+    _SEARCH_SETTLE_S = 2.5
 
+    @_timed_method("search_for_target")
     def _search_for_target(self) -> bool:
         """Fallback: nudge +/-5cm in base XY (front, back, right, left) and
         retry detection at each probe. Undoes each probe before the next so
@@ -455,12 +477,13 @@ class PnP:
 
         return False
 
+    @_timed_method("pick_and_place")
     def pick_and_place(self, board_pos: str = "GO"):
         if board_pos not in board_positions:
             raise ValueError(f"Unknown board_pos '{board_pos}'. Choose one of: {list(board_positions)}")
 
         gripper(close=False)
-        _sleep(self.delay_exec)
+        _sleep(_GRIPPER_SETTLE_S)
         # move to initial position
         
         # For YOLO, we need to set offset
@@ -509,16 +532,14 @@ class PnP:
             target_ori = [-3.14, 0.0, self.yaw]
             logger.info(f"{self.target_object}: x={self.pos['y']}, y={-self.pos['x']}, z={self.pos['z']}, yaw={self.yaw}")
         
-        self._toward_target(self.target_object, self.delay_exec, target_pos, target_ori)
-        _sleep(self.delay_exec)
+        self._toward_target(self.target_object, target_pos, target_ori)
 
         # grasp
         gripper(close=True)
-        _sleep(self.delay_exec)
+        _sleep(_GRIPPER_SETTLE_S)
 
         # move to destination
-        self._dest_move(self.target_object, self.delay_exec, board_pos)
-        _sleep(self.delay_exec)
+        self._dest_move(self.target_object, board_pos)
 
 
 
@@ -548,12 +569,17 @@ def main():
 
     pnp = PnP(target_object=sys.argv[1], is_YOLO=is_yolo, delay_exec=2.0)
 
+    main_start = time.perf_counter()
+
     # init
+    init_start = time.perf_counter()
     pnp._init_move(sys.argv[1])
     init_done_at = time.time()
     time.sleep(3.0)
+    logger.info("[timing] init_move+settle: %.1f ms", (time.perf_counter() - init_start) * 1000.0)
 
     # pick and place
+    detect_start = time.perf_counter()
     if not pnp.get_piece_info(min_received_at=init_done_at if is_yolo else None):
         if is_yolo:
             logger.info("Initial detection missed, starting 4-direction fallback search")
@@ -563,8 +589,11 @@ def main():
         else:
             logger.error("Failed to get piece info, aborting.")
             return
+    logger.info("[timing] detect_phase: %.1f ms", (time.perf_counter() - detect_start) * 1000.0)
 
     pnp.pick_and_place(board_pos=sys.argv[2])
+
+    logger.info("[timing] main_total: %.1f ms", (time.perf_counter() - main_start) * 1000.0)
 
     # When rolling the dice, emit the YOLO-detected face value so the caller
     # (e.g. the monopoly server) can pick it up before the motion finishes.
