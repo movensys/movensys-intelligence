@@ -47,8 +47,11 @@ pip install -r requirements.txt
 
 #### Running movensys_robopoly
 ```bash
-cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly
-python3 -m uvicorn main:app --host 0.0.0.0 --port 7999
+export MOVENSYS_PNP_DRY_RUN=1   # optional — skips real robot motion
+cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker
+docker compose down
+docker compose build            # only needed when deps/Dockerfile change
+docker compose up               # foreground; Ctrl-C to stop
 ```
 
 ### Step 9: Play the robopoly game
