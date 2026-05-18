@@ -40,7 +40,7 @@ COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml up -d
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
 COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml down
 COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml build
-COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml up -d  
+COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml up -d
 ```
 ## For Intel Panther Lake [Docker setup is failed]
 ```

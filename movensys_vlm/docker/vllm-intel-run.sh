@@ -16,7 +16,7 @@ set +a
 exec vllm serve "${PROJECT_ROOT}/models/${VLM_MODEL_NAME}" \
   --served-model-name="${VLM_MODEL_NAME}" \
   --port=9000 \
-  --max-model-len=2048 \
+  --max-model-len=8000 \
   --dtype=float16 \
   --gpu-memory-utilization=0.70 \
   --attention-backend=TRITON_ATTN \
