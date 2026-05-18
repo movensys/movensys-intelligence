@@ -1,3 +1,6 @@
+import logging
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -6,6 +9,42 @@ from fastapi.openapi.utils import get_openapi
 
 from ros2_node import start_ros_node
 from router import router
+
+_log = logging.getLogger(__name__)
+
+
+def _maybe_start_phoenix() -> None:
+    """Boot Phoenix + auto-instrument the OpenAI client when
+    PHOENIX_TRACING is truthy. Off by default — production / demo runs
+    pay zero cost. The Phoenix UI binds to :6006 in-process; because the
+    container runs network_mode=host, the UI is reachable at
+    http://<orchestrator-host>:6006 without explicit port mapping.
+
+    Traces only cover the OpenAI-client side (vlm_client.infer and
+    whisper_client.transcribe). They do NOT include GPU-side inference
+    cost — that's whatever vLLM/Whisper server logs separately.
+    """
+    flag = os.environ.get("PHOENIX_TRACING", "").strip().lower()
+    if flag not in ("1", "true", "yes", "y", "on"):
+        return
+    try:
+        import phoenix as px
+        from openinference.instrumentation.openai import OpenAIInstrumentor
+    except ImportError as exc:
+        _log.warning(
+            "PHOENIX_TRACING=%s but phoenix/openinference not installed: %s",
+            flag, exc,
+        )
+        return
+    try:
+        px.launch_app()
+        OpenAIInstrumentor().instrument()
+        _log.info("Phoenix tracing enabled — UI at http://<host>:6006")
+    except Exception:
+        _log.exception("failed to start Phoenix tracing")
+
+
+_maybe_start_phoenix()
 
 
 class SafeStaticFiles(StaticFiles):

@@ -34,6 +34,11 @@ x-common-env: &common-env
   MEMORY_VECTOR_SIZE: ${MEMORY_VECTOR_SIZE}
   MEMORY_TOP_K: ${MEMORY_TOP_K}
   MEMORY_TIMEOUT: ${MEMORY_TIMEOUT}
+  # Phoenix in-process tracing. Off by default; set PHOENIX_TRACING=1 in
+  # .env or the shell to enable. UI binds to host port 6006 (network_mode:
+  # host makes it reachable at http://<host>:6006 without explicit port
+  # mapping). See doc/running.md for usage.
+  PHOENIX_TRACING: ${PHOENIX_TRACING:-}
 
 services:
   movensys_vlm-nvidia:

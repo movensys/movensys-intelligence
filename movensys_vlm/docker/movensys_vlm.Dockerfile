@@ -28,10 +28,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-trajectory-msgs \
     && rm -rf /var/lib/apt/lists/*
 
+# arize-phoenix + openinference-instrumentation-openai are runtime deps
+# only when PHOENIX_TRACING is set.
 RUN if [ "${ROS_DISTRO}" = "jazzy" ]; then \
-        pip3 install --no-cache-dir --break-system-packages fastapi "uvicorn[standard]" pydantic "openai>=1.30.0" Pillow "python-multipart>=0.0.9"; \
+        pip3 install --no-cache-dir --break-system-packages fastapi "uvicorn[standard]" pydantic "openai>=1.30.0" Pillow "python-multipart>=0.0.9" arize-phoenix openinference-instrumentation-openai; \
     elif [ "${ROS_DISTRO}" = "humble" ]; then \
-        pip3 install --no-cache-dir fastapi "uvicorn[standard]" pydantic "openai>=1.30.0" Pillow "python-multipart>=0.0.9"; \
+        pip3 install --no-cache-dir fastapi "uvicorn[standard]" pydantic "openai>=1.30.0" Pillow "python-multipart>=0.0.9" arize-phoenix openinference-instrumentation-openai; \
     fi
 
 WORKDIR /app
