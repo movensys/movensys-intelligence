@@ -2294,15 +2294,15 @@ function applyMode(mode) {
   document.body.classList.toggle("debug-mode", !isGame);
   const btn = document.getElementById("mode-toggle");
   if (btn) btn.textContent = isGame ? "Debug Mode" : "Game Mode";
+  if (isGame && currentState?.turn) {
+    flashGameOverlay(`It's ${currentState.turn}'s turn`);
+  }
 }
 
 function setupModeToggle() {
   const params = new URLSearchParams(location.search);
   const initial = params.get("mode") === "game" ? "game" : "debug";
   applyMode(initial);
-  if (initial === "game") {
-    resetGame().catch((err) => console.warn("reset on game-mode entry failed", err));
-  }
   const btn = document.getElementById("mode-toggle");
   if (!btn) return;
   btn.addEventListener("click", () => {
@@ -2313,9 +2313,6 @@ function setupModeToggle() {
     else url.searchParams.delete("mode");
     history.replaceState(null, "", url.toString());
     applyMode(next);
-    if (next === "game") {
-      resetGame().catch((err) => console.warn("reset on toggle to game failed", err));
-    }
   });
 }
 
