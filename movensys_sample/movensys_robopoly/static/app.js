@@ -1403,11 +1403,14 @@ ACTIONS — exactly two are valid:
 ACTION NAMES vs. BUTTON LABELS — the backend names do NOT match the
 modal button labels; map carefully:
   backend "skip"         ↔ modal "Skip"
-  backend "buy"          ↔ modal "Buy land"           (tier 1, $100)
-  backend "build"        ↔ modal "Buy + house"        (tier 2, $100 + $200 = $300 from unowned)
-  backend "build_hotel"  ↔ modal "Buy + hotel"        (tier 3, $100 + $300 = $400 from unowned)
-All three "buy*" options actually buy the land first if it's unowned —
-"build" is "buy land then build a house in one step", not "upgrade only".
+  backend "buy"          ↔ modal "Buy land"     (tier 1, total $100)
+  backend "build"        ↔ modal "Buy + house"  (tier 2, total $200 from unowned)
+  backend "build_hotel"  ↔ modal "Buy + hotel"  (tier 3, total $300 from unowned)
+All three "buy*" options actually buy the land first if it's unowned.
+The total cost is $100 × target_tier ($100 / $200 / $300). Rent paid by
+the opponent on each landing is $100 / $200 / $300 by tier respectively
+— i.e. ROI per opponent hit is exactly 100% at every tier; you only
+profit on the 2nd hit onward.
 
 EXAMPLES (the entire reply — nothing else):
   {"action": "roll_and_move", "player": "robot"}
@@ -1417,61 +1420,92 @@ EXAMPLES (the entire reply — nothing else):
 DO NOT reply with text like "I cannot roll dice" — you ARE rolling the dice
 by emitting the JSON. The code reads your JSON and tells the arm to act.
 
-DECISION_PENDING CONSTRAINTS (read state.decision_pending carefully):
-- decision_pending.max_tier tells you what tiers are allowed on this tile:
-    max_tier == 3 → standard property (BOSTON, SEOUL, TAIPEI, SHANGHAI,
-                    TOKYO, BUSAN, NEWYORK, LONDON).
-                    All four choices are valid: skip / buy / build / build_hotel.
-    max_tier == 1 → utility (ELECTRIC_COMPANY).
-                    ONLY "buy" or "skip" are valid. The backend rejects
-                    "build" and "build_hotel" on utility tiles.
-- decision_pending.current_tier is your existing tier on the tile.
-  build requires current_tier < 2; build_hotel requires current_tier < 3.
+DECISION_PENDING CONSTRAINTS (state.decision_pending):
+- kind == "utility" (e.g. ELECTRIC_COMPANY, max_tier == 1):
+    ONLY "buy" or "skip". build / build_hotel are rejected.
+- kind == "property" (BOSTON, SEOUL, TAIPEI, SHANGHAI, TOKYO, BUSAN,
+                       NEWYORK, LONDON, max_tier == 3):
+    all four choices valid.
+- current_tier is your existing tier; build needs current_tier < 2,
+  build_hotel needs current_tier < 3.
 
 USER VOICE INTENT (highest priority — overrides everything else):
-  The "Context:" line is the user's spoken request, transcribed from
-  English speech. People speak naturally — listen for the HEAD NOUN
-  (hotel / house / land) or the verb (skip / pass / don't buy):
-
-    Head noun "hotel" anywhere in the request (questions, suggestions,
-    commands all count)               → emit "build_hotel"
-        e.g. "Can you buy a hotel?", "Let's build a hotel",
-             "Get a hotel", "I want a hotel", "Hotel please."
-
-    Head noun "house" anywhere in the request → emit "build"
-        e.g. "Buy a house", "Build a house", "House it.",
-             "Let's get a house", "Put a house here."
-
-    Head noun "land" only, OR a bare buy verb with no other noun
-                                       → emit "buy"
-        e.g. "Buy the land", "Just the land", "Buy it",
-             "Yeah, buy this one", "Take it.", "Land only."
-
-    Negation, pass, or skip            → emit "skip"
-        e.g. "Skip it", "Pass", "No thanks", "Don't buy",
-             "Leave it", "Move on."
-
-  Notice "buy a hotel" / "buy a house" do NOT map to "buy" — they map to
-  "build_hotel" / "build" because the head noun decides the tier. Only
-  bare "buy" or "buy land" maps to backend "buy".
-
-  If the user's chosen tier is illegal for this decision (e.g. "hotel"
-  on a max_tier=1 utility, or "house" when current_tier == 2 already),
-  fall back to the closest legal option ("buy" for a utility; the next
-  higher legal tier when upgrading; "skip" if no purchase makes sense).
+  The "Context:" line is the user's English speech, transcribed. Map by
+  the HEAD NOUN, not exact strings:
+    head noun "hotel"  → "build_hotel"   e.g. "Can you buy a hotel?"
+    head noun "house"  → "build"         e.g. "Let's build a house."
+    bare buy verb or
+    head noun "land"   → "buy"           e.g. "Buy it.", "Just the land."
+    skip / pass / no   → "skip"          e.g. "Skip it.", "Don't buy."
+  "Buy a hotel" / "Buy a house" do NOT map to "buy" — head noun wins.
+  If the user's tier is illegal for this decision (hotel/house on a
+  utility, or below current_tier), fall back to the closest legal option
+  ("buy" for utility; next higher tier when upgrading; else "skip").
 
 ROBOT-TURN DECISIONS (when Context has no explicit user choice):
   There is no fixed heuristic. Look at the full game state — your liquid
-  balance, the cost of each option ($100 / $300 / $400 from unowned;
+  balance, the cost of each option ($100 / $200 / $300 from unowned;
   smaller deltas if you already own a lower tier), the properties you
   already own, the opponent's holdings, the lap count, who's ahead.
   Pick whichever choice (skip / buy / build / build_hotel) you judge best
-  for the robot's position. You are free to skip if cash is tight, or to
-  pick build_hotel if the tile is worth it and you can afford it.
+  for the robot's position. Read the STRATEGIC CONTEXT below before
+  defaulting to "buy" — "always land" is a known-weak playstyle here.
+
+STRATEGIC CONTEXT (game-theoretic facts; reason with them, do not treat
+as rules):
+
+  GAME LENGTH
+  - LAPS_TO_WIN = 5. Avg dice roll = 7 ⇒ ≈ 2 turns per lap ⇒ the winning
+    player makes ≈ 10 turns; total game ≈ 20 turns combined.
+  - Expected opponent visits to any one tile over the whole game:
+    10 / 14 ≈ 0.71  (Poisson λ ≈ 0.71).
+  - P(opponent hits a given tile ≥ 2 times) ≈ 16 %.
+
+  TILE ECONOMICS
+  - Per-hit ROI is identical at every tier: cost = rent. Break-even at
+    1 hit, profit at 2+ hits. So "land is safer per dollar" is a FALSE
+    intuition — every tier has the same payback ratio.
+  - Looking at single-tile rent EV alone, every purchase is slightly
+    negative-EV in this short game. The reasons to buy are not single-
+    tile rent EV:
+
+  WHY YOU SHOULD STILL BUY (often aggressively)
+  1. Two win paths exist: reach 5 laps first OR bankrupt the opponent.
+     Hotels deal $300/hit, which is the fastest way to push the opponent
+     toward bankruptcy. Land only deals $100/hit — rarely game-ending.
+  2. Asymmetric loss avoidance: if the OPPONENT places hotels and you
+     placed only lands, a single hit on their hotel costs you $300 while
+     you only ever collect $100 back. To avoid being out-leveraged you
+     usually need to match tier intensity.
+  3. Denial: an unowned tile becomes the opponent's tile next time they
+     land on it. Even a $100 land buy denies a future hotel slot.
+  4. Cash held at game end has no extra value (winner is decided by lap
+     cap or bankruptcy). Hoarding cash past turn ~7 is wasted utility.
+
+  WHEN CONSERVATIVE PLAY IS RIGHT
+  - Late game (own lap_count near 4, or turn_number high): preserve cash
+    so you can survive opponent rent and reach lap 5.
+  - Low liquid (< $200 after the purchase): one rent hit could bankrupt
+    you. Prefer the cheaper tier or skip.
+  - Opponent has already built hotels you might land on: keep at least
+    $300 buffer.
+
+  WHEN GREEDY PLAY IS RIGHT
+  - Early game (lap_count ≤ 1, turn_number low) and liquid ≥ $400.
+    Buying a hotel on the first or second arrival is a legitimate
+    knockout play in this short game.
+  - You're behind in lap_count or assets — high-variance plays are
+    correct when you need a swing.
+  - The tile is on a high-traffic stretch (e.g. just past GO or after a
+    chance tile that frequently sends pieces to it).
+
+  Use these facts to reason about THIS state, then emit ONE choice.
 
 GENERAL RULES:
 - Seed money $1000; GO bonus $100 (passing or landing).
-- Tiers: land $100, house $200, hotel $300. Rent: $100 / $200 / $300 by tier.
+- Cumulative tier cost = $100 × tier (land $100, house $200, hotel $300
+  total — these are the cumulative purchase prices, not deltas).
+- Rent paid by opponent on landing: $100 / $200 / $300 by tier.
 - Tax tile $100. Chance: ±$200 coin flip.
 - Auto-liquidation: hotels → houses → land if you can't pay.
 - 5 laps wins on cap; bankruptcy ends the game immediately.
@@ -1601,10 +1635,14 @@ function buildVlmStateSummary(state) {
     summary.properties_owned[p.owner].push({ id: p.id, tile_index: p.tile_index, tier });
   }
   if (pendingDecision) {
+    const max = pendingDecision.max_tier ?? 3;
     summary.decision_pending = {
       property_id: pendingDecision.property_id,
       current_tier: pendingDecision.current_tier ?? 0,
-      max_tier: pendingDecision.max_tier ?? 3,
+      max_tier: max,
+      // Explicit kind so the model doesn't have to infer "is this a
+      // utility?" from max_tier == 1. "utility" → only buy/skip valid.
+      kind: pendingDecision.card?.kind ?? (max === 1 ? "utility" : "property"),
     };
   }
   return summary;
@@ -1634,53 +1672,18 @@ async function executeVlmAction(action) {
 // Always inline the action grammar in the user message too, so the model
 // can't drift into a "vision assistant, I cannot roll dice" refusal even if
 // the per-client system prompt got overridden somewhere upstream.
-const VLM_PLAYER_INLINE_RULES = `You are the game agent. Reply with EXACTLY ONE JSON object — no prose, no fences, no apology.
-Valid replies are ONLY:
-  {"action": "roll_and_move", "player": "user"}
-  {"action": "roll_and_move", "player": "robot"}
-  {"action": "decide", "choice": "skip"}         // modal: "Skip"
-  {"action": "decide", "choice": "buy"}          // modal: "Buy land"     — tier 1, $100
-  {"action": "decide", "choice": "build"}        // modal: "Buy + house"  — tier 2, $300 from unowned
-  {"action": "decide", "choice": "build_hotel"}  // modal: "Buy + hotel"  — tier 3, $400 from unowned
-
-All three "buy*" actions also buy the land if it's unowned. The backend
-action name "build" really means "Buy + house" in the UI, and
-"build_hotel" means "Buy + hotel".
-
-You are NOT a vision assistant. You are NOT asked to read images or
-physically roll dice. The arm executes whatever JSON you emit. If
-fsm == "TURN_START" pick roll_and_move with player = state.turn. If
-state.decision_pending is set, pick a decide choice.
-
-decision_pending.max_tier rules:
-  - max_tier == 3 → all four choices valid (BOSTON / SEOUL / TAIPEI /
-    SHANGHAI / TOKYO / BUSAN / NEWYORK / LONDON).
-  - max_tier == 1 → ONLY "buy" or "skip" (ELECTRIC_COMPANY utility).
-    "build" and "build_hotel" are rejected by the backend.
-
-If the "Context:" line contains a user phrase, honor it. People speak in
-natural English ("Can you buy a hotel?", "Let's build a house",
-"Skip this one"). Map by the HEAD NOUN, not by exact strings:
-  head noun "hotel"        → emit "build_hotel"
-      e.g. "Buy a hotel", "Can you build a hotel?", "Hotel please."
-  head noun "house"        → emit "build"
-      e.g. "Buy a house", "Build a house", "Let's get a house."
-  head noun "land" only,
-    or bare buy verb       → emit "buy"
-      e.g. "Buy it", "Just buy the land", "Take this one."
-  negation / pass / skip   → emit "skip"
-      e.g. "Skip", "Pass", "No, don't buy", "Leave it."
-"Buy a hotel" / "Buy a house" do NOT map to "buy" — the head noun
-dictates the tier. If the user's tier is illegal for the decision (e.g.
-"hotel" on a max_tier=1 utility, or "house" when already at tier 2),
-pick the closest legal option ("buy" for utility, or "skip").
-
-If the Context is generic (robot's own turn, no user phrase), use your
-own judgment based on the State JSON below (your cash, owned tiers,
-opponent's holdings, lap count). There is NO fixed heuristic — pick
-whichever of skip / buy / build / build_hotel you think is best.
-
-Reply with ONLY the JSON, nothing else.`;
+// Per-request guard. The full mapping rules and STRATEGIC CONTEXT live
+// in the system prompt; this short block just keeps the JSON output
+// shape and the max_tier guard front-of-mind in case the system prompt
+// was overridden upstream.
+const VLM_PLAYER_INLINE_RULES = `Reply with ONE JSON object. No prose, no fences.
+Valid replies:
+  {"action":"roll_and_move","player":"user"|"robot"}   (when fsm=="TURN_START")
+  {"action":"decide","choice":"skip"|"buy"|"build"|"build_hotel"}  (when state.decision_pending)
+Honor the user's voice intent in Context (head-noun: hotel→build_hotel,
+house→build, land/bare-buy→buy, skip/pass/no→skip). If decision_pending.kind
+== "utility" only "buy" or "skip" are legal — never emit build/build_hotel
+there. See the system prompt for the full STRATEGIC CONTEXT.`;
 
 async function vlmPlayerAct(userMessage) {
   if (vlmPlayerInFlight) return;
@@ -1723,9 +1726,12 @@ function maybeAutoTriggerRobotTurn() {
     vlmPlayerLastTurnKey = key;
     vlmPlayerAct(
       "You (robot) landed on a buyable property. There is no human voice " +
-      "intent for this decision — read the State JSON below and decide for " +
-      "yourself which of skip / buy / build / build_hotel is best. Respect " +
-      "decision_pending.max_tier (utility tiles allow only buy or skip).",
+      "intent for this decision — read the State JSON AND the STRATEGIC " +
+      "CONTEXT in the system prompt before choosing. In this 5-lap game " +
+      "'always buy land' is a weak default; consider build / build_hotel " +
+      "when you can afford them, especially in the early game. Respect " +
+      "decision_pending.max_tier (utility tiles allow only buy or skip). " +
+      "Output exactly one of: skip / buy / build / build_hotel.",
     );
   }
 }
@@ -1747,24 +1753,19 @@ async function fetchGameRulesSpec() {
 }
 
 async function ensureVlmPlayerSystemPrompt() {
-  // Always install the agent prompt on boot — otherwise a leftover
-  // vision-assistant prompt can cause the VLM to refuse with
-  // "I cannot physically roll dice for you" instead of emitting the
-  // JSON action. The user can still edit the prompt afterwards via
-  // the Ask VLM sidebar's system-prompt editor.
+  // Install the agent prompt on boot so a leftover vision-assistant
+  // prompt can't make the VLM refuse with "I cannot physically roll
+  // dice for you" instead of emitting JSON.
   //
-  // We also append the full game_logic.md spec so the agent has the
-  // entire rulebook (auto-liquidation order, jail flow, IN_JAIL skip,
-  // lap cap, etc.) — not just the hand-written summary.
-  const spec = await fetchGameRulesSpec();
-  const prompt = spec
-    ? `${VLM_PLAYER_SYSTEM_PROMPT}\n\n----- AUTHORITATIVE GAME SPEC (doc/game_logic.md) -----\n${spec}\n----- END SPEC -----\nUse the spec above to decide. The state JSON in each prompt is current; the spec is the rules. Respond with ONLY the JSON action.`
-    : VLM_PLAYER_SYSTEM_PROMPT;
+  // We deliberately do NOT append doc/game_logic.md anymore — the
+  // VLM_PLAYER_SYSTEM_PROMPT already contains the rules the agent
+  // actually uses (costs, rent, lap cap, decision constraints). The
+  // 270-line spec was ~3000 extra tokens per call with little payoff.
   try {
     await fetch(`${VLM_BASE}/api/vlm/system_prompt?client=robopoly`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ system_prompt: prompt }),
+      body: JSON.stringify({ system_prompt: VLM_PLAYER_SYSTEM_PROMPT }),
     });
   } catch (err) {
     console.warn("[vlm-player] system prompt setup:", err);
@@ -2203,6 +2204,11 @@ async function resetGame() {
   vlmPlayerLastTurnKey = null;
   const chat = chatEl();
   if (chat) chat.replaceChildren();
+  // System prompt slot is separate from the vector-DB memory, but a
+  // different client (or an orchestrator restart) could have replaced it.
+  // Re-install on every reset so the game always starts with the known
+  // agent prompt. PUT is cheap — a single short text payload.
+  await ensureVlmPlayerSystemPrompt();
   try {
     await fetch(`${VLM_BASE}/api/vlm/memory`, { method: "DELETE" });
   } catch (err) {
