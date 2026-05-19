@@ -161,7 +161,7 @@ function setupOwnershipRects() {
 
     const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
     g.setAttribute("id", `ownership-${idx}`);
-    g.setAttribute("class", "ownership-group");
+    g.setAttribute("class", "ownership-group unowned");
     g.setAttribute("transform", "translate(0,0)");
     g.dataset.tileIndex = String(idx);
 
@@ -221,12 +221,14 @@ function renderOwnership(state) {
       rect.setAttribute("stroke-width", "2.5");
       rect.removeAttribute("stroke-dasharray");
       text.textContent = label;
+      g.classList.remove("unowned");
     } else {
       rect.setAttribute("fill", "rgba(180,180,180,0.30)");
       rect.setAttribute("stroke", "#555");
       rect.setAttribute("stroke-width", "2");
       rect.setAttribute("stroke-dasharray", "5 3");
       text.textContent = "";
+      g.classList.add("unowned");
     }
   }
 }
@@ -525,12 +527,77 @@ function propertyName(pid) {
   return idx >= 0 ? String(pid).slice(idx + 1).replace(/_/g, " ") : pid;
 }
 
+let gameOverlayTimer = null;
+function flashGameOverlay(text) {
+  const overlay = document.getElementById("game-overlay");
+  const slot = document.getElementById("game-overlay-text");
+  if (!overlay || !slot) return;
+  // Status flash takes over the screen — close the chat overlay if open.
+  document.body.classList.remove("chat-overlay-active");
+  slot.textContent = text;
+  overlay.classList.add("visible");
+  if (gameOverlayTimer) clearTimeout(gameOverlayTimer);
+  gameOverlayTimer = setTimeout(() => {
+    overlay.classList.remove("visible");
+    gameOverlayTimer = null;
+  }, 1500);
+}
+
+function isStatusOverlayActive() {
+  const overlay = document.getElementById("game-overlay");
+  return !!(overlay && overlay.classList.contains("visible"));
+}
+
+// Keywords that mark a transcribed Z-key utterance as a "show board state"
+// request. We match a single character/word from this set so a question like
+// "지금 몇 턴이지" or "show me the money" triggers the state flash.
+const STATE_INQUIRY_RE = /(보드|상태|돈|머니|턴|board|state|status|money|turn|balance|cash)/i;
+function isStateInquiry(text) {
+  return !!text && STATE_INQUIRY_RE.test(text);
+}
+function flashCurrentStateOverlay() {
+  if (!currentState) {
+    flashGameOverlay("No game state yet");
+    return;
+  }
+  const turn = currentState.turn_number ?? 0;
+  const userBal = currentState.players?.user?.balance ?? 0;
+  const robotBal = currentState.players?.robot?.balance ?? 0;
+  const assets = { user: 0, robot: 0 };
+  for (const p of Object.values(currentState.properties || {})) {
+    if (!p.owner) continue;
+    const tier = p.has_hotel ? 3 : (p.houses > 0 ? 2 : 1);
+    assets[p.owner] = (assets[p.owner] ?? 0) + tier * 100;
+  }
+  const lines = [
+    `Turn ${turn}`,
+    `User: $${userBal}  (assets $${assets.user})`,
+    `Robot: $${robotBal}  (assets $${assets.robot})`,
+  ];
+  flashGameOverlay(lines.join("\n"));
+}
+function maybeOpenChatOverlay() {
+  if (!document.body.classList.contains("game-mode")) return;
+  if (isStatusOverlayActive()) return;
+  document.body.classList.add("chat-overlay-active");
+}
+function closeChatOverlay() {
+  document.body.classList.remove("chat-overlay-active");
+}
+function toggleChatOverlay() {
+  if (document.body.classList.contains("chat-overlay-active")) closeChatOverlay();
+  else maybeOpenChatOverlay();
+}
+
 function announce(text, kind = "info") {
   const el = document.getElementById("notification");
   if (el) {
     el.classList.remove("empty");
     el.className = `notification kind-${kind}`;
     el.textContent = text;
+  }
+  if (document.body.classList.contains("game-mode")) {
+    flashGameOverlay(text);
   }
   // Mirror the same string into the chat transcript as a system bubble so
   // the operator sees turn changes / buys / etc. inline with the dialogue.
@@ -872,19 +939,8 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
     }
   }
 });
-document.getElementById("btn-reset").addEventListener("click", async () => {
-  turnInFlight = false;
-  vlmPlayerLastTurnKey = null;
-  // Wipe the VLM's vector-DB memory so the new game starts from a clean
-  // slate — past turns from the previous game must not bias the agent.
-  try {
-    await fetch(`${VLM_BASE}/api/vlm/memory`, { method: "DELETE" });
-  } catch (err) {
-    console.warn("reset: clear vlm memory failed", err);
-  }
-  await postJson("/api/game/start", { board: "final" });
-  await loadBoardVisual("final");
-  await refreshState();
+document.getElementById("btn-reset").addEventListener("click", () => {
+  resetGame().catch((err) => console.warn("reset failed", err));
 });
 document.getElementById("btn-toggle-yolo").addEventListener("click", async () => {
   const next = !isYOLO;
@@ -983,6 +1039,12 @@ function setupVlm() {
     const pending = appendChat({ role: "bot", text: "Waiting for VLM response…", pending: true });
     const started = performance.now();
     try {
+      // Each Ask is a fresh standalone query: wipe the orchestrator's
+      // vector-DB memory first so no prior turns leak into the LLM's
+      // recall step. The chat UI still keeps the visible transcript.
+      try {
+        await fetch(`${VLM_BASE}/api/vlm/memory`, { method: "DELETE" });
+      } catch (_) { /* memory clear is best-effort */ }
       const r = await fetch(`${VLM_BASE}/api/vlm/infer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1821,8 +1883,16 @@ async function onHotkeyRecorderStop() {
   setHotkeyState("");
 
   try {
-    if (mode === "act") await dispatchVoiceAction(text);
-    else await askVlmAboutState(text);
+    if (mode === "act"
+        && document.body.classList.contains("game-mode")
+        && isStateInquiry(text)) {
+      flashCurrentStateOverlay();
+      appendChat({ role: "sys", text: "(showing board state)" });
+    } else if (mode === "act") {
+      await dispatchVoiceAction(text);
+    } else {
+      await askVlmAboutState(text);
+    }
   } catch (err) {
     appendChat({ role: "bot", text: String(err), error: true });
   } finally {
@@ -1967,10 +2037,26 @@ function setupHotkeys() {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (isTypingTarget(e.target)) return;
     const k = e.key.toLowerCase();
+    if (k === "escape") { closeChatOverlay(); return; }
+
+    const isGame = document.body.classList.contains("game-mode");
+    const chatOpen = document.body.classList.contains("chat-overlay-active");
+    if (isGame) {
+      // Game mode: C toggles the ASK VLM overlay. Z/X are only active
+      // *inside* the open overlay; otherwise they are reserved.
+      if (k === "c") { e.preventDefault(); toggleChatOverlay(); return; }
+      if (!chatOpen) return;
+    }
+
+    // Z/X are hold-to-record hotkeys (debug mode always; game mode only
+    // while the overlay is open).
     if (k === HOTKEY.ACT) { e.preventDefault(); hotkeyStartRecording("act"); return; }
     if (k === HOTKEY.ASK) { e.preventDefault(); hotkeyStartRecording("ask"); return; }
   });
   document.addEventListener("keyup", (e) => {
+    const isGame = document.body.classList.contains("game-mode");
+    const chatOpen = document.body.classList.contains("chat-overlay-active");
+    if (isGame && !chatOpen) return;
     const k = e.key.toLowerCase();
     if (k === HOTKEY.ACT && hotkeyMode === "act") { e.preventDefault(); hotkeyStopRecording(); return; }
     if (k === HOTKEY.ASK && hotkeyMode === "ask") { e.preventDefault(); hotkeyStopRecording(); return; }
@@ -1982,6 +2068,54 @@ function setupHotkeys() {
   });
 }
 
+// ---- mode toggle (Debug ↔ Game) -------------------------------------------
+
+async function resetGame() {
+  turnInFlight = false;
+  vlmPlayerLastTurnKey = null;
+  const chat = chatEl();
+  if (chat) chat.replaceChildren();
+  try {
+    await fetch(`${VLM_BASE}/api/vlm/memory`, { method: "DELETE" });
+  } catch (err) {
+    console.warn("reset: clear vlm memory failed", err);
+  }
+  await postJson("/api/game/start", { board: "final" });
+  await loadBoardVisual("final");
+  await refreshState();
+}
+
+function applyMode(mode) {
+  const isGame = mode === "game";
+  document.body.classList.toggle("game-mode", isGame);
+  document.body.classList.toggle("debug-mode", !isGame);
+  const btn = document.getElementById("mode-toggle");
+  if (btn) btn.textContent = isGame ? "Debug Mode" : "Game Mode";
+}
+
+function setupModeToggle() {
+  const params = new URLSearchParams(location.search);
+  const initial = params.get("mode") === "game" ? "game" : "debug";
+  applyMode(initial);
+  if (initial === "game") {
+    resetGame().catch((err) => console.warn("reset on game-mode entry failed", err));
+  }
+  const btn = document.getElementById("mode-toggle");
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    const cur = document.body.classList.contains("game-mode") ? "game" : "debug";
+    const next = cur === "game" ? "debug" : "game";
+    const url = new URL(location.href);
+    if (next === "game") url.searchParams.set("mode", "game");
+    else url.searchParams.delete("mode");
+    history.replaceState(null, "", url.toString());
+    applyMode(next);
+    if (next === "game") {
+      resetGame().catch((err) => console.warn("reset on toggle to game failed", err));
+    }
+  });
+}
+
 // ---- boot -----------------------------------------------------------------
 
 (async () => {
@@ -1989,6 +2123,7 @@ function setupHotkeys() {
   await loadBoardVisual("final");
   setupOwnershipRects();
   setupPieceDragging();
+  setupModeToggle();
   renderYoloStatus();
   await refreshState();
   openStream();
