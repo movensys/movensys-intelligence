@@ -498,6 +498,13 @@ async function submitDecision(action, houseCount = 0) {
                    { action, house_count: houseCount });
   } catch (err) { console.warn("decide:", err); }
   hideDecision();
+  // Game mode: hold the result on screen before swapping turns —
+  // STATUS_FLASH_MS for the buy/build flash to play out, then another 3s
+  // of clean board view so the operator can take in the new building
+  // before "It's robot's turn" overlays the screen.
+  if (document.body.classList.contains("game-mode") && action !== "skip") {
+    await new Promise((res) => setTimeout(res, STATUS_FLASH_MS + 3000));
+  }
   // Spec §3.4: end-turn is automatic. After the buy/skip/build choice
   // the FSM is back at RESOLVE_TILE, so end_turn is safe to call.
   try {
@@ -527,20 +534,23 @@ function propertyName(pid) {
   return idx >= 0 ? String(pid).slice(idx + 1).replace(/_/g, " ") : pid;
 }
 
+// Unified display duration for every status/state flash overlay.
+const STATUS_FLASH_MS = 2000;
 let gameOverlayTimer = null;
-function flashGameOverlay(text) {
+function flashGameOverlay(text, opts = {}) {
   const overlay = document.getElementById("game-overlay");
   const slot = document.getElementById("game-overlay-text");
   if (!overlay || !slot) return;
   // Status flash takes over the screen — close the chat overlay if open.
   document.body.classList.remove("chat-overlay-active");
-  slot.textContent = text;
+  if (opts.html != null) slot.innerHTML = opts.html;
+  else slot.textContent = text;
   overlay.classList.add("visible");
   if (gameOverlayTimer) clearTimeout(gameOverlayTimer);
   gameOverlayTimer = setTimeout(() => {
     overlay.classList.remove("visible");
     gameOverlayTimer = null;
-  }, 1500);
+  }, opts.durationMs ?? STATUS_FLASH_MS);
 }
 
 function isStatusOverlayActive() {
@@ -569,12 +579,11 @@ function flashCurrentStateOverlay() {
     const tier = p.has_hotel ? 3 : (p.houses > 0 ? 2 : 1);
     assets[p.owner] = (assets[p.owner] ?? 0) + tier * 100;
   }
-  const lines = [
-    `Turn ${turn}`,
-    `User: $${userBal}  (assets $${assets.user})`,
-    `Robot: $${robotBal}  (assets $${assets.robot})`,
-  ];
-  flashGameOverlay(lines.join("\n"));
+  const html =
+    `Turn ${turn}\n` +
+    `<span style="color: var(--user)">User</span>: $${userBal}  (assets $${assets.user})\n` +
+    `<span style="color: var(--robot)">Robot</span>: $${robotBal}  (assets $${assets.robot})`;
+  flashGameOverlay(null, { html, durationMs: 5000 });
 }
 function maybeOpenChatOverlay() {
   if (!document.body.classList.contains("game-mode")) return;
@@ -855,12 +864,16 @@ function openStream() {
       return;
     }
     if (env.type === "tile_property_arrival_buyable" && env.payload.needs_decision) {
-      showDecision({
+      const decision = {
         property_id: env.payload.property_id,
         card: env.payload.card,
         current_tier: env.payload.current_tier ?? 0,
         max_tier: env.payload.max_tier,
-      });
+      };
+      // Robot decides via the VLM agent loop; keep the JS state but skip
+      // the modal so the operator only ever sees buy choices for the user.
+      if (currentState?.turn === "robot") pendingDecision = decision;
+      else showDecision(decision);
     }
     announceFromEvent(env);
     await refreshState();
@@ -2040,23 +2053,24 @@ function setupHotkeys() {
     if (k === "escape") { closeChatOverlay(); return; }
 
     const isGame = document.body.classList.contains("game-mode");
-    const chatOpen = document.body.classList.contains("chat-overlay-active");
-    if (isGame) {
-      // Game mode: C toggles the ASK VLM overlay. Z/X are only active
-      // *inside* the open overlay; otherwise they are reserved.
-      if (k === "c") { e.preventDefault(); toggleChatOverlay(); return; }
-      if (!chatOpen) return;
+    // Game mode: C reveals/hides the overlay without recording. Z/X always
+    // act as hold-to-record hotkeys *and* additionally open the overlay
+    // so the operator can see the transcript while talking.
+    if (isGame && k === "c") { e.preventDefault(); toggleChatOverlay(); return; }
+    if (k === HOTKEY.ACT) {
+      e.preventDefault();
+      if (isGame) maybeOpenChatOverlay();
+      hotkeyStartRecording("act");
+      return;
     }
-
-    // Z/X are hold-to-record hotkeys (debug mode always; game mode only
-    // while the overlay is open).
-    if (k === HOTKEY.ACT) { e.preventDefault(); hotkeyStartRecording("act"); return; }
-    if (k === HOTKEY.ASK) { e.preventDefault(); hotkeyStartRecording("ask"); return; }
+    if (k === HOTKEY.ASK) {
+      e.preventDefault();
+      if (isGame) maybeOpenChatOverlay();
+      hotkeyStartRecording("ask");
+      return;
+    }
   });
   document.addEventListener("keyup", (e) => {
-    const isGame = document.body.classList.contains("game-mode");
-    const chatOpen = document.body.classList.contains("chat-overlay-active");
-    if (isGame && !chatOpen) return;
     const k = e.key.toLowerCase();
     if (k === HOTKEY.ACT && hotkeyMode === "act") { e.preventDefault(); hotkeyStopRecording(); return; }
     if (k === HOTKEY.ASK && hotkeyMode === "ask") { e.preventDefault(); hotkeyStopRecording(); return; }
