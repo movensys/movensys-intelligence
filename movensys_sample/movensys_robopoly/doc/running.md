@@ -52,7 +52,7 @@ export MOVENSYS_PNP_DRY_RUN=1   # optional — skips real robot motion
 cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker
 docker compose down
 docker compose build            # only needed when deps/Dockerfile change
-docker compose up               # foreground; Ctrl-C to stop
+docker compose up -d               # foreground; Ctrl-C to stop
 ```
 
 Detached variant (matches `run.sh`):
