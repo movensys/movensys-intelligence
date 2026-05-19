@@ -32,6 +32,82 @@ header .spacer { flex: 1; }
 .badge.live .dot, .badge.on .dot { background: var(--accent); }
 .badge.stub .dot, .badge.off .dot { background: var(--off); }
 
+.mode-toggle-badge {
+  border: 1px solid var(--border); cursor: pointer;
+  font-weight: 600; color: var(--fg); background: var(--panel-light);
+}
+.mode-toggle-badge:hover { background: var(--panel); }
+
+/* ---- Game mode layout ---------------------------------------------------
+   Hide debug-only panels and let the board fill the freed columns. The
+   mic device is configured in debug mode; in game mode it's reused
+   silently (Z/X hotkeys still work) so the mic-bay UI is hidden. */
+body.game-mode .grid { grid-template-columns: 1fr; }
+body.game-mode .sidebar-right { display: none; }
+body.game-mode .sidebar-left { display: none; }
+body.game-mode .vlm-header > :not(h2) { display: none; }
+body.game-mode .vlm-controls { display: none; }
+body.game-mode .vlm-mic-bay { display: none; }
+body.game-mode .vlm-col-prompt { display: none; }
+body.game-mode .vlm-col-header { display: none; }
+body.game-mode #board-coords { display: none; }
+body.game-mode .ownership-group.unowned { display: none; }
+body.game-mode #notification { display: none; }
+body.game-mode .board-pane-label { display: none; }
+body.game-mode .money-bar { display: none; }
+body.game-mode .board-wrap { width: 85%; margin: 0 auto; }
+
+/* Z/X 핫키로 켜는 풀스크린 ASK VLM 오버레이. status 오버레이가 뜨면
+   자동으로 닫힌다. ESC로도 닫을 수 있다. */
+body.game-mode.chat-overlay-active .sidebar-left {
+  display: flex;
+  position: fixed; inset: 0; z-index: 1400;
+  background: rgba(10, 10, 10, 0.94);
+  padding: 4vh 6vw;
+  overflow: hidden;
+}
+body.game-mode.chat-overlay-active .vlm-section {
+  flex: 1; display: flex; flex-direction: column;
+  max-width: 1200px; margin: 0 auto;
+  background: transparent;
+}
+body.game-mode.chat-overlay-active .vlm-body { flex: 1; min-height: 0; }
+body.game-mode.chat-overlay-active .vlm-col-query {
+  flex: 1; display: flex; flex-direction: column; min-height: 0;
+}
+body.game-mode.chat-overlay-active #vlm-chat {
+  flex: 1; max-height: none; font-size: 15px;
+}
+body.game-mode.chat-overlay-active .vlm-header h2 {
+  font-size: 14px;
+}
+.vlm-hotkey-hint-game { display: none; }
+body.game-mode .vlm-hotkey-hint-game { display: inline; }
+body.game-mode .vlm-hotkey-hint-debug { display: none; }
+
+/* Centered status flash for game mode. Hidden by default; .visible
+   fades it in with a dimmed backdrop for ~1s on each announce. */
+.game-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.62);
+  opacity: 0; pointer-events: none;
+  transition: opacity 180ms ease-in-out;
+}
+.game-overlay.visible { opacity: 1; }
+.game-overlay-text {
+  color: #fff;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  font-weight: 700;
+  font-size: clamp(34px, 5.4vw, 77px);
+  text-align: center;
+  padding: 0 32px;
+  max-width: 86%;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  line-height: 1.2;
+  white-space: pre-line;
+}
+
 /* money bar — sits below the game board */
 .money-bar {
   display: flex; gap: 10px; justify-content: center;

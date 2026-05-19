@@ -12,6 +12,7 @@
     <span class="badge" id="milestone">Movensys board</span>
     <div class="spacer"></div>
     <div class="badges" id="modes"></div>
+    <button id="mode-toggle" class="badge mode-toggle-badge" type="button">Game Mode</button>
   </header>
 
   <main class="grid">
@@ -59,8 +60,15 @@
                       title="Delete all stored memories from the vector DB">Clear memory</button>
             </div>
             <div class="vlm-hotkey-hint">
-              <kbd>Z</kbd> hold &amp; speak → act &nbsp;·&nbsp;
-              <kbd>X</kbd> hold &amp; speak → ask
+              <span class="vlm-hotkey-hint-debug">
+                <kbd>Z</kbd> hold &amp; speak → act &nbsp;·&nbsp;
+                <kbd>X</kbd> hold &amp; speak → ask
+              </span>
+              <span class="vlm-hotkey-hint-game">
+                <kbd>C</kbd> toggle · <kbd>Esc</kbd> close &nbsp;·&nbsp;
+                <kbd>Z</kbd> hold &amp; speak → act &nbsp;·&nbsp;
+                <kbd>X</kbd> hold &amp; speak → ask
+              </span>
               <span class="vlm-hotkey-state" id="vlm-hotkey-state"></span>
             </div>
             <div id="vlm-chat" class="vlm-chat" aria-live="polite"></div>
@@ -157,6 +165,11 @@
       </div>
     </aside>
   </main>
+
+  <!-- Game-mode centered status overlay (1s flash, dims background). -->
+  <div class="game-overlay" id="game-overlay" aria-hidden="true">
+    <span class="game-overlay-text" id="game-overlay-text"></span>
+  </div>
 
   <!-- Property arrival / decision modal -->
   <div class="modal-backdrop hidden" id="decision-modal">
