@@ -896,8 +896,19 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
   btn.textContent = "Rolling…";
 
   try {
-    // 1. Roll the dice (physical arm).
-    const rollRes = await postJson("/api/dice/roll_robot", { is_YOLO: isYOLO });
+    // 1. Get the dice value. Two paths depending on whose turn it is:
+    //    - User turn  → /api/dice/read_robot. The human already threw the
+    //      die by hand; the arm only moves to the scan pose so the camera
+    //      has a clear view. No pickup, no drop.
+    //    - Robot turn → /api/dice/roll_robot. The arm physically picks
+    //      up, lifts, drops the die, then reads the rolled face.
+    const diceEndpoint = (currentState && currentState.turn === "user")
+      ? "/api/dice/read_robot"
+      : "/api/dice/roll_robot";
+    console.log("[roll-chain] dice step:",
+      { endpoint: diceEndpoint, turn: currentState && currentState.turn });
+    const rollRes = await postJson(diceEndpoint, { is_YOLO: isYOLO });
+    console.log("[roll-chain] dice response:", rollRes);
     if (rollRes && typeof rollRes.dice_number === "number") {
       renderDiceFace(rollRes.dice_number);
     }
@@ -909,7 +920,8 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
       return;
     }
     if (!rollRes || rollRes.fsm !== "MOVING") {
-      console.warn("roll_robot: unexpected fsm", rollRes && rollRes.fsm);
+      console.warn("[roll-chain] unexpected fsm:", rollRes && rollRes.fsm,
+                   "— skipping apply_robot. Full response:", rollRes);
       return;
     }
 
@@ -926,9 +938,12 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
       : 40;
     const to = (from + rollRes.sum) % size;
     btn.textContent = "Moving…";
+    console.log("[roll-chain] apply_robot:",
+      { player, from_tile: from, to_tile: to, is_YOLO: isYOLO });
     const moveRes = await postJson("/api/move/apply_robot", {
       player, from_tile: from, to_tile: to, is_YOLO: isYOLO,
     });
+    console.log("[roll-chain] apply_robot response:", moveRes);
 
     // 3. If the tile arrival needs a human decision (Buy modal), stop here.
     //    The WS event already popped the modal; submitDecision will call
@@ -941,7 +956,7 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
     //    inside apply_move on the server side.
     await postJson("/api/game/end_turn");
   } catch (err) {
-    console.warn("roll-dice chain:", err);
+    console.warn("[roll-chain] aborted with error:", err);
   } finally {
     btn.textContent = prevText;
     // Re-enable when the chain stops here (errors, jail-skip, or end_turn).
@@ -1024,8 +1039,38 @@ function setupVlm() {
     // Spec doc/vlm_as_player.md §4.2: when the user types during their
     // TURN_START, the textbox is the user-turn trigger — route the message
     // through the VLM-player action loop instead of the free-form Q&A path.
-    if (currentState && currentState.turn === "user"
-        && currentState.fsm === "TURN_START" && !currentState.winner) {
+    const isUserTurnStart = currentState
+      && currentState.turn === "user"
+      && currentState.fsm === "TURN_START"
+      && !currentState.winner;
+    // Phrases that clearly mean "I'm trying to take my turn" — if the user
+    // types one of these but the game isn't actually in user-TURN_START,
+    // they're hitting the free-form Q&A path by accident and wondering
+    // why nothing moves. Surface the real state instead of silently
+    // forwarding the message to the VLM as a generic question.
+    const looksLikeTurnIntent =
+      /\b(roll|just rolled|i rolled|user roll|user just|my turn|moved?)\b/i.test(userText);
+    if (!isUserTurnStart && looksLikeTurnIntent && currentState) {
+      appendChat({ role: "me", text: userText });
+      const reason = !currentState
+        ? "no game state yet — start a new game"
+        : currentState.winner
+          ? `game is over (winner: ${currentState.winner}) — reset to play again`
+          : currentState.turn !== "user"
+            ? `it's ${currentState.turn}'s turn, not yours`
+            : currentState.fsm !== "TURN_START"
+              ? `fsm is "${currentState.fsm}", not "TURN_START" — a prior turn didn't finish. Try the Roll-dice button, Reset, or wait for the move to complete.`
+              : "unknown gate failure";
+      appendChat({
+        role: "bot",
+        text: `Can't dispatch your turn: ${reason}`,
+        error: true,
+        meta: new Date().toLocaleTimeString(),
+      });
+      prompt.value = "";
+      return;
+    }
+    if (isUserTurnStart) {
       const msg = userText || "I rolled the dice.";
       inFlight = true;
       askBtn.disabled = true;
@@ -1557,13 +1602,35 @@ function buildVlmStateSummary(state) {
 }
 
 async function executeVlmAction(action) {
-  if (!action || typeof action !== "object") return false;
+  if (!action || typeof action !== "object") {
+    console.warn("[vlm-player] executeVlmAction: not an object:", action);
+    return false;
+  }
   if (action.action === "roll_and_move") {
     // Reuse the existing Roll-dice chain — it handles roll, physical move,
     // tile resolution, auto-rent, auto-jail PnP, and auto end-turn.
     const btn = document.getElementById("btn-roll-dice");
-    if (btn && !btn.disabled) { btn.click(); return true; }
-    return false;
+    if (!btn) {
+      console.warn("[vlm-player] executeVlmAction: btn-roll-dice not in DOM");
+      return false;
+    }
+    if (btn.disabled) {
+      // The most common silent dead-end: turnInFlight stuck true from a
+      // prior failed chain, fsm not TURN_START, or winner already declared.
+      // Surface the exact reason so the operator can see why nothing moved.
+      console.warn(
+        "[vlm-player] executeVlmAction: btn-roll-dice is disabled — action dropped.",
+        { fsm: currentState && currentState.fsm,
+          turn: currentState && currentState.turn,
+          winner: currentState && currentState.winner,
+          turnInFlight,
+        },
+      );
+      return false;
+    }
+    console.log("[vlm-player] dispatching roll_and_move via btn-roll-dice click");
+    btn.click();
+    return true;
   }
   if (action.action === "decide") {
     const c = action.choice;
@@ -1572,8 +1639,10 @@ async function executeVlmAction(action) {
       await submitDecision(c);
       return true;
     }
+    console.warn("[vlm-player] executeVlmAction: unknown decide choice:", c);
     return false;
   }
+  console.warn("[vlm-player] executeVlmAction: unknown action:", action.action);
   return false;
 }
 
