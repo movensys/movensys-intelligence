@@ -304,6 +304,13 @@ class PnP:
         self.ori: Optional[dict] = None
         self.yaw: Optional[float] = None
 
+        # Wall-clock time (time.time()) of the instant the gripper opened to
+        # release the dice in _dest_move. main() uses this to ignore stale
+        # /api/topics/dice_number cached from before/during the lift — only a
+        # YOLO publication newer than (drop_time + settle) reflects the rolled
+        # face.
+        self._dice_drop_time: Optional[float] = None
+
     @staticmethod
     def _quaternion_to_yaw(qw: float, qx: float, qy: float, qz: float) -> float:
         siny_cosp = 2.0 * (qw * qz + qx * qy)
@@ -345,9 +352,18 @@ class PnP:
             # Go up
             relative_cartesian_tool([0.0,0.0,-0.1], [0.0,0.0,0.0])
 
-            # place
+            # place — release the dice and stamp the drop instant so main()
+            # can wait for a post-roll YOLO detection.
             gripper(close=False)
+            self._dice_drop_time = time.time()
             _sleep(_GRIPPER_SETTLE_S)
+
+            # Retreat to the dice init pose. The gripper hovering ~10cm
+            # above the dropped dice blocks the top camera, so YOLO can
+            # never see the rolled face. The init pose was clear enough
+            # for the pre-pickup detection — it's clear enough for the
+            # post-roll one too.
+            self._init_move("dice")
         else:
             # Go up
             relative_cartesian_tool([0.0,0.0,-0.050], [0.0,0.0,0.0])
@@ -545,6 +561,41 @@ class PnP:
 
 
 
+# After the dice is released we wait this long for it to physically stop
+# rolling before trusting a YOLO reading. The polling loop then keeps
+# checking up to _DICE_POLL_TIMEOUT_S in case YOLO publishes a little late.
+_DICE_SETTLE_S = 1.5
+_DICE_POLL_TIMEOUT_S = 5.0
+_DICE_POLL_INTERVAL_S = 0.1
+
+
+def _wait_for_rolled_dice_number(drop_time: float) -> Optional[int]:
+    """Poll /api/topics/dice_number until YOLO publishes a value whose
+    received_at is past (drop_time + settle) — i.e., detected after the dice
+    finished rolling. Returns None if no fresh value arrives before timeout.
+    """
+    time.sleep(_DICE_SETTLE_S)
+    fresh_after = drop_time + _DICE_SETTLE_S
+    deadline = time.time() + _DICE_POLL_TIMEOUT_S
+    while time.time() < deadline:
+        try:
+            resp = requests.get(f"{URL}/api/topics/dice_number", timeout=2.0)
+        except Exception as exc:
+            logger.warning("dice_number poll error: %s", exc)
+            time.sleep(_DICE_POLL_INTERVAL_S)
+            continue
+        if resp.ok:
+            payload = resp.json()
+            received_at = payload.get("received_at", 0.0)
+            value = payload.get("value")
+            if value is not None and received_at >= fresh_after:
+                return int(value)
+        else:
+            logger.warning("dice_number fetch returned %s: %s", resp.status_code, resp.text)
+        time.sleep(_DICE_POLL_INTERVAL_S)
+    return None
+
+
 def _parse_is_yolo(token: str) -> bool:
     value = token.strip().lower()
     if value in ("1", "true", "yes", "y", "on"):
@@ -595,23 +646,44 @@ def main():
 
     logger.info("[timing] main_total: %.1f ms", (time.perf_counter() - main_start) * 1000.0)
 
-    # When rolling the dice, emit the YOLO-detected face value so the caller
-    # (e.g. the monopoly server) can pick it up before the motion finishes.
+    # Emit the rolled face. For YOLO we must wait until *after* the dice has
+    # been released and settled — /api/topics/dice_number is just a cached
+    # latest detection, so reading it without a freshness check would report
+    # the face from before pickup (or a transient mid-lift detection).
     if sys.argv[1] == "dice":
         if is_yolo:
-            try:
-                resp = requests.get(f"{URL}/api/topics/dice_number", timeout=2.0)
-                if resp.ok:
-                    value = resp.json().get("value")
-                    if value is not None:
-                        print(f"DICE_NUMBER={int(value)}", flush=True)
-                        logger.info("Detected dice number: %s", value)
-                    else:
-                        logger.warning("dice_number response missing 'value': %s", resp.text)
-                else:
-                    logger.warning("dice_number fetch returned %s: %s", resp.status_code, resp.text)
-            except Exception as exc:
-                logger.warning("Failed to fetch dice number: %s", exc)
+            drop_time = pnp._dice_drop_time
+            if drop_time is None:
+                logger.warning(
+                    "Dice drop_time not recorded; falling back to immediate read (value may be stale)."
+                )
+                drop_time = 0.0
+            value = _wait_for_rolled_dice_number(drop_time)
+            if value is None:
+                # YOLO never published a post-roll detection. Rather than
+                # leave the router blocked waiting for DICE_NUMBER (which
+                # would stall the whole turn), emit the latest cached value
+                # so the game can advance. We log a warning so the operator
+                # knows the reading may not reflect the true rolled face.
+                logger.warning(
+                    "No fresh dice_number after drop — falling back to latest cached value"
+                )
+                try:
+                    resp = requests.get(f"{URL}/api/topics/dice_number", timeout=2.0)
+                    if resp.ok:
+                        cached = resp.json().get("value")
+                        if cached is not None:
+                            value = int(cached)
+                except Exception as exc:
+                    logger.warning("dice_number fallback fetch failed: %s", exc)
+            if value is not None:
+                print(f"DICE_NUMBER={value}", flush=True)
+                logger.info("Detected rolled dice number: %s", value)
+            else:
+                logger.error(
+                    "Unable to obtain any dice_number (drop_time=%.3f) — DICE_NUMBER not emitted",
+                    drop_time,
+                )
         else:
             value = random.randint(1, 6)
             print(f"DICE_NUMBER={value}", flush=True)
