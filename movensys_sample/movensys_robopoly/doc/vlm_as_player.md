@@ -211,6 +211,14 @@ the user-turn path while the robot turn is mid-action and vice versa.
 - VLM emits a `decide` action while the FSM is `TURN_START` (or vice
   versa) → the executor silently rejects mismatched actions because
   the underlying buttons are disabled outside their valid FSM.
+- **`btn-roll-dice` is disabled when the VLM action arrives** — most
+  common cause is `turnInFlight` stuck `true` from a prior failed
+  chain (the `finally` block resets it, so this should only happen if
+  the fsm landed in `AWAIT_DECISION` and the buy modal was dismissed
+  without a `submitDecision`). `executeVlmAction` now logs:
+  `[vlm-player] executeVlmAction: btn-roll-dice is disabled — action
+  dropped.` followed by `{ fsm, turn, winner, turnInFlight }`. Reset
+  via the Reset button or by clicking the buy modal.
 - **Read mode — YOLO has no `dice_number` to publish** (e.g. the
   `yolo_dice_detector` node isn't running, the camera can't see the
   thrown die, or the user threw it outside the scan area). The script
@@ -228,6 +236,29 @@ the user-turn path while the robot turn is mid-action and vice versa.
   falls back to the latest cached `dice_number` so the chain still
   advances. Log line: `No fresh dice_number after drop — falling back
   to latest cached value`.
+- **Cube pickup failed (`get_piece_info` + fallback search both
+  miss)** — previously `pick_and_place.py` silently `return`ed with
+  exit 0, so `apply_robot` advanced the game state while the physical
+  cube never moved (board overlay teleported, real cube didn't). The
+  script now `sys.exit(1)`, the router returns `502 PNP_FAILED`, and
+  the frontend's catch logs `[roll-chain] aborted with error: ...`.
+  `turnInFlight` resets cleanly in `finally`; re-trigger the turn
+  after fixing the YOLO occlusion or repositioning the cube.
+
+### 7.1 Diagnosing "robot didn't move after I typed"
+
+The roll-dice chain prints to the browser console at every step. Open
+DevTools → Console before clicking Ask, then check which line appears
+last — that pinpoints where the chain stopped:
+
+| Last line you see | Meaning |
+|---|---|
+| `[vlm-player] dispatching roll_and_move via btn-roll-dice click` | Click was issued. If nothing follows, the click handler bailed before any await — usually `turnInFlight` race. |
+| `[vlm-player] executeVlmAction: btn-roll-dice is disabled — action dropped.` | Button gated; the attached state object says why. |
+| `[roll-chain] dice step: {...}` (no response) | The dice subprocess hung. Check robopoly stdout for `read mode:` / roll-mode timing lines. |
+| `[roll-chain] dice response: {...}` then `unexpected fsm: ...` | Server returned 200 but FSM wasn't `MOVING`. The response object shows what came back. |
+| `[roll-chain] apply_robot: {...}` (no response) | Physical cube move is running; wait. |
+| `[roll-chain] aborted with error: ...` | A fetch threw (502 from server, network). The error contains the HTTP detail — `DICE_NOT_DETECTED`, `PNP_FAILED`, etc. |
 
 ## 8. Code map
 

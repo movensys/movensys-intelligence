@@ -728,11 +728,14 @@ def main():
         if is_yolo:
             logger.info("Initial detection missed, starting 4-direction fallback search")
             if not pnp._search_for_target():
+                # Exit non-zero so the spawning router sees PNP_FAILED and
+                # surfaces it to the frontend, instead of silently advancing
+                # the game state while the physical cube never moved.
                 logger.error("Failed to detect %s after search, aborting.", sys.argv[1])
-                return
+                sys.exit(1)
         else:
             logger.error("Failed to get piece info, aborting.")
-            return
+            sys.exit(1)
     logger.info("[timing] detect_phase: %.1f ms", (time.perf_counter() - detect_start) * 1000.0)
 
     pnp.pick_and_place(board_pos=sys.argv[2])

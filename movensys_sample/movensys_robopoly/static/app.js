@@ -808,8 +808,38 @@ function setupVlm() {
     // Spec doc/vlm_as_player.md §4.2: when the user types during their
     // TURN_START, the textbox is the user-turn trigger — route the message
     // through the VLM-player action loop instead of the free-form Q&A path.
-    if (currentState && currentState.turn === "user"
-        && currentState.fsm === "TURN_START" && !currentState.winner) {
+    const isUserTurnStart = currentState
+      && currentState.turn === "user"
+      && currentState.fsm === "TURN_START"
+      && !currentState.winner;
+    // Phrases that clearly mean "I'm trying to take my turn" — if the user
+    // types one of these but the game isn't actually in user-TURN_START,
+    // they're hitting the free-form Q&A path by accident and wondering
+    // why nothing moves. Surface the real state instead of silently
+    // forwarding the message to the VLM as a generic question.
+    const looksLikeTurnIntent =
+      /\b(roll|just rolled|i rolled|user roll|user just|my turn|moved?)\b/i.test(userText);
+    if (!isUserTurnStart && looksLikeTurnIntent && currentState) {
+      appendChat({ role: "me", text: userText });
+      const reason = !currentState
+        ? "no game state yet — start a new game"
+        : currentState.winner
+          ? `game is over (winner: ${currentState.winner}) — reset to play again`
+          : currentState.turn !== "user"
+            ? `it's ${currentState.turn}'s turn, not yours`
+            : currentState.fsm !== "TURN_START"
+              ? `fsm is "${currentState.fsm}", not "TURN_START" — a prior turn didn't finish. Try the Roll-dice button, Reset, or wait for the move to complete.`
+              : "unknown gate failure";
+      appendChat({
+        role: "bot",
+        text: `Can't dispatch your turn: ${reason}`,
+        error: true,
+        meta: new Date().toLocaleTimeString(),
+      });
+      prompt.value = "";
+      return;
+    }
+    if (isUserTurnStart) {
       const msg = userText || "I rolled the dice.";
       inFlight = true;
       askBtn.disabled = true;
