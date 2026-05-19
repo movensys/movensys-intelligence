@@ -605,12 +605,91 @@ def _parse_is_yolo(token: str) -> bool:
     raise ValueError(f"Unrecognized is_YOLO value '{token}'. Use true/false.")
 
 
+_READ_POLL_TIMEOUT_S = 8.0
+_READ_POLL_INTERVAL_S = 0.2
+
+
+def _read_dice_only(is_yolo: bool, pnp: "PnP", main_start: float) -> None:
+    """User-turn dice path: the human has already thrown the die. Move the
+    arm to the dice scan pose (so the gripper is out of the camera's way)
+    and read whatever YOLO currently sees. No pickup, no drop, no
+    freshness check — the dice was rolled BEFORE this script started, so
+    the cached YOLO publish (which may have a received_at older than the
+    arm motion) is exactly the value we want.
+
+    Guarantees that DICE_NUMBER=<n> is printed before this function
+    returns. If YOLO never publishes anything, we fall back to a default
+    of 1 with a loud error log — emitting *something* lets the calling
+    chain (router → apply_robot → end_turn) proceed instead of
+    dead-ending on a 502 with no user-visible message. The operator will
+    see the warning and can re-roll if the face is wrong.
+    """
+    init_start = time.perf_counter()
+    logger.info("read mode: moving arm to dice scan pose")
+    pnp._init_move("dice")
+    time.sleep(2.0)
+    logger.info(
+        "[timing] read_init+settle: %.1f ms",
+        (time.perf_counter() - init_start) * 1000.0,
+    )
+
+    value: Optional[int] = None
+    last_status: Optional[int] = None
+    last_detail: Optional[str] = None
+
+    if is_yolo:
+        deadline = time.time() + _READ_POLL_TIMEOUT_S
+        attempts = 0
+        while time.time() < deadline:
+            attempts += 1
+            try:
+                resp = requests.get(f"{URL}/api/topics/dice_number", timeout=2.0)
+                last_status = resp.status_code
+                if resp.ok:
+                    payload = resp.json()
+                    cached = payload.get("value")
+                    received_at = payload.get("received_at")
+                    if cached is not None:
+                        value = int(cached)
+                        logger.info(
+                            "read mode: got dice_number=%s after %d attempt(s) (received_at=%s)",
+                            value, attempts, received_at,
+                        )
+                        break
+                    last_detail = "ok but no 'value' field"
+                else:
+                    # 503 "No dice number received yet" lands here.
+                    try:
+                        last_detail = resp.json().get("detail")
+                    except Exception:
+                        last_detail = resp.text[:200]
+            except Exception as exc:
+                last_detail = repr(exc)
+                logger.warning("dice_number fetch error: %s", exc)
+            time.sleep(_READ_POLL_INTERVAL_S)
+
+        if value is None:
+            logger.error(
+                "read mode: YOLO never returned a usable dice_number after %d attempt(s) "
+                "(last status=%s, last detail=%s). Falling back to DICE_NUMBER=1 so the "
+                "turn doesn't dead-end. Re-roll if this face is wrong.",
+                attempts, last_status, last_detail,
+            )
+            value = 1
+    else:
+        value = random.randint(1, 6)
+
+    print(f"DICE_NUMBER={value}", flush=True)
+    logger.info("read mode: emitted DICE_NUMBER=%s", value)
+    logger.info("[timing] read_total: %.1f ms", (time.perf_counter() - main_start) * 1000.0)
+
+
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
     if len(sys.argv) < 4:
         raise SystemExit(
-            "Usage: python3 pick_and_place.py <target_object> <board_pos> <is_YOLO>"
+            "Usage: python3 pick_and_place.py <target_object> <board_pos> <is_YOLO> [mode]"
         )
 
     # is_YOLO drives PnP.TARGET_STR (yolo_cube_* vs piece_*) and per-method
@@ -618,9 +697,23 @@ def main():
     # instantiated.
     is_yolo = _parse_is_yolo(sys.argv[3])
 
+    # Optional 4th arg. "roll" (default) is the full pick+drop chain used
+    # on the robot turn. "read" is the user-turn path — the human has
+    # already thrown the dice, we only need to look at it. Only valid
+    # when target_object == "dice".
+    mode = (sys.argv[4] if len(sys.argv) >= 5 else "roll").strip().lower()
+    if mode not in ("roll", "read"):
+        raise SystemExit(f"Unrecognized mode '{mode}'. Use 'roll' or 'read'.")
+    if mode == "read" and sys.argv[1] != "dice":
+        raise SystemExit("mode='read' is only valid for target_object='dice'")
+
     pnp = PnP(target_object=sys.argv[1], is_YOLO=is_yolo, delay_exec=2.0)
 
     main_start = time.perf_counter()
+
+    if mode == "read":
+        _read_dice_only(is_yolo, pnp, main_start)
+        return
 
     # init
     init_start = time.perf_counter()

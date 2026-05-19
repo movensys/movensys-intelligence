@@ -27,7 +27,7 @@ export MOVENSYS_PNP_DRY_RUN=1
 cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker
 docker compose down
 docker compose build
-docker compose up
+docker compose up -d
 ```
 
 1. .venv
