@@ -18,20 +18,20 @@
 const BOARD_FINAL_LAYOUT = {
   viewBox: { w: 1559, h: 794 },
   centers: {
-    0:  { user: [159.9,  674.9], robot: [229.9,  674.9] },  // GO (BL)
-    1:  { user: [159.9,  476.4], robot: [229.9,  476.4] },  // BOSTON (left, lower mid)
-    2:  { user: [159.9,  317.6], robot: [229.9,  317.6] },  // SEOUL (left, upper mid)
-    3:  { user: [159.9,  119.1], robot: [229.9,  119.1] },  // IN THE DESERT ISLAND (TL)
-    4:  { user: [484.7,  119.1], robot: [554.7,  119.1] },  // ELECTRIC COMPANY (top)
-    5:  { user: [744.5,  119.1], robot: [814.5,  119.1] },  // TAIPEI (top)
-    6:  { user: [1004.3, 119.1], robot: [1074.3, 119.1] },  // SHANGHAI (top)
-    7:  { user: [1329.1, 119.1], robot: [1399.1, 119.1] },  // NON-FREE PARKING (TR)
-    8:  { user: [1329.1, 317.6], robot: [1399.1, 317.6] },  // TOKYO (right, upper mid)
-    9:  { user: [1329.1, 476.4], robot: [1399.1, 476.4] },  // BUSAN (right, lower mid)
-    10: { user: [1329.1, 674.9], robot: [1399.1, 674.9] },  // GO TO DESERT ISLAND (BR)
-    11: { user: [1004.3, 674.9], robot: [1074.3, 674.9] },  // NEW YORK (bottom)
-    12: { user: [744.5,  674.9], robot: [814.5,  674.9] },  // CHANCE (bottom)
-    13: { user: [484.7,  674.9], robot: [554.7,  674.9] },  // LONDON (bottom)
+    0:  { user: [81.06,   710.60], robot: [165.93, 710.60] },  // GO (BL)
+    1:  { user: [63.20,   545.48], robot: [148.08, 545.48] },  // BOSTON (left, lower mid)
+    2:  { user: [63.20,   344.65], robot: [146.59, 344.65] },  // SEOUL (left, upper mid)
+    3:  { user: [63.20,   146.79], robot: [148.08, 146.79] },  // IN THE DESERT ISLAND (TL)
+    4:  { user: [372.63,  143.82], robot: [453.04, 143.82] },  // ELECTRIC COMPANY (top)
+    5:  { user: [689.50,  143.82], robot: [774.37, 143.82] },  // TAIPEI (top)
+    6:  { user: [998.92,  146.79], robot: [1086.88, 146.90] }, // SHANGHAI (top)
+    7:  { user: [1311.69, 146.79], robot: [1391.94, 146.90] }, // NON-FREE PARKING (TR)
+    8:  { user: [1299.36, 342.46], robot: [1379.62, 341.03] }, // TOKYO (right, upper mid)
+    9:  { user: [1297.82, 542.76], robot: [1385.78, 542.86] }, // BUSAN (right, lower mid)
+    10: { user: [1300.91, 739.97], robot: [1385.78, 738.53] }, // GO TO DESERT ISLAND (BR)
+    11: { user: [992.76,  739.97], robot: [1076.10, 740.07] }, // NEW YORK (bottom)
+    12: { user: [678.45,  741.51], robot: [757.17, 740.07] },  // CHANCE (bottom)
+    13: { user: [368.77,  739.97], robot: [447.48, 740.07] },  // LONDON (bottom)
   },
 };
 
@@ -88,41 +88,145 @@ async function loadBoardVisual(boardId) {
   host.innerHTML = `<img src="/assets/boards/${boardJson.physical_image}" alt="Board ${boardId}"/>`;
 }
 
-// Ownership circles overlay: for each owned property, draw 1/2/3 colored
-// circles next to that tile — 1=land, 2=house, 3=hotel. Red=user, green=robot.
-function renderOwnership(state) {
+// Cell horizontal extent per tile, used to size the ownership rectangle
+// (~65% of the cell width). Corners and left/right edges are narrower; the
+// inner top/bottom edges are wider.
+const TILE_CELL_WIDTH = {
+  0: 240, 1: 240, 2: 240, 3: 240,
+  4: 320, 5: 320, 6: 320,
+  7: 240, 8: 240, 9: 240, 10: 240,
+  11: 320, 12: 320, 13: 320,
+};
+const PIECE_HEIGHT = 60;
+const OWNERSHIP_LABELS = [
+  "GO", "BOSTON", "SEOUL", "DESERT",
+  "ELECTRIC", "TAIPEI", "SHANGHAI",
+  "PARKING", "TOKYO", "BUSAN",
+  "GO_DESERT", "NEWYORK", "CHANCE", "LONDON",
+];
+// Tiles that do not display an ownership rectangle.
+const OWNERSHIP_HIDDEN = new Set([0, 3, 7, 10, 12]);
+// Per-tile rectangle size override [width, height]. Tiles without an entry
+// use the default size (cell_width * 0.65 wide × piece_height/2 tall).
+// ELECTRIC uses a smaller utility-style box: width 110% of the piece width,
+// height 65% of the piece height.
+const OWNERSHIP_RECT_SIZE = {
+  4: [PIECE_HEIGHT * 1.1, PIECE_HEIGHT * 0.65],
+};
+// Calibrated rectangle centers per tile (in viewBox coords). Tiles without
+// an entry default to a position just below the pieces and rely on the
+// operator dragging to calibrate.
+const OWNERSHIP_CENTERS = {
+  1:  [99.48,   478.39],
+  2:  [98.73,   274.47],
+  4:  [553.04,  48.87],
+  5:  [744.26,  82.89],
+  6:  [1055.23, 82.83],
+  8:  [1342.57, 276.19],
+  9:  [1340.26, 477.26],
+  11: [1056.00, 671.38],
+  13: [431.24,  674.47],
+};
+
+// Pre-create one <g id="ownership-{idx}"> per tile, each containing a rect
+// + text label. The group is positioned by a transform="translate(dx,dy)"
+// that the operator can drag-tune; the rect/text keep stable base coords
+// so renderOwnership only needs to update fill+label, leaving any dragged
+// translate intact.
+function setupOwnershipRects() {
   const svg = document.getElementById("pieces");
   if (!svg) return;
-  const layout = BOARD_LAYOUTS[state?.board_id];
-  let g = document.getElementById("ownership-overlay");
-  if (g) g.replaceChildren();
+  let overlay = document.getElementById("ownership-overlay");
+  if (overlay) overlay.remove();
+  overlay = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  overlay.setAttribute("id", "ownership-overlay");
+  svg.insertBefore(overlay, svg.firstChild);
+
+  const layout = BOARD_LAYOUTS["final"];
   if (!layout) return;
-  if (!g) {
-    g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    g.setAttribute("id", "ownership-overlay");
-    svg.insertBefore(g, svg.firstChild);  // behind pieces
-  }
-  const props = state?.properties || {};
-  for (const p of Object.values(props)) {
-    if (!p.owner) continue;
-    const tile = layout.centers?.[p.tile_index];
+  for (let idx = 0; idx < 14; idx++) {
+    if (OWNERSHIP_HIDDEN.has(idx)) continue;
+    const tile = layout.centers[idx];
     if (!tile) continue;
-    const cx = (tile.user[0] + tile.robot[0]) / 2;
-    const cy = (tile.user[1] + tile.robot[1]) / 2 + 22;  // just below the pieces
-    const tier = p.has_hotel ? 3 : (p.houses > 0 ? 2 : 1);
-    const fill = p.owner === "user" ? "var(--user)" : "var(--robot)";
-    const r = 21, gap = 12;
-    const totalW = tier * 2 * r + (tier - 1) * gap;
-    const startX = cx - totalW / 2 + r;
-    for (let i = 0; i < tier; i++) {
-      const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      c.setAttribute("cx", String(startX + i * (2 * r + gap)));
-      c.setAttribute("cy", String(cy));
-      c.setAttribute("r", String(r));
-      c.setAttribute("fill", fill);
-      c.setAttribute("stroke", "#000");
-      c.setAttribute("stroke-width", "4.5");
-      g.appendChild(c);
+    const sizeOverride = OWNERSHIP_RECT_SIZE[idx];
+    const rectW = sizeOverride ? sizeOverride[0] : (TILE_CELL_WIDTH[idx] ?? 240) * 0.65;
+    const rectH = sizeOverride ? sizeOverride[1] : PIECE_HEIGHT / 2;
+    const center = OWNERSHIP_CENTERS[idx];
+    const rectCx = center ? center[0] : (tile.user[0] + tile.robot[0]) / 2;
+    const rectCy = center
+      ? center[1]
+      : (tile.user[1] + tile.robot[1]) / 2 + PIECE_HEIGHT / 2 + 5 + rectH / 2;
+    const rectX = rectCx - rectW / 2;
+    const rectY = rectCy - rectH / 2;
+
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    g.setAttribute("id", `ownership-${idx}`);
+    g.setAttribute("class", "ownership-group");
+    g.setAttribute("transform", "translate(0,0)");
+    g.dataset.tileIndex = String(idx);
+
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", String(rectX));
+    rect.setAttribute("y", String(rectY));
+    rect.setAttribute("width", String(rectW));
+    rect.setAttribute("height", String(rectH));
+    rect.setAttribute("fill", "rgba(180,180,180,0.30)");
+    rect.setAttribute("stroke", "#555");
+    rect.setAttribute("stroke-width", "2");
+    rect.setAttribute("stroke-dasharray", "5 3");
+    g.appendChild(rect);
+
+    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    text.setAttribute("x", String(rectCx));
+    text.setAttribute("y", String(rectCy));
+    text.setAttribute("text-anchor", "middle");
+    text.setAttribute("dominant-baseline", "central");
+    text.setAttribute("fill", "#fff");
+    text.setAttribute("font-family", "JetBrains Mono, ui-monospace, monospace");
+    text.setAttribute("font-size", "20");
+    text.setAttribute("font-weight", "700");
+    text.setAttribute("paint-order", "stroke");
+    text.setAttribute("stroke", "#000");
+    text.setAttribute("stroke-width", "3");
+    text.setAttribute("stroke-linejoin", "round");
+    text.setAttribute("pointer-events", "none");
+    text.textContent = "";
+    g.appendChild(text);
+
+    overlay.appendChild(g);
+  }
+}
+
+// Ownership overlay refresh: just toggle fill/stroke/label per tile based
+// on the current state. The 14 groups are created once by
+// setupOwnershipRects() and stay drag-tunable across state updates.
+function renderOwnership(state) {
+  const props = state?.properties || {};
+  const byTile = {};
+  for (const p of Object.values(props)) {
+    if (p && p.tile_index !== undefined) byTile[p.tile_index] = p;
+  }
+  for (let idx = 0; idx < 14; idx++) {
+    const g = document.getElementById(`ownership-${idx}`);
+    if (!g) continue;
+    const rect = g.querySelector("rect");
+    const text = g.querySelector("text");
+    if (!rect || !text) continue;
+    const p = byTile[idx];
+    if (p && p.owner) {
+      const fill = p.owner === "user" ? "var(--user)" : "var(--robot)";
+      const label = p.has_hotel ? "HOTEL" : (p.houses > 0 ? "HOUSE" : "LAND");
+      rect.setAttribute("fill", fill);
+      rect.setAttribute("stroke", "#000");
+      rect.setAttribute("stroke-width", "2.5");
+      rect.removeAttribute("stroke-dasharray");
+      text.textContent = label;
+    } else {
+      rect.setAttribute("fill", "rgba(180,180,180,0.30)");
+      rect.setAttribute("stroke", "#555");
+      rect.setAttribute("stroke-width", "2");
+      rect.setAttribute("stroke-dasharray", "5 3");
+      text.textContent = "";
     }
   }
 }
@@ -152,29 +256,53 @@ function setupPieceDragging() {
   const readout = document.getElementById("board-coords");
   if (!pieces || !userRect || !robotRect || !readout) return;
 
-  const transformOffset = (rect) => {
-    const tr = rect.getAttribute("transform");
-    if (!tr) return [0, 0];
+  const parseTranslate = (el) => {
+    const tr = el.getAttribute("transform") || "";
     const m = tr.match(/translate\(\s*(-?[\d.]+)[\s,]+(-?[\d.]+)/);
     return m ? [parseFloat(m[1]), parseFloat(m[2])] : [0, 0];
   };
 
-  const visualCenter = (rect) => {
+  const rectBaseCenter = (rect) => {
     const x = parseFloat(rect.getAttribute("x"));
     const y = parseFloat(rect.getAttribute("y"));
     const w = parseFloat(rect.getAttribute("width"));
     const h = parseFloat(rect.getAttribute("height"));
-    const [tx, ty] = transformOffset(rect);
-    return [x + w / 2 + tx, y + h / 2 + ty];
+    return [x + w / 2, y + h / 2];
+  };
+
+  const pieceCenter = (rect) => {
+    const [bcx, bcy] = rectBaseCenter(rect);
+    const [tx, ty] = parseTranslate(rect);
+    return [bcx + tx, bcy + ty];
+  };
+
+  const ownershipCenter = (g) => {
+    const rect = g.querySelector("rect");
+    if (!rect) return [0, 0];
+    const [bcx, bcy] = rectBaseCenter(rect);
+    const [tx, ty] = parseTranslate(g);
+    return [bcx + tx, bcy + ty];
   };
 
   const fmt = (n) => n.toFixed(2);
 
   updatePieceReadout = () => {
-    const [ux, uy] = visualCenter(userRect);
-    const [rx, ry] = visualCenter(robotRect);
-    readout.textContent =
-      `user: (${fmt(ux)}, ${fmt(uy)})  |  robot: (${fmt(rx)}, ${fmt(ry)})`;
+    const [ux, uy] = pieceCenter(userRect);
+    const [rx, ry] = pieceCenter(robotRect);
+    const lines = [
+      `user: (${fmt(ux)}, ${fmt(uy)})  |  robot: (${fmt(rx)}, ${fmt(ry)})`,
+    ];
+    const parts = [];
+    for (let idx = 0; idx < 14; idx++) {
+      const g = document.getElementById(`ownership-${idx}`);
+      if (!g) continue;
+      const [cx, cy] = ownershipCenter(g);
+      parts.push(`${OWNERSHIP_LABELS[idx]}: (${fmt(cx)}, ${fmt(cy)})`);
+    }
+    for (let i = 0; i < parts.length; i += 4) {
+      lines.push(parts.slice(i, i + 4).join("  |  "));
+    }
+    readout.textContent = lines.join("\n");
   };
 
   const svgPoint = (evt) => {
@@ -187,37 +315,78 @@ function setupPieceDragging() {
   let dragging = null;
   let dragOffset = { x: 0, y: 0 };
 
-  for (const rect of [userRect, robotRect]) {
+  const wirePiece = (rect) => {
     rect.addEventListener("pointerdown", (evt) => {
-      dragging = rect;
+      dragging = { kind: "piece", handle: rect };
       rect.classList.add("dragging");
       const pt = svgPoint(evt);
-      const [cx, cy] = visualCenter(rect);
+      const [cx, cy] = pieceCenter(rect);
       dragOffset.x = pt.x - cx;
       dragOffset.y = pt.y - cy;
       rect.setPointerCapture(evt.pointerId);
       evt.preventDefault();
     });
     rect.addEventListener("pointermove", (evt) => {
-      if (dragging !== rect) return;
+      if (!dragging || dragging.handle !== rect) return;
       const pt = svgPoint(evt);
       const newCx = pt.x - dragOffset.x;
       const newCy = pt.y - dragOffset.y;
       const w = parseFloat(rect.getAttribute("width"));
       const h = parseFloat(rect.getAttribute("height"));
-      const [tx, ty] = transformOffset(rect);
+      const [tx, ty] = parseTranslate(rect);
       rect.setAttribute("x", newCx - w / 2 - tx);
       rect.setAttribute("y", newCy - h / 2 - ty);
       updatePieceReadout();
     });
     const stop = (evt) => {
-      if (dragging !== rect) return;
+      if (!dragging || dragging.handle !== rect) return;
       dragging = null;
       rect.classList.remove("dragging");
       try { rect.releasePointerCapture(evt.pointerId); } catch (_) {}
     };
     rect.addEventListener("pointerup", stop);
     rect.addEventListener("pointercancel", stop);
+  };
+
+  const wireOwnership = (g) => {
+    const rect = g.querySelector("rect");
+    if (!rect) return;
+    rect.addEventListener("pointerdown", (evt) => {
+      dragging = { kind: "ownership", handle: rect, group: g };
+      g.classList.add("dragging");
+      rect.classList.add("dragging");
+      const pt = svgPoint(evt);
+      const [cx, cy] = ownershipCenter(g);
+      dragOffset.x = pt.x - cx;
+      dragOffset.y = pt.y - cy;
+      rect.setPointerCapture(evt.pointerId);
+      evt.preventDefault();
+    });
+    rect.addEventListener("pointermove", (evt) => {
+      if (!dragging || dragging.handle !== rect) return;
+      const pt = svgPoint(evt);
+      const newCx = pt.x - dragOffset.x;
+      const newCy = pt.y - dragOffset.y;
+      const [bcx, bcy] = rectBaseCenter(rect);
+      g.setAttribute("transform", `translate(${newCx - bcx},${newCy - bcy})`);
+      updatePieceReadout();
+    });
+    const stop = (evt) => {
+      if (!dragging || dragging.handle !== rect) return;
+      dragging = null;
+      g.classList.remove("dragging");
+      rect.classList.remove("dragging");
+      try { rect.releasePointerCapture(evt.pointerId); } catch (_) {}
+    };
+    rect.addEventListener("pointerup", stop);
+    rect.addEventListener("pointercancel", stop);
+  };
+
+  wirePiece(userRect);
+  wirePiece(robotRect);
+  for (let idx = 0; idx < 14; idx++) {
+    const g = document.getElementById(`ownership-${idx}`);
+    if (g) wireOwnership(g);
   }
 
   updatePieceReadout();
@@ -1184,7 +1353,7 @@ let vlmPlayerInFlight = false;
 let vlmPlayerLastTurnKey = null;
 
 // The VLM sees the on-screen rendered game board (background PNG +
-// pieces + ownership circles, composited into a single JPEG) on every
+// pieces + ownership rectangles, composited into a single JPEG) on every
 // inference call. If the canvas capture fails (e.g. tainted by a
 // cross-origin asset), we fall back to the physical top-down camera so
 // the agent still has *some* visual grounding.
@@ -1818,6 +1987,7 @@ function setupHotkeys() {
 (async () => {
   await loadBadges();
   await loadBoardVisual("final");
+  setupOwnershipRects();
   setupPieceDragging();
   renderYoloStatus();
   await refreshState();
