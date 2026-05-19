@@ -1239,6 +1239,7 @@ function setupVlm() {
                : blob.type.includes("mp4")  ? "mp4"
                : "wav");
     form.append("file", blob, `mic.${ext}`);
+    form.append("language", "en");
 
     setSttStatus("transcribing…");
     const started = performance.now();
@@ -1253,7 +1254,8 @@ function setupVlm() {
       }
       const body = await r.json();
       if (body.error) { setSttStatus(`failed: ${body.error}`, true); return; }
-      const text = (body.text || "").trim();
+      const rawText = (body.text || "").trim();
+      const text = isWhisperHallucination(rawText) ? "" : rawText;
       if (text) {
         prompt.value = prompt.value
           ? `${prompt.value.trimEnd()} ${text}`
@@ -1397,30 +1399,82 @@ ACTIONS — exactly two are valid:
    {"action": "decide", "choice": "build"}
    {"action": "decide", "choice": "build_hotel"}
      Use when state.decision_pending is present (fsm == "AWAIT_DECISION").
-       buy         → buy land for $100
-       build       → upgrade to house tier (delta = (2 - current_tier) * 100)
-       build_hotel → upgrade to hotel tier (delta = (3 - current_tier) * 100)
-       skip        → pass
 
-EXAMPLES (these are the entire reply — nothing else):
+ACTION NAMES vs. BUTTON LABELS — the backend names do NOT match the
+modal button labels; map carefully:
+  backend "skip"         ↔ modal "Skip"
+  backend "buy"          ↔ modal "Buy land"           (tier 1, $100)
+  backend "build"        ↔ modal "Buy + house"        (tier 2, $100 + $200 = $300 from unowned)
+  backend "build_hotel"  ↔ modal "Buy + hotel"        (tier 3, $100 + $300 = $400 from unowned)
+All three "buy*" options actually buy the land first if it's unowned —
+"build" is "buy land then build a house in one step", not "upgrade only".
+
+EXAMPLES (the entire reply — nothing else):
   {"action": "roll_and_move", "player": "robot"}
   {"action": "decide", "choice": "buy"}
+  {"action": "decide", "choice": "build_hotel"}
 
 DO NOT reply with text like "I cannot roll dice" — you ARE rolling the dice
 by emitting the JSON. The code reads your JSON and tells the arm to act.
 
-RULES (for choosing actions):
+DECISION_PENDING CONSTRAINTS (read state.decision_pending carefully):
+- decision_pending.max_tier tells you what tiers are allowed on this tile:
+    max_tier == 3 → standard property (BOSTON, SEOUL, TAIPEI, SHANGHAI,
+                    TOKYO, BUSAN, NEWYORK, LONDON).
+                    All four choices are valid: skip / buy / build / build_hotel.
+    max_tier == 1 → utility (ELECTRIC_COMPANY).
+                    ONLY "buy" or "skip" are valid. The backend rejects
+                    "build" and "build_hotel" on utility tiles.
+- decision_pending.current_tier is your existing tier on the tile.
+  build requires current_tier < 2; build_hotel requires current_tier < 3.
+
+USER VOICE INTENT (highest priority — overrides everything else):
+  The "Context:" line is the user's spoken request, transcribed from
+  English speech. People speak naturally — listen for the HEAD NOUN
+  (hotel / house / land) or the verb (skip / pass / don't buy):
+
+    Head noun "hotel" anywhere in the request (questions, suggestions,
+    commands all count)               → emit "build_hotel"
+        e.g. "Can you buy a hotel?", "Let's build a hotel",
+             "Get a hotel", "I want a hotel", "Hotel please."
+
+    Head noun "house" anywhere in the request → emit "build"
+        e.g. "Buy a house", "Build a house", "House it.",
+             "Let's get a house", "Put a house here."
+
+    Head noun "land" only, OR a bare buy verb with no other noun
+                                       → emit "buy"
+        e.g. "Buy the land", "Just the land", "Buy it",
+             "Yeah, buy this one", "Take it.", "Land only."
+
+    Negation, pass, or skip            → emit "skip"
+        e.g. "Skip it", "Pass", "No thanks", "Don't buy",
+             "Leave it", "Move on."
+
+  Notice "buy a hotel" / "buy a house" do NOT map to "buy" — they map to
+  "build_hotel" / "build" because the head noun decides the tier. Only
+  bare "buy" or "buy land" maps to backend "buy".
+
+  If the user's chosen tier is illegal for this decision (e.g. "hotel"
+  on a max_tier=1 utility, or "house" when current_tier == 2 already),
+  fall back to the closest legal option ("buy" for a utility; the next
+  higher legal tier when upgrading; "skip" if no purchase makes sense).
+
+ROBOT-TURN DECISIONS (when Context has no explicit user choice):
+  There is no fixed heuristic. Look at the full game state — your liquid
+  balance, the cost of each option ($100 / $300 / $400 from unowned;
+  smaller deltas if you already own a lower tier), the properties you
+  already own, the opponent's holdings, the lap count, who's ahead.
+  Pick whichever choice (skip / buy / build / build_hotel) you judge best
+  for the robot's position. You are free to skip if cash is tight, or to
+  pick build_hotel if the tile is worth it and you can afford it.
+
+GENERAL RULES:
 - Seed money $1000; GO bonus $100 (passing or landing).
 - Tiers: land $100, house $200, hotel $300. Rent: $100 / $200 / $300 by tier.
 - Tax tile $100. Chance: ±$200 coin flip.
 - Auto-liquidation: hotels → houses → land if you can't pay.
 - 5 laps wins on cap; bankruptcy ends the game immediately.
-
-BUY HEURISTICS (apply unless state says otherwise):
-- liquid >= $300 → buy
-- liquid >= $400 and already owned at tier 1 → build (house)
-- liquid >= $500 and already owned at tier 2 → build_hotel
-- purchase would drop liquid below $200 → skip
 
 Reply with ONLY the JSON action. Nothing else.`;
 
@@ -1584,13 +1638,49 @@ const VLM_PLAYER_INLINE_RULES = `You are the game agent. Reply with EXACTLY ONE 
 Valid replies are ONLY:
   {"action": "roll_and_move", "player": "user"}
   {"action": "roll_and_move", "player": "robot"}
-  {"action": "decide", "choice": "buy"}
-  {"action": "decide", "choice": "build"}
-  {"action": "decide", "choice": "build_hotel"}
-  {"action": "decide", "choice": "skip"}
-You are NOT a vision assistant. You are NOT asked to read images or physically roll dice.
-The arm executes whatever JSON you emit. If fsm == "TURN_START" pick roll_and_move with player = state.turn.
-If state.decision_pending is set, pick a decide action. Reply with ONLY the JSON, nothing else.`;
+  {"action": "decide", "choice": "skip"}         // modal: "Skip"
+  {"action": "decide", "choice": "buy"}          // modal: "Buy land"     — tier 1, $100
+  {"action": "decide", "choice": "build"}        // modal: "Buy + house"  — tier 2, $300 from unowned
+  {"action": "decide", "choice": "build_hotel"}  // modal: "Buy + hotel"  — tier 3, $400 from unowned
+
+All three "buy*" actions also buy the land if it's unowned. The backend
+action name "build" really means "Buy + house" in the UI, and
+"build_hotel" means "Buy + hotel".
+
+You are NOT a vision assistant. You are NOT asked to read images or
+physically roll dice. The arm executes whatever JSON you emit. If
+fsm == "TURN_START" pick roll_and_move with player = state.turn. If
+state.decision_pending is set, pick a decide choice.
+
+decision_pending.max_tier rules:
+  - max_tier == 3 → all four choices valid (BOSTON / SEOUL / TAIPEI /
+    SHANGHAI / TOKYO / BUSAN / NEWYORK / LONDON).
+  - max_tier == 1 → ONLY "buy" or "skip" (ELECTRIC_COMPANY utility).
+    "build" and "build_hotel" are rejected by the backend.
+
+If the "Context:" line contains a user phrase, honor it. People speak in
+natural English ("Can you buy a hotel?", "Let's build a house",
+"Skip this one"). Map by the HEAD NOUN, not by exact strings:
+  head noun "hotel"        → emit "build_hotel"
+      e.g. "Buy a hotel", "Can you build a hotel?", "Hotel please."
+  head noun "house"        → emit "build"
+      e.g. "Buy a house", "Build a house", "Let's get a house."
+  head noun "land" only,
+    or bare buy verb       → emit "buy"
+      e.g. "Buy it", "Just buy the land", "Take this one."
+  negation / pass / skip   → emit "skip"
+      e.g. "Skip", "Pass", "No, don't buy", "Leave it."
+"Buy a hotel" / "Buy a house" do NOT map to "buy" — the head noun
+dictates the tier. If the user's tier is illegal for the decision (e.g.
+"hotel" on a max_tier=1 utility, or "house" when already at tier 2),
+pick the closest legal option ("buy" for utility, or "skip").
+
+If the Context is generic (robot's own turn, no user phrase), use your
+own judgment based on the State JSON below (your cash, owned tiers,
+opponent's holdings, lap count). There is NO fixed heuristic — pick
+whichever of skip / buy / build / build_hotel you think is best.
+
+Reply with ONLY the JSON, nothing else.`;
 
 async function vlmPlayerAct(userMessage) {
   if (vlmPlayerInFlight) return;
@@ -1631,7 +1721,12 @@ function maybeAutoTriggerRobotTurn() {
     vlmPlayerAct("It's your turn (robot). Roll the dice and move your cube.");
   } else if (currentState.fsm === "AWAIT_DECISION" && pendingDecision) {
     vlmPlayerLastTurnKey = key;
-    vlmPlayerAct("You landed on a buyable property. Decide buy / build / build_hotel / skip.");
+    vlmPlayerAct(
+      "You (robot) landed on a buyable property. There is no human voice " +
+      "intent for this decision — read the State JSON below and decide for " +
+      "yourself which of skip / buy / build / build_hotel is best. Respect " +
+      "decision_pending.max_tier (utility tiles allow only buy or skip).",
+    );
   }
 }
 
@@ -1914,6 +2009,23 @@ async function onHotkeyRecorderStop() {
   }
 }
 
+// Whisper is asked to transcribe in English only. The strings below are
+// the most common hallucinations Whisper emits when the audio is silence
+// or background hum — we drop them so the agent never sees a phantom
+// "Thank you." that wasn't actually spoken.
+const WHISPER_HALLUCINATIONS = new Set([
+  "thank you", "thank you.", "thank you!",
+  "thanks for watching", "thanks for watching.", "thanks for watching!",
+  "thank you for watching", "thank you for watching.",
+  "you", "you.", ".", "..", "...",
+  "subscribe", "subscribe.",
+  "[music]", "[applause]", "[silence]",
+  "bye", "bye.",
+]);
+function isWhisperHallucination(text) {
+  const clean = (text || "").trim().toLowerCase().replace(/\s+/g, " ");
+  return clean === "" || WHISPER_HALLUCINATIONS.has(clean);
+}
 async function whisperTranscribe(blob) {
   const form = new FormData();
   const ext = blob.type.includes("webm") ? "webm"
@@ -1921,6 +2033,7 @@ async function whisperTranscribe(blob) {
             : blob.type.includes("mp4")  ? "mp4"
             : "wav";
   form.append("file", blob, `mic.${ext}`);
+  form.append("language", "en");
   const r = await fetch(`${VLM_BASE}/api/whisper/transcribe`, { method: "POST", body: form });
   if (!r.ok) {
     let detail = `HTTP ${r.status}`;
@@ -1929,7 +2042,8 @@ async function whisperTranscribe(blob) {
   }
   const body = await r.json();
   if (body.error) throw new Error(body.error);
-  return body.text || "";
+  const raw = body.text || "";
+  return isWhisperHallucination(raw) ? "" : raw;
 }
 
 async function dispatchVoiceAction(text) {
