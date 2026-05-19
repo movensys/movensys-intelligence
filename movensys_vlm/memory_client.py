@@ -33,6 +33,15 @@ def _timeout() -> float:
     return float(os.environ.get("MEMORY_TIMEOUT", "10"))
 
 
+def _min_score() -> Optional[float]:
+    v = os.environ.get("MEMORY_MIN_SCORE")
+    return float(v) if v else None
+
+
+def _max_store_chars() -> int:
+    return int(os.environ.get("MEMORY_MAX_STORE_CHARS", "1500"))
+
+
 def _qdrant() -> httpx.AsyncClient:
     global _qdrant_client
     if _qdrant_client is None:
@@ -79,6 +88,7 @@ async def store(text: str, metadata: Optional[dict[str, Any]] = None) -> Optiona
     """Embed `text` and upsert into Qdrant. Returns the point id, or None on failure."""
     if not is_enabled() or not text:
         return None
+    text = text[: _max_store_chars()]
     try:
         await _ensure_collection()
         vector = await embed_text(text)
@@ -137,13 +147,17 @@ async def recall(query: str, top_k: Optional[int] = None) -> list[dict[str, Any]
     try:
         await _ensure_collection()
         vector = await embed_text(query)
+        body: dict[str, Any] = {
+            "vector": vector,
+            "limit": top_k if top_k is not None else _top_k(),
+            "with_payload": True,
+        }
+        ms = _min_score()
+        if ms is not None:
+            body["score_threshold"] = ms
         r = await _qdrant().post(
             f"/collections/{_collection()}/points/search",
-            json={
-                "vector": vector,
-                "limit": top_k if top_k is not None else _top_k(),
-                "with_payload": True,
-            },
+            json=body,
         )
         r.raise_for_status()
         return r.json().get("result", [])
@@ -162,8 +176,7 @@ def format_recall(hits: list[dict[str, Any]]) -> str:
         text = payload.get("text", "").strip()
         if not text:
             continue
-        score = h.get("score")
-        lines.append(f"- (score={score:.2f}) {text}" if score is not None else f"- {text}")
+        lines.append(f"- {text}")
     if not lines:
         return ""
     return "Relevant past observations:\n" + "\n".join(lines)
