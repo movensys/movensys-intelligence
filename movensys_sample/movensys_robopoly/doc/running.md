@@ -14,8 +14,13 @@ pip install -r requirements.txt
 ### Run
 
 ```bash
-python3 -m uvicorn main:app --host 0.0.0.0 --port 7999
+python3 -m uvicorn main:app --host 127.0.0.1 --port 7999
 ```
+
+> Bind to `127.0.0.1` (not `0.0.0.0`). The browser requires a secure
+> origin to grant `getUserMedia()` mic access — `http://localhost:*`
+> and `http://127.0.0.1:*` qualify; `http://0.0.0.0:*` and
+> `http://<lan-ip>:*` do not. Open the UI at `http://localhost:7999/`.
 
 ### Stop
 

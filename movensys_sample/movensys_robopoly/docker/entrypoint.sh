@@ -6,4 +6,9 @@ set -e
 source /opt/ros/${ROS_DISTRO}/setup.bash
 
 cd /app
-exec uvicorn main:app --host 0.0.0.0 --port "${MONOPOLY_PORT:-7999}"
+# Bind loopback only — getUserMedia() requires a secure context, and
+# `http://0.0.0.0:*` / `http://<lan-ip>:*` are non-secure origins, so
+# the browser would block microphone access. `127.0.0.1` (localhost)
+# is treated as secure. network_mode: host in compose makes this port
+# reachable on the host's loopback exactly the same way.
+exec uvicorn main:app --host 127.0.0.1 --port "${MONOPOLY_PORT:-7999}"

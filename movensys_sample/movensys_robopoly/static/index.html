@@ -21,6 +21,8 @@
           <h2>Ask VLM</h2>
           <span class="stream-dot" id="vlm-loop-dot" style="margin-left:auto"></span>
           <span class="vlm-loop-status" id="vlm-loop-status">idle</span>
+          <span class="hotkey-pill" id="hotkey-pill-z" title="Z — hold to act">Z</span>
+          <span class="hotkey-pill" id="hotkey-pill-x" title="X — hold to ask">X</span>
         </div>
         <div class="vlm-body">
           <div class="vlm-col vlm-col-query">
@@ -56,8 +58,12 @@
               <button id="vlm-mem-clear" class="vlm-btn vlm-btn-secondary"
                       title="Delete all stored memories from the vector DB">Clear memory</button>
             </div>
-            <div id="vlm-response" class="vlm-response empty">No response yet.</div>
-            <div id="vlm-meta" class="vlm-meta"></div>
+            <div class="vlm-hotkey-hint">
+              <kbd>Z</kbd> hold &amp; speak → act &nbsp;·&nbsp;
+              <kbd>X</kbd> hold &amp; speak → ask
+              <span class="vlm-hotkey-state" id="vlm-hotkey-state"></span>
+            </div>
+            <div id="vlm-chat" class="vlm-chat" aria-live="polite"></div>
           </div>
 
           <div class="vlm-col vlm-col-prompt">
@@ -80,7 +86,7 @@
       <div class="board-pane-label">GAME BOARD</div>
       <div class="board-wrap" id="board-wrap">
         <div id="board-host"></div>
-        <svg id="pieces" viewBox="0 0 1261 584" preserveAspectRatio="xMidYMid meet">
+        <svg id="pieces" viewBox="0 0 1559 794" preserveAspectRatio="xMidYMid meet">
           <rect id="piece-user"  width="50" height="50" x="-100" y="-100" fill="var(--user)"  stroke="#000" stroke-width="2.5"/>
           <rect id="piece-robot" width="50" height="50" x="-100" y="-100" fill="var(--robot)" stroke="#000" stroke-width="2.5"/>
         </svg>

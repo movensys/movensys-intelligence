@@ -21,7 +21,7 @@ board_positions = {
             "sim_pos": [-0.3323, -0.15907, 0.3]
         }
     },
-    "SUWON": {
+    "BOSTON": {
         "red_cube": {
             "pos": [-0.38973, -0.07005, 0.3],
             "ori": [3.14, 0.0, -1.57],
@@ -45,7 +45,7 @@ board_positions = {
             "sim_pos": [-0.34041, -0.02614, 0.3]
         }
     },
-    "IN_JAIL": {
+    "DESERT_ISLAND": {
         "red_cube": {
             "pos": [-0.38973, 0.05505, 0.3],
             "ori": [3.14, 0.0, -1.57],
@@ -69,7 +69,7 @@ board_positions = {
             "sim_pos": [-0.23001, 0.04039, 0.3]
         }
     },
-    "JEONJU": {
+    "TAIPEI": {
         "red_cube": {
             "pos": [-0.15, 0.05505, 0.3],
             "ori": [3.14, 0.0, -1.57],
@@ -81,7 +81,7 @@ board_positions = {
             "sim_pos": [-0.10781, 0.04039, 0.3]
         }
     },
-    "DAEJEON": {
+    "SHANGHAI": {
         "red_cube": {
             "pos": [-0.035, 0.05505, 0.3],
             "ori": [3.14, 0.0, -1.57],
@@ -105,7 +105,7 @@ board_positions = {
             "sim_pos": [0.12049, 0.04039, 0.3]
         }
     },
-    "GYEONGJU": {
+    "TOKYO": {
         "red_cube": {
             "pos": [0.082, -0.005, 0.3],
             "ori": [3.14, 0.0, -1.57],
@@ -129,7 +129,7 @@ board_positions = {
             "sim_pos": [0.12049, -0.09362, 0.3]
         }
     },
-    "GO_TO_JAIL": {
+    "GO_TO_DESERT_ISLAND": {
         "red_cube": {
             "pos": [0.082, -0.14509, 0.3],
             "ori": [3.14, 0.0, -1.57],
@@ -141,7 +141,7 @@ board_positions = {
             "sim_pos": [0.12049, -0.16341, 0.3]
         }
     },
-    "DAEGU": {
+    "NEW_YORK": {
         "red_cube": {
             "pos": [-0.035, -0.14509, 0.3],
             "ori": [3.14, 0.0, -1.57],
@@ -165,7 +165,7 @@ board_positions = {
             "sim_pos": [-0.11251, -0.16341, 0.3]
         }
     },
-    "BUNDANG": {
+    "LONDON": {
         "red_cube": {
             "pos": [-0.26, -0.14509, 0.29],
             "ori": [3.14, 0.0, -1.57],
@@ -504,12 +504,12 @@ class PnP:
         # This is for piece pnp.
         else:
             yaw_status = self._checking_yaw(self.yaw)
-            # clockwisely rotate 90 degree.
-            if board_pos in ("GO", "SUWON", "SEOUL", "INCHEON_AIRPORT", "IN_JAIL"):
+            # clockwisely rotate 90 degree. (Left-column tiles.)
+            if board_pos in ("GO", "BOSTON", "SEOUL", "DESERT_ISLAND"):
                 self.converting_yaw(yaw_status=yaw_status, target_yaw_status=1)
 
-            # Counter clockwisely rotate -90 degree.
-            elif board_pos in ("NON-FREE_PARKING", "BUSAN", "GYEONGJU", "GANGNEUNG", "GO_TO_JAIL"):
+            # Counter clockwisely rotate -90 degree. (Right-column tiles.)
+            elif board_pos in ("NON-FREE_PARKING", "TOKYO", "BUSAN", "GO_TO_DESERT_ISLAND"):
                 self.converting_yaw(yaw_status=yaw_status, target_yaw_status=1)
 
             # Rotate 180 degree. Looking front side.
