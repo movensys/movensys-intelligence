@@ -21,7 +21,7 @@ board_positions = {
             "sim_pos": [-0.3323, -0.15907, 0.3]
         }
     },
-    "SUWON": {
+    "BOSTON": {
         "red_cube": {
             "pos": [-0.38973, -0.07005, 0.3],
             "ori": [3.14, 0.0, -1.57],
@@ -45,7 +45,7 @@ board_positions = {
             "sim_pos": [-0.34041, -0.02614, 0.3]
         }
     },
-    "IN_JAIL": {
+    "DESERT_ISLAND": {
         "red_cube": {
             "pos": [-0.38973, 0.05505, 0.3],
             "ori": [3.14, 0.0, -1.57],
@@ -69,7 +69,7 @@ board_positions = {
             "sim_pos": [-0.23001, 0.04039, 0.3]
         }
     },
-    "JEONJU": {
+    "TAIPEI": {
         "red_cube": {
             "pos": [-0.15, 0.05505, 0.3],
             "ori": [3.14, 0.0, -1.57],
@@ -81,7 +81,7 @@ board_positions = {
             "sim_pos": [-0.10781, 0.04039, 0.3]
         }
     },
-    "DAEJEON": {
+    "SHANGHAI": {
         "red_cube": {
             "pos": [-0.035, 0.05505, 0.3],
             "ori": [3.14, 0.0, -1.57],
@@ -105,7 +105,7 @@ board_positions = {
             "sim_pos": [0.12049, 0.04039, 0.3]
         }
     },
-    "GYEONGJU": {
+    "TOKYO": {
         "red_cube": {
             "pos": [0.082, -0.005, 0.3],
             "ori": [3.14, 0.0, -1.57],
@@ -129,7 +129,7 @@ board_positions = {
             "sim_pos": [0.12049, -0.09362, 0.3]
         }
     },
-    "GO_TO_JAIL": {
+    "GO_TO_DESERT_ISLAND": {
         "red_cube": {
             "pos": [0.082, -0.14509, 0.3],
             "ori": [3.14, 0.0, -1.57],
@@ -141,7 +141,7 @@ board_positions = {
             "sim_pos": [0.12049, -0.16341, 0.3]
         }
     },
-    "DAEGU": {
+    "NEW_YORK": {
         "red_cube": {
             "pos": [-0.035, -0.14509, 0.3],
             "ori": [3.14, 0.0, -1.57],
@@ -165,7 +165,7 @@ board_positions = {
             "sim_pos": [-0.11251, -0.16341, 0.3]
         }
     },
-    "BUNDANG": {
+    "LONDON": {
         "red_cube": {
             "pos": [-0.26, -0.14509, 0.29],
             "ori": [3.14, 0.0, -1.57],
@@ -195,14 +195,22 @@ def _post(path: str, payload: dict):
     if DRY_RUN:
         logger.info("[dry-run] POST %s %s", path, payload)
         return {}
-    return requests.post(f"{URL}{path}", json=payload).json()
+    start = time.perf_counter()
+    try:
+        return requests.post(f"{URL}{path}", json=payload).json()
+    finally:
+        logger.info("[timing] POST %s: %.1f ms", path, (time.perf_counter() - start) * 1000.0)
 
 
 def _get(path: str):
     if DRY_RUN:
         logger.info("[dry-run] GET %s", path)
         return {}
-    return requests.get(f"{URL}{path}").json()
+    start = time.perf_counter()
+    try:
+        return requests.get(f"{URL}{path}").json()
+    finally:
+        logger.info("[timing] GET %s: %.1f ms", path, (time.perf_counter() - start) * 1000.0)
 
 
 def _sleep(seconds: float) -> None:
@@ -212,6 +220,25 @@ def _sleep(seconds: float) -> None:
     if DRY_RUN:
         return
     time.sleep(seconds)
+
+
+def _timed_method(label: str):
+    def deco(fn):
+        def wrapper(*args, **kwargs):
+            start = time.perf_counter()
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                logger.info("[timing] %s: %.1f ms", label, (time.perf_counter() - start) * 1000.0)
+        return wrapper
+    return deco
+
+
+# Motion API calls (/api/move/*) are blocking ROS service calls, so no
+# pacing sleep is needed between motions. The gripper SetBool service
+# returns before the jaws physically settle — keep a small post-gripper
+# wait so subsequent motion doesn't drag/drop the cube.
+_GRIPPER_SETTLE_S = 0.6
 
 
 def move_base():
@@ -277,6 +304,13 @@ class PnP:
         self.ori: Optional[dict] = None
         self.yaw: Optional[float] = None
 
+        # Wall-clock time (time.time()) of the instant the gripper opened to
+        # release the dice in _dest_move. main() uses this to ignore stale
+        # /api/topics/dice_number cached from before/during the lift — only a
+        # YOLO publication newer than (drop_time + settle) reflects the rolled
+        # face.
+        self._dice_drop_time: Optional[float] = None
+
     @staticmethod
     def _quaternion_to_yaw(qw: float, qx: float, qy: float, qz: float) -> float:
         siny_cosp = 2.0 * (qw * qz + qx * qy)
@@ -291,15 +325,14 @@ class PnP:
             # absolute_cartesian_base([-0.12857, 0.0, 0.3500], [3.141, 0.0, -3.141])
             absolute_cartesian_base([-0.18, 0.035, 0.52], [3.141, 0.0, -3.141])
 
-    def _toward_target(self, target_object: str = "dice", delay_exec: float = 0.2, target_pos: list = [0.0, 0.0, 0.0], target_ori: list = [0.0, 0.0, 0.0]):
+    @_timed_method("toward_target")
+    def _toward_target(self, target_object: str = "dice", target_pos: list = [0.0, 0.0, 0.0], target_ori: list = [0.0, 0.0, 0.0]):
         if target_object == "dice":
             if self.is_YOLO:
                 relative_cartesian_tool(target_pos, target_ori)
-                _sleep(delay_exec)
             else:
                 absolute_cartesian_base(target_pos, target_ori)
-                _sleep(delay_exec)
-            
+
             # Go down
             relative_cartesian_tool([0.0,0.0,0.01], [0.0,0.0,0.0])
         else:
@@ -307,27 +340,33 @@ class PnP:
             if self.is_YOLO:
                 print(target_pos)
                 relative_cartesian_tool(target_pos, target_ori)
-                _sleep(delay_exec)
             else:
                 absolute_cartesian_base(target_pos, target_ori)
-                _sleep(delay_exec)
 
             # Go down
             relative_cartesian_tool([0.0,0.0,0.025], [0.0,0.0,0.0])
 
-    def _dest_move(self, target_object: str = "dice", delay_exec: float = 0.2, board_pos: str = "GO"):
+    @_timed_method("dest_move")
+    def _dest_move(self, target_object: str = "dice", board_pos: str = "GO"):
         if target_object == "dice":
             # Go up
             relative_cartesian_tool([0.0,0.0,-0.1], [0.0,0.0,0.0])
-            _sleep(delay_exec)
 
-            # place
+            # place — release the dice and stamp the drop instant so main()
+            # can wait for a post-roll YOLO detection.
             gripper(close=False)
-            _sleep(delay_exec)
+            self._dice_drop_time = time.time()
+            _sleep(_GRIPPER_SETTLE_S)
+
+            # Retreat to the dice init pose. The gripper hovering ~10cm
+            # above the dropped dice blocks the top camera, so YOLO can
+            # never see the rolled face. The init pose was clear enough
+            # for the pre-pickup detection — it's clear enough for the
+            # post-roll one too.
+            self._init_move("dice")
         else:
             # Go up
             relative_cartesian_tool([0.0,0.0,-0.050], [0.0,0.0,0.0])
-            _sleep(delay_exec)
 
             # Go upper side of target pos.
             if self.is_YOLO:
@@ -336,21 +375,19 @@ class PnP:
                 target_pos = board_positions[board_pos][target_object]["sim_pos"]
             target_pos[2] = target_pos[2] + 0.035
             absolute_cartesian_base(target_pos, board_positions[board_pos][target_object]["ori"])
-            _sleep(delay_exec)
 
             # Go down
             relative_cartesian_tool([0.0,0.0,0.055], [0.0,0.0,0.0])
-            _sleep(delay_exec)
 
             # place
             gripper(close=False)
-            _sleep(delay_exec)
+            _sleep(_GRIPPER_SETTLE_S)
 
             # Go up and prepare to go init pos
             relative_cartesian_tool([0.0,0.0,-0.06], [0.0,0.0,0.0])
-            _sleep(delay_exec)
 
-    def get_piece_info(self) -> bool:
+    @_timed_method("get_piece_info")
+    def get_piece_info(self, min_received_at: Optional[float] = None) -> bool:
         _target_object = self.TARGET_STR[self.target_num]
 
         if DRY_RUN:
@@ -382,6 +419,13 @@ class PnP:
 
             # find the result
             tf = tf_all[_target_object]
+            # Reject cached TF entries older than the caller-supplied cutoff.
+            # Used by the fallback search to ignore stale detections from
+            # before the probe motion.
+            if min_received_at is not None and tf.get("received_at", 0.0) < min_received_at:
+                logger.info("%s detection is stale (received_at=%.3f < %.3f)",
+                            _target_object, tf.get("received_at", 0.0), min_received_at)
+                return False
             self.pos = {"x": round(tf["translation"]["x"], 5), "y": round(tf["translation"]["y"], 5), "z": round(tf["translation"]["z"], 5)}
             self.ori = {"w": tf["rotation"]["w"], "x": tf["rotation"]["x"], "y": tf["rotation"]["y"], "z": tf["rotation"]["z"]}
 
@@ -413,12 +457,49 @@ class PnP:
         # Then wrap to (-pi, pi].
         self.yaw = (self.yaw + delta + math.pi) % (2 * math.pi) - math.pi
 
+    _SEARCH_OFFSETS = (
+        ("front", ( 0.05,  0.0)),
+        ("back",  (-0.05,  0.0)),
+        ("right", ( 0.0,  -0.05)),
+        ("left",  ( 0.0,   0.05)),
+    )
+    _SEARCH_SETTLE_S = 2.5
+
+    @_timed_method("search_for_target")
+    def _search_for_target(self) -> bool:
+        """Fallback: nudge +/-5cm in base XY (front, back, right, left) and
+        retry detection at each probe. Undoes each probe before the next so
+        the arm ends at the original pose whether we succeed or fail."""
+        for name, (dx, dy) in self._SEARCH_OFFSETS:
+            logger.info("search: probing %s (dx=%+.2f, dy=%+.2f)", name, dx, dy)
+            mv = relative_cartesian_base([dx, dy, 0.0], [0.0, 0.0, 0.0])
+            if not mv.get("success", False):
+                logger.warning("search: %s probe motion failed: %s", name, mv.get("message"))
+                continue
+            probe_time = time.time()
+            time.sleep(self._SEARCH_SETTLE_S)
+            found = self.get_piece_info(min_received_at=probe_time)
+            if found:
+                logger.info("search: detected %s after %s probe", self.target_object, name)
+                return True
+
+            relative_cartesian_base([-dx, -dy, 0.0], [0.0, 0.0, 0.0])
+            probe_time = time.time()
+            time.sleep(self._SEARCH_SETTLE_S)
+            found = self.get_piece_info(min_received_at=probe_time)
+            if found:
+                logger.info("search: detected %s after %s probe", self.target_object, name)
+                return True
+
+        return False
+
+    @_timed_method("pick_and_place")
     def pick_and_place(self, board_pos: str = "GO"):
         if board_pos not in board_positions:
             raise ValueError(f"Unknown board_pos '{board_pos}'. Choose one of: {list(board_positions)}")
 
         gripper(close=False)
-        _sleep(self.delay_exec)
+        _sleep(_GRIPPER_SETTLE_S)
         # move to initial position
         
         # For YOLO, we need to set offset
@@ -439,12 +520,12 @@ class PnP:
         # This is for piece pnp.
         else:
             yaw_status = self._checking_yaw(self.yaw)
-            # clockwisely rotate 90 degree.
-            if board_pos in ("GO", "SUWON", "SEOUL", "INCHEON_AIRPORT", "IN_JAIL"):
+            # clockwisely rotate 90 degree. (Left-column tiles.)
+            if board_pos in ("GO", "BOSTON", "SEOUL", "DESERT_ISLAND"):
                 self.converting_yaw(yaw_status=yaw_status, target_yaw_status=1)
 
-            # Counter clockwisely rotate -90 degree.
-            elif board_pos in ("NON-FREE_PARKING", "BUSAN", "GYEONGJU", "GANGNEUNG", "GO_TO_JAIL"):
+            # Counter clockwisely rotate -90 degree. (Right-column tiles.)
+            elif board_pos in ("NON-FREE_PARKING", "TOKYO", "BUSAN", "GO_TO_DESERT_ISLAND"):
                 self.converting_yaw(yaw_status=yaw_status, target_yaw_status=1)
 
             # Rotate 180 degree. Looking front side.
@@ -467,19 +548,52 @@ class PnP:
             target_ori = [-3.14, 0.0, self.yaw]
             logger.info(f"{self.target_object}: x={self.pos['y']}, y={-self.pos['x']}, z={self.pos['z']}, yaw={self.yaw}")
         
-        self._toward_target(self.target_object, self.delay_exec, target_pos, target_ori)
-        _sleep(self.delay_exec)
+        self._toward_target(self.target_object, target_pos, target_ori)
 
         # grasp
         gripper(close=True)
-        _sleep(self.delay_exec)
+        _sleep(_GRIPPER_SETTLE_S)
 
         # move to destination
-        self._dest_move(self.target_object, self.delay_exec, board_pos)
-        _sleep(self.delay_exec)
+        self._dest_move(self.target_object, board_pos)
 
 
 
+
+
+# After the dice is released we wait this long for it to physically stop
+# rolling before trusting a YOLO reading. The polling loop then keeps
+# checking up to _DICE_POLL_TIMEOUT_S in case YOLO publishes a little late.
+_DICE_SETTLE_S = 1.5
+_DICE_POLL_TIMEOUT_S = 5.0
+_DICE_POLL_INTERVAL_S = 0.1
+
+
+def _wait_for_rolled_dice_number(drop_time: float) -> Optional[int]:
+    """Poll /api/topics/dice_number until YOLO publishes a value whose
+    received_at is past (drop_time + settle) — i.e., detected after the dice
+    finished rolling. Returns None if no fresh value arrives before timeout.
+    """
+    time.sleep(_DICE_SETTLE_S)
+    fresh_after = drop_time + _DICE_SETTLE_S
+    deadline = time.time() + _DICE_POLL_TIMEOUT_S
+    while time.time() < deadline:
+        try:
+            resp = requests.get(f"{URL}/api/topics/dice_number", timeout=2.0)
+        except Exception as exc:
+            logger.warning("dice_number poll error: %s", exc)
+            time.sleep(_DICE_POLL_INTERVAL_S)
+            continue
+        if resp.ok:
+            payload = resp.json()
+            received_at = payload.get("received_at", 0.0)
+            value = payload.get("value")
+            if value is not None and received_at >= fresh_after:
+                return int(value)
+        else:
+            logger.warning("dice_number fetch returned %s: %s", resp.status_code, resp.text)
+        time.sleep(_DICE_POLL_INTERVAL_S)
+    return None
 
 
 def _parse_is_yolo(token: str) -> bool:
@@ -491,12 +605,91 @@ def _parse_is_yolo(token: str) -> bool:
     raise ValueError(f"Unrecognized is_YOLO value '{token}'. Use true/false.")
 
 
+_READ_POLL_TIMEOUT_S = 8.0
+_READ_POLL_INTERVAL_S = 0.2
+
+
+def _read_dice_only(is_yolo: bool, pnp: "PnP", main_start: float) -> None:
+    """User-turn dice path: the human has already thrown the die. Move the
+    arm to the dice scan pose (so the gripper is out of the camera's way)
+    and read whatever YOLO currently sees. No pickup, no drop, no
+    freshness check — the dice was rolled BEFORE this script started, so
+    the cached YOLO publish (which may have a received_at older than the
+    arm motion) is exactly the value we want.
+
+    Guarantees that DICE_NUMBER=<n> is printed before this function
+    returns. If YOLO never publishes anything, we fall back to a default
+    of 1 with a loud error log — emitting *something* lets the calling
+    chain (router → apply_robot → end_turn) proceed instead of
+    dead-ending on a 502 with no user-visible message. The operator will
+    see the warning and can re-roll if the face is wrong.
+    """
+    init_start = time.perf_counter()
+    logger.info("read mode: moving arm to dice scan pose")
+    pnp._init_move("dice")
+    time.sleep(2.0)
+    logger.info(
+        "[timing] read_init+settle: %.1f ms",
+        (time.perf_counter() - init_start) * 1000.0,
+    )
+
+    value: Optional[int] = None
+    last_status: Optional[int] = None
+    last_detail: Optional[str] = None
+
+    if is_yolo:
+        deadline = time.time() + _READ_POLL_TIMEOUT_S
+        attempts = 0
+        while time.time() < deadline:
+            attempts += 1
+            try:
+                resp = requests.get(f"{URL}/api/topics/dice_number", timeout=2.0)
+                last_status = resp.status_code
+                if resp.ok:
+                    payload = resp.json()
+                    cached = payload.get("value")
+                    received_at = payload.get("received_at")
+                    if cached is not None:
+                        value = int(cached)
+                        logger.info(
+                            "read mode: got dice_number=%s after %d attempt(s) (received_at=%s)",
+                            value, attempts, received_at,
+                        )
+                        break
+                    last_detail = "ok but no 'value' field"
+                else:
+                    # 503 "No dice number received yet" lands here.
+                    try:
+                        last_detail = resp.json().get("detail")
+                    except Exception:
+                        last_detail = resp.text[:200]
+            except Exception as exc:
+                last_detail = repr(exc)
+                logger.warning("dice_number fetch error: %s", exc)
+            time.sleep(_READ_POLL_INTERVAL_S)
+
+        if value is None:
+            logger.error(
+                "read mode: YOLO never returned a usable dice_number after %d attempt(s) "
+                "(last status=%s, last detail=%s). Falling back to DICE_NUMBER=1 so the "
+                "turn doesn't dead-end. Re-roll if this face is wrong.",
+                attempts, last_status, last_detail,
+            )
+            value = 1
+    else:
+        value = random.randint(1, 6)
+
+    print(f"DICE_NUMBER={value}", flush=True)
+    logger.info("read mode: emitted DICE_NUMBER=%s", value)
+    logger.info("[timing] read_total: %.1f ms", (time.perf_counter() - main_start) * 1000.0)
+
+
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
     if len(sys.argv) < 4:
         raise SystemExit(
-            "Usage: python3 pick_and_place.py <target_object> <board_pos> <is_YOLO>"
+            "Usage: python3 pick_and_place.py <target_object> <board_pos> <is_YOLO> [mode]"
         )
 
     # is_YOLO drives PnP.TARGET_STR (yolo_cube_* vs piece_*) and per-method
@@ -504,36 +697,89 @@ def main():
     # instantiated.
     is_yolo = _parse_is_yolo(sys.argv[3])
 
+    # Optional 4th arg. "roll" (default) is the full pick+drop chain used
+    # on the robot turn. "read" is the user-turn path — the human has
+    # already thrown the dice, we only need to look at it. Only valid
+    # when target_object == "dice".
+    mode = (sys.argv[4] if len(sys.argv) >= 5 else "roll").strip().lower()
+    if mode not in ("roll", "read"):
+        raise SystemExit(f"Unrecognized mode '{mode}'. Use 'roll' or 'read'.")
+    if mode == "read" and sys.argv[1] != "dice":
+        raise SystemExit("mode='read' is only valid for target_object='dice'")
+
     pnp = PnP(target_object=sys.argv[1], is_YOLO=is_yolo, delay_exec=2.0)
 
+    main_start = time.perf_counter()
+
+    if mode == "read":
+        _read_dice_only(is_yolo, pnp, main_start)
+        return
+
     # init
+    init_start = time.perf_counter()
     pnp._init_move(sys.argv[1])
-    _sleep(3.0)
+    init_done_at = time.time()
+    time.sleep(3.0)
+    logger.info("[timing] init_move+settle: %.1f ms", (time.perf_counter() - init_start) * 1000.0)
 
     # pick and place
-    if not pnp.get_piece_info():
-        logger.error("Failed to get piece info, aborting.")
-        return
+    detect_start = time.perf_counter()
+    if not pnp.get_piece_info(min_received_at=init_done_at if is_yolo else None):
+        if is_yolo:
+            logger.info("Initial detection missed, starting 4-direction fallback search")
+            if not pnp._search_for_target():
+                # Exit non-zero so the spawning router sees PNP_FAILED and
+                # surfaces it to the frontend, instead of silently advancing
+                # the game state while the physical cube never moved.
+                logger.error("Failed to detect %s after search, aborting.", sys.argv[1])
+                sys.exit(1)
+        else:
+            logger.error("Failed to get piece info, aborting.")
+            sys.exit(1)
+    logger.info("[timing] detect_phase: %.1f ms", (time.perf_counter() - detect_start) * 1000.0)
 
     pnp.pick_and_place(board_pos=sys.argv[2])
 
-    # When rolling the dice, emit the YOLO-detected face value so the caller
-    # (e.g. the monopoly server) can pick it up before the motion finishes.
+    logger.info("[timing] main_total: %.1f ms", (time.perf_counter() - main_start) * 1000.0)
+
+    # Emit the rolled face. For YOLO we must wait until *after* the dice has
+    # been released and settled — /api/topics/dice_number is just a cached
+    # latest detection, so reading it without a freshness check would report
+    # the face from before pickup (or a transient mid-lift detection).
     if sys.argv[1] == "dice":
         if is_yolo:
-            try:
-                resp = requests.get(f"{URL}/api/topics/dice_number", timeout=2.0)
-                if resp.ok:
-                    value = resp.json().get("value")
-                    if value is not None:
-                        print(f"DICE_NUMBER={int(value)}", flush=True)
-                        logger.info("Detected dice number: %s", value)
-                    else:
-                        logger.warning("dice_number response missing 'value': %s", resp.text)
-                else:
-                    logger.warning("dice_number fetch returned %s: %s", resp.status_code, resp.text)
-            except Exception as exc:
-                logger.warning("Failed to fetch dice number: %s", exc)
+            drop_time = pnp._dice_drop_time
+            if drop_time is None:
+                logger.warning(
+                    "Dice drop_time not recorded; falling back to immediate read (value may be stale)."
+                )
+                drop_time = 0.0
+            value = _wait_for_rolled_dice_number(drop_time)
+            if value is None:
+                # YOLO never published a post-roll detection. Rather than
+                # leave the router blocked waiting for DICE_NUMBER (which
+                # would stall the whole turn), emit the latest cached value
+                # so the game can advance. We log a warning so the operator
+                # knows the reading may not reflect the true rolled face.
+                logger.warning(
+                    "No fresh dice_number after drop — falling back to latest cached value"
+                )
+                try:
+                    resp = requests.get(f"{URL}/api/topics/dice_number", timeout=2.0)
+                    if resp.ok:
+                        cached = resp.json().get("value")
+                        if cached is not None:
+                            value = int(cached)
+                except Exception as exc:
+                    logger.warning("dice_number fallback fetch failed: %s", exc)
+            if value is not None:
+                print(f"DICE_NUMBER={value}", flush=True)
+                logger.info("Detected rolled dice number: %s", value)
+            else:
+                logger.error(
+                    "Unable to obtain any dice_number (drop_time=%.3f) — DICE_NUMBER not emitted",
+                    drop_time,
+                )
         else:
             value = random.randint(1, 6)
             print(f"DICE_NUMBER={value}", flush=True)

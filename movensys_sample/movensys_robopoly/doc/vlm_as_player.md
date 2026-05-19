@@ -37,14 +37,26 @@ Two actions are recognized:
 
 Used when `state.fsm == "TURN_START"`. The frontend dispatches this
 by clicking the Roll-dice button, which runs the spec §3 chain in
-`game_logic.md`:
+`game_logic.md`. The **dice step** branches on whose turn it is —
+the move + end-turn steps are identical:
 
-1. `POST /api/dice/roll_robot` — arm picks the die, drops it,
-   YOLO reads the face value.
+1. **Dice value** — picked by `currentState.turn`:
+   - `state.turn == "user"` → `POST /api/dice/read_robot`. The human
+     has already rolled the die by hand; the arm only moves to the
+     dice scan pose so the camera has a clear view, then YOLO is
+     read. **No pickup, no drop.** Submitted as `source="manual"`.
+   - `state.turn == "robot"` → `POST /api/dice/roll_robot`. The arm
+     physically picks up, lifts, and drops the die, retreats to the
+     scan pose, then YOLO reads the rolled face. Submitted as
+     `source="robot"`.
 2. `POST /api/move/apply_robot` — arm drives the named player's
    cube to the destination tile; tile resolution runs server-side
    (rent / tax / chance / auto-liquidation / auto-jail PnP).
 3. `POST /api/game/end_turn` — automatic when no Buy modal pops.
+
+The VLM action itself does **not** change between turns — both
+emit `roll_and_move` with the appropriate `player`. The frontend
+picks read vs roll based on `currentState.turn`.
 
 ### 2.2 `decide`
 
@@ -141,16 +153,19 @@ rest of the session).
 
 ## 4. User turn (spec §4)
 
-4.1. The user physically rolls the die.
+4.1. The user physically rolls the die by hand onto the dice scan area.
 4.2. The user types into the **Ask VLM** textbox (any message —
-     "I rolled" works) and presses Enter / Ask.
+     "I rolled" or "user just rolled the dice" both work) and presses
+     Enter / Ask.
 4.3. The frontend detects `state.turn == "user"`,
      `state.fsm == "TURN_START"` and routes the message through the
      agent loop instead of the normal free-form Q&A path.
 4.4. The VLM replies with `{"action": "roll_and_move", "player": "user"}`.
-     The frontend dispatches: arm picks/drops the die at the dice
-     scan position, reads the YOLO face value, then drives the
-     red cube to `(from + dice) % size`.
+     The frontend dispatches **the read-only dice path**
+     (`/api/dice/read_robot`): the arm moves to the dice scan pose so
+     the gripper is out of the camera's way, YOLO reads the face the
+     human threw, then the red cube is driven to `(from + dice) % size`.
+     The arm **never picks up or drops** the die on user turns.
 4.5. If the arrival is a buyable tile, the Buy modal pops. The user
      clicks **Skip / Buy land / Buy + house / Buy + hotel** in the
      UI — *not* through the VLM. The user makes their own buy choices.
@@ -167,7 +182,11 @@ rest of the session).
      `turn=robot, fsm=TURN_START`, the frontend auto-prompts the VLM
      ("It's your turn (robot). Roll the dice and move your cube.").
 5.2. The VLM replies with `{"action": "roll_and_move", "player": "robot"}`.
-     The frontend runs the same chain as §4.4 with the green cube.
+     The frontend dispatches **the full roll path** (`/api/dice/roll_robot`):
+     the arm picks up the die at the scan pose, lifts it, drops it,
+     retreats to clear the camera, then YOLO reads the rolled face.
+     After that, the green cube is driven to `(from + dice) % size` —
+     same move chain as the user turn, just with a different cube.
 5.3. If the robot lands on a buyable tile, the frontend re-prompts
      the VLM with the decision_pending state. The VLM replies with a
      `decide` action and the frontend dispatches it. No human input.
@@ -192,6 +211,54 @@ the user-turn path while the robot turn is mid-action and vice versa.
 - VLM emits a `decide` action while the FSM is `TURN_START` (or vice
   versa) → the executor silently rejects mismatched actions because
   the underlying buttons are disabled outside their valid FSM.
+- **`btn-roll-dice` is disabled when the VLM action arrives** — most
+  common cause is `turnInFlight` stuck `true` from a prior failed
+  chain (the `finally` block resets it, so this should only happen if
+  the fsm landed in `AWAIT_DECISION` and the buy modal was dismissed
+  without a `submitDecision`). `executeVlmAction` now logs:
+  `[vlm-player] executeVlmAction: btn-roll-dice is disabled — action
+  dropped.` followed by `{ fsm, turn, winner, turnInFlight }`. Reset
+  via the Reset button or by clicking the buy modal.
+- **Read mode — YOLO has no `dice_number` to publish** (e.g. the
+  `yolo_dice_detector` node isn't running, the camera can't see the
+  thrown die, or the user threw it outside the scan area). The script
+  polls `/api/topics/dice_number` for up to `_READ_POLL_TIMEOUT_S` (8s
+  by default), and if YOLO never returns a value it emits
+  `DICE_NUMBER=1` as a fallback and logs a loud error with the last
+  HTTP status + detail. The chain proceeds (red cube moves, turn ends,
+  robot turn auto-starts) so the game doesn't dead-end on a silent
+  502 — re-roll if the fallback face was wrong. The error log line
+  starts with `read mode: YOLO never returned a usable dice_number`
+  and is the right diagnostic for "robot didn't move after I typed".
+- **Roll mode — YOLO can't see the dice after the drop** (gripper
+  occlusion, camera fault). `_wait_for_rolled_dice_number` times out
+  after `_DICE_POLL_TIMEOUT_S` (5s) past the post-settle window, then
+  falls back to the latest cached `dice_number` so the chain still
+  advances. Log line: `No fresh dice_number after drop — falling back
+  to latest cached value`.
+- **Cube pickup failed (`get_piece_info` + fallback search both
+  miss)** — previously `pick_and_place.py` silently `return`ed with
+  exit 0, so `apply_robot` advanced the game state while the physical
+  cube never moved (board overlay teleported, real cube didn't). The
+  script now `sys.exit(1)`, the router returns `502 PNP_FAILED`, and
+  the frontend's catch logs `[roll-chain] aborted with error: ...`.
+  `turnInFlight` resets cleanly in `finally`; re-trigger the turn
+  after fixing the YOLO occlusion or repositioning the cube.
+
+### 7.1 Diagnosing "robot didn't move after I typed"
+
+The roll-dice chain prints to the browser console at every step. Open
+DevTools → Console before clicking Ask, then check which line appears
+last — that pinpoints where the chain stopped:
+
+| Last line you see | Meaning |
+|---|---|
+| `[vlm-player] dispatching roll_and_move via btn-roll-dice click` | Click was issued. If nothing follows, the click handler bailed before any await — usually `turnInFlight` race. |
+| `[vlm-player] executeVlmAction: btn-roll-dice is disabled — action dropped.` | Button gated; the attached state object says why. |
+| `[roll-chain] dice step: {...}` (no response) | The dice subprocess hung. Check robopoly stdout for `read mode:` / roll-mode timing lines. |
+| `[roll-chain] dice response: {...}` then `unexpected fsm: ...` | Server returned 200 but FSM wasn't `MOVING`. The response object shows what came back. |
+| `[roll-chain] apply_robot: {...}` (no response) | Physical cube move is running; wait. |
+| `[roll-chain] aborted with error: ...` | A fetch threw (502 from server, network). The error contains the HTTP detail — `DICE_NOT_DETECTED`, `PNP_FAILED`, etc. |
 
 ## 8. Code map
 
@@ -205,6 +272,11 @@ the user-turn path while the robot turn is mid-action and vice versa.
     `turn=user, fsm=TURN_START` (§4).
   - `ensureVlmPlayerSystemPrompt` — installs the default prompt on
     boot (§3).
-- No backend changes. All actions reuse:
-  `POST /api/dice/roll_robot`, `POST /api/move/apply_robot`,
-  `POST /api/properties/{pid}/decide`, `POST /api/game/end_turn`.
+- Backend endpoints used by the agent loop:
+  - `POST /api/dice/read_robot` — user turn, read-only (no pickup).
+  - `POST /api/dice/roll_robot` — robot turn, full pick + drop + read.
+  - `POST /api/move/apply_robot`, `POST /api/properties/{pid}/decide`,
+    `POST /api/game/end_turn` — unchanged.
+- The two dice endpoints share `_spawn_dice_subprocess(mode, source)`
+  in `router.py`. The 4th positional arg to `pick_and_place.py` is
+  `"read"` (calls `_read_dice_only`) or `"roll"` (full chain).

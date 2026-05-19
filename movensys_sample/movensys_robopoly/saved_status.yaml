@@ -1,15 +1,96 @@
 board_id: final
-fsm: IDLE
-turn: user
-turn_number: 0
-positions: {}
-players: {}
-properties: {}
+fsm: TURN_START
+turn: robot
+turn_number: 2
+positions:
+  user: 5
+  robot: 0
+players:
+  user:
+    id: user
+    balance: 700
+    in_jail: false
+    jail_turns_left: 0
+    has_jail_free_card: false
+    color: '#E53935'
+  robot:
+    id: robot
+    balance: 1000
+    in_jail: false
+    jail_turns_left: 0
+    has_jail_free_card: false
+    color: '#1E88E5'
+properties:
+  boardfinal:suwon:
+    id: boardfinal:suwon
+    tile_index: 1
+    owner: null
+    houses: 0
+    has_hotel: false
+    mortgaged: false
+  boardfinal:seoul:
+    id: boardfinal:seoul
+    tile_index: 2
+    owner: null
+    houses: 0
+    has_hotel: false
+    mortgaged: false
+  boardfinal:electric_company:
+    id: boardfinal:electric_company
+    tile_index: 4
+    owner: null
+    houses: 0
+    has_hotel: false
+    mortgaged: false
+  boardfinal:jeonju:
+    id: boardfinal:jeonju
+    tile_index: 5
+    owner: user
+    houses: 0
+    has_hotel: true
+    mortgaged: false
+  boardfinal:daejeon:
+    id: boardfinal:daejeon
+    tile_index: 6
+    owner: null
+    houses: 0
+    has_hotel: false
+    mortgaged: false
+  boardfinal:gyeongju:
+    id: boardfinal:gyeongju
+    tile_index: 8
+    owner: null
+    houses: 0
+    has_hotel: false
+    mortgaged: false
+  boardfinal:busan:
+    id: boardfinal:busan
+    tile_index: 9
+    owner: null
+    houses: 0
+    has_hotel: false
+    mortgaged: false
+  boardfinal:daegu:
+    id: boardfinal:daegu
+    tile_index: 11
+    owner: null
+    houses: 0
+    has_hotel: false
+    mortgaged: false
+  boardfinal:bundang:
+    id: boardfinal:bundang
+    tile_index: 13
+    owner: null
+    houses: 0
+    has_hotel: false
+    mortgaged: false
 last_dice: null
 last_dice_sum: null
 pending_dice: null
 doubles_streak: 0
-lap_count: {}
+lap_count:
+  user: 0
+  robot: 0
 winner: null
 config:
   dice_source: rng

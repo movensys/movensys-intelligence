@@ -14,8 +14,13 @@ pip install -r requirements.txt
 ### Run
 
 ```bash
-python3 -m uvicorn main:app --host 0.0.0.0 --port 7999
+python3 -m uvicorn main:app --host 127.0.0.1 --port 7999
 ```
+
+> Bind to `127.0.0.1` (not `0.0.0.0`). The browser requires a secure
+> origin to grant `getUserMedia()` mic access — `http://localhost:*`
+> and `http://127.0.0.1:*` qualify; `http://0.0.0.0:*` and
+> `http://<lan-ip>:*` do not. Open the UI at `http://localhost:7999/`.
 
 ### Stop
 
@@ -33,18 +38,39 @@ pgrep -fa 'uvicorn main:app' || echo "no uvicorn running"
 
 ## 2. Docker Compose
 
-### Run
+The compose file bind-mounts the working-copy source (`main.py`,
+`router.py`, `pick_and_place.py`, `adapters/`, `game/`, `static/`,
+`doc/`, `saved_status.yaml`) into `/app` inside the container. That
+means **edits on the host are picked up on the next container restart**
+— you do **not** need to `docker compose build` for source changes. Only
+rebuild when `requirements.txt` or the `Dockerfile` itself changes.
+
+### Run (full clean cycle)
 
 ```bash
-cd docker
+export MOVENSYS_PNP_DRY_RUN=1   # optional — skips real robot motion
+cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker
 docker compose down
-docker compose up -d --build
+docker compose build            # only needed when deps/Dockerfile change
+docker compose up -d               # foreground; Ctrl-C to stop
+```
+
+Detached variant (matches `run.sh`):
+
+```bash
+docker compose up -d --force-recreate
 ```
 
 ### Logs
 
 ```bash
 docker compose logs -f
+```
+
+### Pick up source changes without rebuild
+
+```bash
+docker compose restart          # re-execs uvicorn against the mounted /app
 ```
 
 ---
@@ -65,9 +91,10 @@ The flag is **off by default** — the compose file exposes it as a pass-through
 so just `export` it in the same shell that runs `docker compose`:
 
 ```bash
-cd docker
 export MOVENSYS_PNP_DRY_RUN=1
-docker compose up -d --force-recreate
+cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker
+docker compose down
+docker compose up
 ```
 
 Or as a one-off, inline:

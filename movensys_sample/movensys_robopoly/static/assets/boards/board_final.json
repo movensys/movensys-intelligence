@@ -9,7 +9,7 @@
     "columns": 5,
     "rows": 4
   },
-  "_note": "Movensys Korea-themed Monopoly. 14 tiles, counter-clockwise from GO (bottom-left).",
+  "_note": "Movensys Board3_v2. 14 tiles, counter-clockwise from GO (bottom-left).",
   "tiles": [
     {
       "index": 0,
@@ -19,7 +19,7 @@
     {
       "index": 1,
       "kind": "property",
-      "name": "Suwon",
+      "name": "Boston",
       "price_buy": 60,
       "price_building": 50,
       "rent_table": [
@@ -49,7 +49,7 @@
     {
       "index": 3,
       "kind": "jail_visit",
-      "name": "In Jail / Just Visiting"
+      "name": "In the Desert Island"
     },
     {
       "index": 4,
@@ -60,7 +60,7 @@
     {
       "index": 5,
       "kind": "property",
-      "name": "Jeonju",
+      "name": "Taipei",
       "price_buy": 200,
       "price_building": 100,
       "rent_table": [
@@ -75,7 +75,7 @@
     {
       "index": 6,
       "kind": "property",
-      "name": "Daejeon",
+      "name": "Shanghai",
       "price_buy": 220,
       "price_building": 100,
       "rent_table": [
@@ -96,7 +96,7 @@
     {
       "index": 8,
       "kind": "property",
-      "name": "Gyeongju",
+      "name": "Tokyo",
       "price_buy": 300,
       "price_building": 150,
       "rent_table": [
@@ -126,12 +126,12 @@
     {
       "index": 10,
       "kind": "go_to_jail",
-      "name": "Go To Jail"
+      "name": "Go to Desert Island"
     },
     {
       "index": 11,
       "kind": "property",
-      "name": "Daegu",
+      "name": "New York",
       "price_buy": 400,
       "price_building": 200,
       "rent_table": [
@@ -151,7 +151,7 @@
     {
       "index": 13,
       "kind": "property",
-      "name": "Bundang",
+      "name": "London",
       "price_buy": 80,
       "price_building": 50,
       "rent_table": [

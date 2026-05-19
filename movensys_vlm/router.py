@@ -79,7 +79,7 @@ class VlmInferRequest(BaseModel):
     image_b64: Optional[str] = None
     prompt: Optional[str] = None
     system_prompt: Optional[str] = None
-    max_tokens: int = 512
+    max_tokens: int = 128
     temperature: float = 0.2
     rotate180: bool = False
     # Per-client namespace for the stored system prompt (e.g. "vlm",

@@ -243,31 +243,39 @@ _DEFAULT_PNP_SCRIPT = Path(__file__).resolve().parent / "pick_and_place.py"
 _DICE_LINE_RE = re.compile(rb"DICE_NUMBER=(\d+)")
 
 # Board tile index → pick_and_place.py board_positions key. 14-tile board,
-# counter-clockwise from GO at bottom-left.
+# counter-clockwise from GO at bottom-left (Board3_v2).
 _TILE_INDEX_TO_BOARD_POS: dict[int, str] = {
     0:  "GO",
-    1:  "SUWON",
+    1:  "BOSTON",
     2:  "SEOUL",
-    3:  "IN_JAIL",
+    3:  "DESERT_ISLAND",
     4:  "ELECTRIC_COMPANY",
-    5:  "JEONJU",
-    6:  "DAEJEON",
+    5:  "TAIPEI",
+    6:  "SHANGHAI",
     7:  "NON-FREE_PARKING",
-    8:  "GYEONGJU",
+    8:  "TOKYO",
     9:  "BUSAN",
-    10: "GO_TO_JAIL",
-    11: "DAEGU",
+    10: "GO_TO_DESERT_ISLAND",
+    11: "NEW_YORK",
     12: "CHANCE",
-    13: "BUNDANG",
+    13: "LONDON",
 }
 _PLAYER_TO_CUBE: dict[str, str] = {"user": "red_cube", "robot": "green_cube"}
 
 
-@api_router.post("/dice/roll_robot")
-async def dice_roll_robot(request: Request, body: DiceRollRobotRequest) -> dict[str, Any]:
-    # Spawn pick_and_place.py dice GO <is_YOLO>, return as soon as the script
-    # prints DICE_NUMBER=<n> (emitted right after get_piece_info). The physical
-    # motion keeps running in the background after we respond.
+async def _spawn_dice_subprocess(
+    request: Request,
+    body: DiceRollRobotRequest,
+    mode: str,
+    source: str,
+) -> dict[str, Any]:
+    """Shared body for /dice/{roll,read}_robot.
+
+    mode="roll" runs the full pick-and-drop chain (robot turn);
+    mode="read" only moves the arm to the dice scan pose so YOLO can see
+    the human-thrown face (user turn). `source` is forwarded to
+    game.submit_dice — "robot" or "manual".
+    """
     script = Path(os.environ.get("MONOPOLY_PNP_SCRIPT", _DEFAULT_PNP_SCRIPT))
     if not script.exists():
         raise HTTPException(
@@ -279,7 +287,7 @@ async def dice_roll_robot(request: Request, body: DiceRollRobotRequest) -> dict[
     is_yolo_arg = "true" if body.is_YOLO else "false"
     try:
         proc = await asyncio.create_subprocess_exec(
-            "python3", str(script), "dice", "GO", is_yolo_arg,
+            "python3", str(script), "dice", "GO", is_yolo_arg, mode,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -301,7 +309,6 @@ async def dice_roll_robot(request: Request, body: DiceRollRobotRequest) -> dict[
             break
 
     if dice_value is None:
-        # Script finished without ever emitting DICE_NUMBER.
         await proc.wait()
         stderr = b""
         if proc.stderr is not None:
@@ -320,7 +327,6 @@ async def dice_roll_robot(request: Request, body: DiceRollRobotRequest) -> dict[
         )
 
     if not 1 <= dice_value <= 6:
-        # Drain & wait so we don't leak the subprocess on bad data.
         asyncio.create_task(_drain_subprocess(proc))
         raise HTTPException(
             status_code=502,
@@ -328,16 +334,32 @@ async def dice_roll_robot(request: Request, body: DiceRollRobotRequest) -> dict[
                     "message": f"invalid dice value {dice_value} from robot"},
         )
 
-    # Detach: let the physical pick-and-place finish in the background while
-    # we return the rolled value to the caller.
+    # Detach: roll mode still has the physical pick-and-place finishing;
+    # read mode is essentially done. Either way, drain in background.
     asyncio.create_task(_drain_subprocess(proc))
 
     try:
-        result = await request.app.state.game.submit_dice(dice_value, "robot")
+        result = await request.app.state.game.submit_dice(dice_value, source)
     except RuleError as exc:
         raise HTTPException(**_http_kwargs(exc))
     result["dice_number"] = dice_value
     return result
+
+
+@api_router.post("/dice/read_robot")
+async def dice_read_robot(request: Request, body: DiceRollRobotRequest) -> dict[str, Any]:
+    """User-turn dice path: the human has rolled the die by hand. The arm
+    moves to the dice scan pose so the camera has a clear view, YOLO is
+    read, and the value is submitted as source="manual". No pickup, no
+    drop — see pick_and_place._read_dice_only.
+    """
+    return await _spawn_dice_subprocess(request, body, mode="read", source="manual")
+
+
+@api_router.post("/dice/roll_robot")
+async def dice_roll_robot(request: Request, body: DiceRollRobotRequest) -> dict[str, Any]:
+    """Robot-turn dice path: arm physically picks up, drops, and reads."""
+    return await _spawn_dice_subprocess(request, body, mode="roll", source="robot")
 
 
 async def _drain_subprocess(proc: asyncio.subprocess.Process) -> None:
@@ -428,9 +450,9 @@ async def move_apply_robot(request: Request, body: MoveApplyRobotRequest) -> dic
         raise HTTPException(**_http_kwargs(exc))
     result["robot"] = {"cube": cube, "board_pos": board_pos}
 
-    # Spec §4.5.1: landing on GO_TO_JAIL teleports the player's position to
-    # IN_JAIL in-engine; physically move the cube there too so the board
-    # state matches the game state.
+    # Spec §4.5.1: landing on GO_TO_DESERT_ISLAND teleports the player's
+    # position to DESERT_ISLAND in-engine; physically move the cube there
+    # too so the board state matches the game state.
     jail_resolved = next(
         (r for r in result.get("resolved", {}).get("tiles", [])
          if r.get("kind") == "go_to_jail"),
@@ -445,14 +467,14 @@ async def move_apply_robot(request: Request, body: MoveApplyRobotRequest) -> dic
 async def _pick_and_place_to_jail(
     script: Path, cube: str, is_yolo: bool,
 ) -> dict[str, Any]:
-    """Run pick_and_place.py <cube> IN_JAIL <is_YOLO> for the §4.5.1
+    """Run pick_and_place.py <cube> DESERT_ISLAND <is_YOLO> for the §4.5.1
     auto-jail move. Raises HTTPException on subprocess failure so the
     caller sees the same error envelope as the primary apply_robot path.
     """
     is_yolo_arg = "true" if is_yolo else "false"
     try:
         proc = await asyncio.create_subprocess_exec(
-            "python3", str(script), cube, "IN_JAIL", is_yolo_arg,
+            "python3", str(script), cube, "DESERT_ISLAND", is_yolo_arg,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -470,7 +492,7 @@ async def _pick_and_place_to_jail(
                 "stderr": stderr.decode("utf-8", "replace"),
             },
         )
-    return {"cube": cube, "board_pos": "IN_JAIL"}
+    return {"cube": cube, "board_pos": "DESERT_ISLAND"}
 
 
 # ---- property -------------------------------------------------------------

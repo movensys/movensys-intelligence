@@ -25,9 +25,10 @@ services:
       - MONOPOLY_DEBUG_ROUTES=${MONOPOLY_DEBUG_ROUTES:-true}
       # External FastAPI adapters all route through the movensys_vlm
       # orchestrator (PRD 8.x). Empty -> stub mode for STT/LLM/Robot.
-      # Default to http://localhost:8000 when the orchestrator is up on
-      # the same host (network_mode: host is in effect).
-      - MOVENSYS_VLM_URL=${MOVENSYS_VLM_URL:-}
+      # Defaults to http://localhost:8000 since network_mode: host is in
+      # effect and the orchestrator typically runs on the same host;
+      # override with `MOVENSYS_VLM_URL=` (empty) to force stub mode.
+      - MOVENSYS_VLM_URL=${MOVENSYS_VLM_URL-http://localhost:8000}
       # Isaac Sim card-spawn publisher (PRD 11.5)
       - MONOPOLY_ISAAC_TOPIC_CARD_SPAWN=${MONOPOLY_ISAAC_TOPIC_CARD_SPAWN:-/isaac/card_spawn}
       # Dry-run mode for pick_and_place.py: when truthy, all manipulator
@@ -37,6 +38,21 @@ services:
       - MOVENSYS_PNP_DRY_RUN=${MOVENSYS_PNP_DRY_RUN:-}
       # Optional persistence (PRD 11.3)
       - MONOPOLY_PERSISTENCE_PATH=${MONOPOLY_PERSISTENCE_PATH:-}
+    # Bind-mount the live source tree over the image's baked /app so the
+    # container always runs the current working-copy code without a rebuild.
+    # uvicorn (entrypoint.sh) execs in /app, so editing main.py/router.py/
+    # adapters/game/static/doc on the host is picked up on container restart
+    # (or on uvicorn reload, if you switch entrypoint to --reload). Rebuild
+    # is only needed when requirements.txt or the Dockerfile itself changes.
+    volumes:
+      - ../main.py:/app/main.py
+      - ../router.py:/app/router.py
+      - ../pick_and_place.py:/app/pick_and_place.py
+      - ../adapters:/app/adapters
+      - ../game:/app/game
+      - ../static:/app/static
+      - ../doc:/app/doc
+      - ../saved_status.yaml:/app/saved_status.yaml
     restart: unless-stopped
     network_mode: host
     # Docker-native readiness probe — surfaces in `docker ps` as

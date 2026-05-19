@@ -1,3 +1,4 @@
+import asyncio
 import os
 from typing import Optional
 
@@ -46,7 +47,7 @@ async def infer(
     image_b64: Optional[str] = None,
     user_prompt: str = "Report the tokens on the board and the die value.",
     system_prompt: Optional[str] = None,
-    max_tokens: int = 512,
+    max_tokens: int = 128,
     temperature: float = 0.2,
     client_id: Optional[str] = None,
 ) -> str:
@@ -54,7 +55,14 @@ async def infer(
     model = os.environ.get("VLM_MODEL_NAME")
 
     base_system = system_prompt if system_prompt is not None else get_system_prompt(client_id)
-    memory_block = memory_client.format_recall(await memory_client.recall(user_prompt))
+    # Memory belongs to conversation, not perception: skip recall/store on
+    # camera-grounded frames so per-frame polling can't pollute the store
+    # with stale token reports.
+    use_memory = image_b64 is None
+    memory_block = (
+        memory_client.format_recall(await memory_client.recall(user_prompt))
+        if use_memory else ""
+    )
     effective_system = f"{base_system}\n\n{memory_block}" if memory_block else base_system
 
     user_content: list = []
@@ -73,9 +81,10 @@ async def infer(
             {"role": "user", "content": user_content},
         ],
     )
-    answer = response.choices[0].message.content
-    await memory_client.store(
-        f"Q: {user_prompt}\nA: {answer}",
-        metadata={"prompt": user_prompt, "model": model},
-    )
+    answer = response.choices[0].message.content or ""
+    if use_memory:
+        asyncio.create_task(memory_client.store(
+            f"Q: {user_prompt}\nA: {answer}",
+            metadata={"model": model},
+        ))
     return answer
