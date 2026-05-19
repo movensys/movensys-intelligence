@@ -28,10 +28,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-trajectory-msgs \
     && rm -rf /var/lib/apt/lists/*
 
+# arize-phoenix + openinference-instrumentation-openai are runtime deps
+# only when PHOENIX_TRACING is set.
+# Pin numpy<2 on jazzy: apt's python3-opencv is built against the numpy 1.x
+# ABI, but arize-phoenix's transitive deps would otherwise pull in numpy 2.x
+# and break `import cv2` at runtime.
 RUN if [ "${ROS_DISTRO}" = "jazzy" ]; then \
-        pip3 install --no-cache-dir --break-system-packages fastapi "uvicorn[standard]" pydantic "openai>=1.30.0" Pillow "python-multipart>=0.0.9"; \
+        pip3 install --no-cache-dir --break-system-packages --ignore-installed zipp "numpy<2" fastapi "uvicorn[standard]" pydantic "openai>=1.30.0" Pillow "python-multipart>=0.0.9" arize-phoenix openinference-instrumentation-openai; \
     elif [ "${ROS_DISTRO}" = "humble" ]; then \
-        pip3 install --no-cache-dir fastapi "uvicorn[standard]" pydantic "openai>=1.30.0" Pillow "python-multipart>=0.0.9"; \
+        pip3 install --no-cache-dir fastapi "uvicorn[standard]" pydantic "openai>=1.30.0" Pillow "python-multipart>=0.0.9" arize-phoenix openinference-instrumentation-openai; \
     fi
 
 WORKDIR /app
