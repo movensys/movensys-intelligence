@@ -487,7 +487,7 @@ function announceFromEvent(env) {
     case "tile_tax_paid":
       announce(`Tax paid${payload.amount ? ` ($${payload.amount})` : ""}`, "money");
       break;
-    case "chance_drawn": {
+    case "tile_chance_drawn": {
       const dir = payload.direction;
       const amt = payload.amount;
       if (dir === "collect") announce(`Chance: collect $${amt}`, "money");
@@ -675,14 +675,7 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
     const size = BOARD_LAYOUTS[currentState.board_id]
       ? Object.keys(BOARD_LAYOUTS[currentState.board_id].centers).length
       : 40;
-    let to = (from + rollRes.sum) % size;
-    // Mirror rules.apply_move: IN_JAIL ("jail_visit") is skipped during
-    // normal dice movement. Without this client-side bump the server's
-    // expected_to (which also bumps) won't match and apply_move raises
-    // TILE_MISMATCH.
-    if (boardTiles && boardTiles[to] && boardTiles[to].kind === "jail_visit") {
-      to = (to + 1) % size;
-    }
+    const to = (from + rollRes.sum) % size;
     btn.textContent = "Moving…";
     const moveRes = await postJson("/api/move/apply_robot", {
       player, from_tile: from, to_tile: to, is_YOLO: isYOLO,
