@@ -189,9 +189,9 @@ The Whisper service on this same machine is unaffected — it runs on the **NPU*
 
 [Arize Phoenix](https://phoenix.arize.com) is wired into the orchestrator
 as an opt-in tool for diagnosing VLM / Whisper inference latency and
-connection failures. It runs **in-process** inside the
-`movensys_vlm_container` and auto-instruments the OpenAI client, so
-every `chat.completions.create` and `audio.transcriptions.create` call
+connection failures. The orchestrator auto-instruments the OpenAI
+client and **exports spans to a standalone Phoenix server** — every
+`chat.completions.create` and `audio.transcriptions.create` call
 produces a span with model, token counts, image payload size, and
 wall-clock latency.
 
@@ -199,30 +199,40 @@ Tracing is **off by default** — production / demo runs pay zero cost.
 
 ### Enable
 
+Step 1 — run Phoenix in its own container (do this once; leave it up):
+
+```bash
+docker run -d --rm --name phoenix \
+    -p 6006:6006 -p 4317:4317 \
+    arizephoenix/phoenix:latest
+```
+
+Step 2 — flip the orchestrator flag and recreate it so it picks up the env:
+
 ```bash
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
 export PHOENIX_TRACING=1
+# Optional; defaults to http://localhost:6006, which works as-is when
+# Phoenix is on the same host (orchestrator runs network_mode: host).
+# export PHOENIX_COLLECTOR_ENDPOINT=http://<phoenix-host>:6006
 COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml \
     up -d --force-recreate
 ```
 
-`--build` is not required — the Phoenix packages
+`--build` is not required — the Phoenix exporter packages
 (`arize-phoenix`, `openinference-instrumentation-openai`) are baked into
 the image; only the env var toggles activation.
 
 ### Open the UI
 
-The orchestrator runs `network_mode: host`, so Phoenix binds to the host's
-port 6006:
-
 ```
-http://<orchestrator-host>:6006
+http://<phoenix-host>:6006
 ```
 
 Drive a VLM or Whisper call (roll dice, click Ask VLM, press Rec) and
-the trace appears in the **Traces** tab. Each row shows total wall time;
-clicking expands the waterfall with sub-spans for image upload,
-request, and response parsing.
+the trace appears in the **Traces** tab under the `movensys-vlm`
+project. Each row shows total wall time; clicking expands the waterfall
+with sub-spans for image upload, request, and response parsing.
 
 ### What's traced and what isn't
 

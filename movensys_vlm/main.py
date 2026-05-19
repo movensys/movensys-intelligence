@@ -14,11 +14,15 @@ _log = logging.getLogger(__name__)
 
 
 def _maybe_start_phoenix() -> None:
-    """Boot Phoenix + auto-instrument the OpenAI client when
+    """Export OpenAI-client spans to a standalone Phoenix collector when
     PHOENIX_TRACING is truthy. Off by default — production / demo runs
-    pay zero cost. The Phoenix UI binds to :6006 in-process; because the
-    container runs network_mode=host, the UI is reachable at
-    http://<orchestrator-host>:6006 without explicit port mapping.
+    pay zero cost.
+
+    Run Phoenix separately, e.g.:
+        docker run -d --rm -p 6006:6006 -p 4317:4317 arizephoenix/phoenix:latest
+    Then set PHOENIX_COLLECTOR_ENDPOINT to its OTel ingest URL (defaults
+    to http://localhost:6006, which the Phoenix image accepts over HTTP).
+    The UI is at http://<phoenix-host>:6006.
 
     Traces only cover the OpenAI-client side (vlm_client.infer and
     whisper_client.transcribe). They do NOT include GPU-side inference
@@ -27,19 +31,21 @@ def _maybe_start_phoenix() -> None:
     flag = os.environ.get("PHOENIX_TRACING", "").strip().lower()
     if flag not in ("1", "true", "yes", "y", "on"):
         return
+    endpoint = os.environ.get("PHOENIX_COLLECTOR_ENDPOINT", "").strip() or "http://localhost:6006/v1/traces"
+    project = os.environ.get("PHOENIX_PROJECT_NAME", "").strip() or "movensys-vlm"
     try:
-        import phoenix as px
-        from openinference.instrumentation.openai import OpenAIInstrumentor
+        from phoenix.otel import register
     except ImportError as exc:
         _log.warning(
-            "PHOENIX_TRACING=%s but phoenix/openinference not installed: %s",
+            "PHOENIX_TRACING=%s but phoenix.otel not available: %s",
             flag, exc,
         )
         return
     try:
-        px.launch_app()
-        OpenAIInstrumentor().instrument()
-        _log.info("Phoenix tracing enabled — UI at http://<host>:6006")
+        register(endpoint=endpoint, project_name=project, batch=True, auto_instrument=True)
+        _log.warning(
+            "Phoenix tracing exporting to %s (project=%s)", endpoint, project,
+        )
     except Exception:
         _log.exception("failed to start Phoenix tracing")
 
