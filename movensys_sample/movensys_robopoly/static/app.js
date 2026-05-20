@@ -1416,146 +1416,61 @@ function setupVlm() {
 // through the existing /api endpoints (so all rules / pick-and-place logic
 // stay server-side).
 
-const VLM_PLAYER_SYSTEM_PROMPT = `You are a game-playing AGENT for robopoly, a 2-player Monopoly-style game.
-You are an action-emitter for an automated game loop.
+const VLM_PLAYER_SYSTEM_PROMPT = `You are an action-emitter agent for robopoly, a 2-player Monopoly-style
+game. You ARE rolling the dice by emitting JSON — the code reads your
+reply and drives the robot arm. Players: "user" (red), "robot" (you, green).
 
-Each prompt may include a top-down image of the physical board AND a JSON
-state snapshot. The JSON state is the source of truth for your decision —
-the image is additional grounding only. Do NOT describe the image. Do NOT
-explain what you see. Do NOT refuse with "I cannot roll dice" — you ARE
-rolling the dice by emitting the JSON action below; the code reads it and
-tells the arm to act.
+OUTPUT: exactly one JSON object. No prose, no markdown, no fences.
 
-Players: "user" (red cube), "robot" (you, green cube). Turns alternate.
+Valid actions:
+  fsm=="TURN_START":     {"action":"roll_and_move","player":<state.turn>}
+  fsm=="AWAIT_DECISION": {"action":"decide","choice":<one below>}
 
-OUTPUT FORMAT — strict:
-  Your entire reply MUST be a single JSON object. No prose. No greetings.
-  No apologies. No markdown. No code fences. No explanation of capabilities.
-  If you reply with anything other than one JSON object, the turn FAILS.
+Choice meaning (cumulative cost from unowned = rent opponent pays):
+  buy         tier 1, $100   land
+  build       tier 2, $200   land + house
+  build_hotel tier 3, $300   land + hotel
+  skip        no purchase
+Upgrade delta from owned = $100 × (target_tier − current_tier).
+Seed $1000, GO bonus $100, tax $100, chance ±$200, 5 laps to win.
 
-ACTIONS — exactly two are valid:
+Constraints:
+- decision_pending.kind=="utility" → only buy or skip are legal.
+- build needs current_tier<2; build_hotel needs current_tier<3.
 
-1. {"action": "roll_and_move", "player": "user"}
-   {"action": "roll_and_move", "player": "robot"}
-     Use when fsm == "TURN_START". "player" MUST equal state.turn.
+User voice intent (Context: line) — highest priority, head-noun wins:
+  "hotel"→build_hotel; "house"→build; "land" or bare buy→buy;
+  "skip"/"pass"/"no"→skip. ("Buy a hotel" → build_hotel, not buy.)
+If illegal for the tile, fall back to the closest legal choice
+(utility→buy; over-tier→next legal upgrade; else skip).
 
-2. {"action": "decide", "choice": "skip"}
-   {"action": "decide", "choice": "buy"}
-   {"action": "decide", "choice": "build"}
-   {"action": "decide", "choice": "build_hotel"}
-     Use when state.decision_pending is present (fsm == "AWAIT_DECISION").
+Robot-turn AWAIT_DECISION calls include a STRATEGIC CONTEXT block in
+the user prompt — read it before picking. "Always buy land" is weak.`;
 
-ACTION NAMES vs. BUTTON LABELS — the backend names do NOT match the
-modal button labels; map carefully:
-  backend "skip"         ↔ modal "Skip"
-  backend "buy"          ↔ modal "Buy land"     (tier 1, total $100)
-  backend "build"        ↔ modal "Buy + house"  (tier 2, total $200 from unowned)
-  backend "build_hotel"  ↔ modal "Buy + hotel"  (tier 3, total $300 from unowned)
-All three "buy*" options actually buy the land first if it's unowned.
-The total cost is $100 × target_tier ($100 / $200 / $300). Rent paid by
-the opponent on each landing is $100 / $200 / $300 by tier respectively
-— i.e. ROI per opponent hit is exactly 100% at every tier; you only
-profit on the 2nd hit onward.
+// Strategic-reasoning block injected into the per-call USER prompt only on
+// AWAIT_DECISION turns. Keeping it out of the system prompt saves ~600
+// tokens on every TURN_START roll (where reasoning is unused) at the cost
+// of ~600 tokens on AWAIT_DECISION (where it actually matters).
+const VLM_PLAYER_STRATEGIC_CONTEXT = `STRATEGIC CONTEXT (facts to reason with, not rules):
 
-EXAMPLES (the entire reply — nothing else):
-  {"action": "roll_and_move", "player": "robot"}
-  {"action": "decide", "choice": "buy"}
-  {"action": "decide", "choice": "build_hotel"}
+Game length: 5 laps wins, ~10 turns per player. Any one tile gets ~0.7
+opponent visits on expectation (P(≥2 hits) ≈ 16%). Per-tier ROI is
+identical (cost = rent); break-even at 1 hit, profit at 2+. Land is NOT
+safer per dollar — same payback ratio at every tier.
 
-DO NOT reply with text like "I cannot roll dice" — you ARE rolling the dice
-by emitting the JSON. The code reads your JSON and tells the arm to act.
+Aggressive (buy / build_hotel) when:
+- Early game (lap_count ≤ 1) and liquid ≥ $400. Hotels deal $300/hit,
+  the only realistic path to bankrupt the opponent in a short game.
+- Behind in laps or assets — high-variance plays correct.
+- Opponent has hotels — match tier or be out-leveraged ($300 vs $100).
 
-DECISION_PENDING CONSTRAINTS (state.decision_pending):
-- kind == "utility" (e.g. ELECTRIC_COMPANY, max_tier == 1):
-    ONLY "buy" or "skip". build / build_hotel are rejected.
-- kind == "property" (BOSTON, SEOUL, TAIPEI, SHANGHAI, TOKYO, BUSAN,
-                       NEWYORK, LONDON, max_tier == 3):
-    all four choices valid.
-- current_tier is your existing tier; build needs current_tier < 2,
-  build_hotel needs current_tier < 3.
+Conservative (skip / land only) when:
+- Late game (lap_count ≥ 3) — preserve cash to reach lap 5.
+- Liquid < $200 after the buy — one rent hit could bankrupt you.
+- Opponent has hotels you might land on — keep $300 buffer.
 
-USER VOICE INTENT (highest priority — overrides everything else):
-  The "Context:" line is the user's English speech, transcribed. Map by
-  the HEAD NOUN, not exact strings:
-    head noun "hotel"  → "build_hotel"   e.g. "Can you buy a hotel?"
-    head noun "house"  → "build"         e.g. "Let's build a house."
-    bare buy verb or
-    head noun "land"   → "buy"           e.g. "Buy it.", "Just the land."
-    skip / pass / no   → "skip"          e.g. "Skip it.", "Don't buy."
-  "Buy a hotel" / "Buy a house" do NOT map to "buy" — head noun wins.
-  If the user's tier is illegal for this decision (hotel/house on a
-  utility, or below current_tier), fall back to the closest legal option
-  ("buy" for utility; next higher tier when upgrading; else "skip").
-
-ROBOT-TURN DECISIONS (when Context has no explicit user choice):
-  There is no fixed heuristic. Look at the full game state — your liquid
-  balance, the cost of each option ($100 / $200 / $300 from unowned;
-  smaller deltas if you already own a lower tier), the properties you
-  already own, the opponent's holdings, the lap count, who's ahead.
-  Pick whichever choice (skip / buy / build / build_hotel) you judge best
-  for the robot's position. Read the STRATEGIC CONTEXT below before
-  defaulting to "buy" — "always land" is a known-weak playstyle here.
-
-STRATEGIC CONTEXT (game-theoretic facts; reason with them, do not treat
-as rules):
-
-  GAME LENGTH
-  - LAPS_TO_WIN = 5. Avg dice roll = 7 ⇒ ≈ 2 turns per lap ⇒ the winning
-    player makes ≈ 10 turns; total game ≈ 20 turns combined.
-  - Expected opponent visits to any one tile over the whole game:
-    10 / 14 ≈ 0.71  (Poisson λ ≈ 0.71).
-  - P(opponent hits a given tile ≥ 2 times) ≈ 16 %.
-
-  TILE ECONOMICS
-  - Per-hit ROI is identical at every tier: cost = rent. Break-even at
-    1 hit, profit at 2+ hits. So "land is safer per dollar" is a FALSE
-    intuition — every tier has the same payback ratio.
-  - Looking at single-tile rent EV alone, every purchase is slightly
-    negative-EV in this short game. The reasons to buy are not single-
-    tile rent EV:
-
-  WHY YOU SHOULD STILL BUY (often aggressively)
-  1. Two win paths exist: reach 5 laps first OR bankrupt the opponent.
-     Hotels deal $300/hit, which is the fastest way to push the opponent
-     toward bankruptcy. Land only deals $100/hit — rarely game-ending.
-  2. Asymmetric loss avoidance: if the OPPONENT places hotels and you
-     placed only lands, a single hit on their hotel costs you $300 while
-     you only ever collect $100 back. To avoid being out-leveraged you
-     usually need to match tier intensity.
-  3. Denial: an unowned tile becomes the opponent's tile next time they
-     land on it. Even a $100 land buy denies a future hotel slot.
-  4. Cash held at game end has no extra value (winner is decided by lap
-     cap or bankruptcy). Hoarding cash past turn ~7 is wasted utility.
-
-  WHEN CONSERVATIVE PLAY IS RIGHT
-  - Late game (own lap_count near 4, or turn_number high): preserve cash
-    so you can survive opponent rent and reach lap 5.
-  - Low liquid (< $200 after the purchase): one rent hit could bankrupt
-    you. Prefer the cheaper tier or skip.
-  - Opponent has already built hotels you might land on: keep at least
-    $300 buffer.
-
-  WHEN GREEDY PLAY IS RIGHT
-  - Early game (lap_count ≤ 1, turn_number low) and liquid ≥ $400.
-    Buying a hotel on the first or second arrival is a legitimate
-    knockout play in this short game.
-  - You're behind in lap_count or assets — high-variance plays are
-    correct when you need a swing.
-  - The tile is on a high-traffic stretch (e.g. just past GO or after a
-    chance tile that frequently sends pieces to it).
-
-  Use these facts to reason about THIS state, then emit ONE choice.
-
-GENERAL RULES:
-- Seed money $1000; GO bonus $100 (passing or landing).
-- Cumulative tier cost = $100 × tier (land $100, house $200, hotel $300
-  total — these are the cumulative purchase prices, not deltas).
-- Rent paid by opponent on landing: $100 / $200 / $300 by tier.
-- Tax tile $100. Chance: ±$200 coin flip.
-- Auto-liquidation: hotels → houses → land if you can't pay.
-- 5 laps wins on cap; bankruptcy ends the game immediately.
-
-Reply with ONLY the JSON action. Nothing else.`;
+End-game cash has no value beyond surviving; winner = lap cap or
+bankruptcy. Land buys mainly deny opponent future hotel slots.`;
 
 let vlmPlayerInFlight = false;
 let vlmPlayerLastTurnKey = null;
@@ -1567,13 +1482,29 @@ let vlmPlayerLastTurnKey = null;
 // the agent still has *some* visual grounding.
 const VLM_PLAYER_FALLBACK_CAMERA = "top";
 
+// Downscale the composited board hard before sending to the VLM. Because
+// the board is a CLEAN RENDERED DRAWING (flat colors, vector pieces,
+// solid ownership rectangles) — not a noisy camera frame — it stays
+// legible at very low resolutions. Capping the long side at ~30% of the
+// native viewBox (1559 → 468 px) keeps the frame well inside a single
+// Pan-and-Scan crop in Gemma 4's vision encoder (~256 image tokens
+// instead of the 500–700 the full-size frame would generate), and JPEG
+// q=0.5 compresses flat regions to a fraction of the original payload.
+// The on-screen board is unaffected — only the off-screen capture canvas
+// uses these values.
+const BOARD_IMAGE_MAX_WIDTH = 468;
+const BOARD_IMAGE_JPEG_QUALITY = 0.5;
+
 async function captureBoardImage() {
   try {
     const svg = document.getElementById("pieces");
     if (!svg) return null;
     const vb = (svg.getAttribute("viewBox") || "0 0 1559 794").split(/\s+/).map(Number);
-    const w = vb[2] || 1559;
-    const h = vb[3] || 794;
+    const vbW = vb[2] || 1559;
+    const vbH = vb[3] || 794;
+    const scale = Math.min(1, BOARD_IMAGE_MAX_WIDTH / vbW);
+    const w = Math.round(vbW * scale);
+    const h = Math.round(vbH * scale);
 
     const canvas = document.createElement("canvas");
     canvas.width = w;
@@ -1623,7 +1554,7 @@ async function captureBoardImage() {
 
     // toDataURL returns "data:image/jpeg;base64,...". The orchestrator
     // wants the bare base64 payload, so strip the prefix.
-    return canvas.toDataURL("image/jpeg", 0.8).split(",")[1] || null;
+    return canvas.toDataURL("image/jpeg", BOARD_IMAGE_JPEG_QUALITY).split(",")[1] || null;
   } catch (err) {
     console.warn("[vlm-player] captureBoardImage failed:", err);
     return null;
@@ -1668,7 +1599,6 @@ function buildVlmStateSummary(state) {
     balances: {},
     lap_count: { ...(state.lap_count || {}) },
     properties_owned: { user: [], robot: [] },
-    last_dice: state.last_dice,
     last_dice_sum: state.last_dice_sum,
   };
   for (const [pid, ps] of Object.entries(state.players || {})) {
@@ -1746,13 +1676,11 @@ async function executeVlmAction(action) {
 // shape and the max_tier guard front-of-mind in case the system prompt
 // was overridden upstream.
 const VLM_PLAYER_INLINE_RULES = `Reply with ONE JSON object. No prose, no fences.
-Valid replies:
-  {"action":"roll_and_move","player":"user"|"robot"}   (when fsm=="TURN_START")
-  {"action":"decide","choice":"skip"|"buy"|"build"|"build_hotel"}  (when state.decision_pending)
-Honor the user's voice intent in Context (head-noun: hotel→build_hotel,
-house→build, land/bare-buy→buy, skip/pass/no→skip). If decision_pending.kind
-== "utility" only "buy" or "skip" are legal — never emit build/build_hotel
-there. See the system prompt for the full STRATEGIC CONTEXT.`;
+  fsm=="TURN_START":     {"action":"roll_and_move","player":<state.turn>}
+  fsm=="AWAIT_DECISION": {"action":"decide","choice":"skip"|"buy"|"build"|"build_hotel"}
+Voice intent (head-noun): hotel→build_hotel, house→build,
+land/bare-buy→buy, skip/pass/no→skip.
+decision_pending.kind=="utility" → only buy/skip legal.`;
 
 async function vlmPlayerAct(userMessage) {
   if (vlmPlayerInFlight) return;
@@ -1760,10 +1688,18 @@ async function vlmPlayerAct(userMessage) {
   vlmPlayerInFlight = true;
   try {
     const summary = buildVlmStateSummary(currentState);
+    // STRATEGIC CONTEXT (~600 tok) lives outside the system prompt now;
+    // inject it only when the model actually needs to reason about a
+    // buy/build/skip choice. TURN_START rolls are mechanical and gain
+    // nothing from the block.
+    const strategic = currentState.fsm === "AWAIT_DECISION"
+      ? `${VLM_PLAYER_STRATEGIC_CONTEXT}\n\n`
+      : "";
     const prompt =
       `${VLM_PLAYER_INLINE_RULES}\n\n` +
+      strategic +
       `Context: ${userMessage}\n\n` +
-      `State:\n${JSON.stringify(summary, null, 2)}\n\n` +
+      `State:\n${JSON.stringify(summary)}\n\n` +
       `Your reply (ONE JSON object, nothing else):`;
     const resp = await vlmInferRaw(prompt);
     const action = parseVlmAction(resp);
@@ -1796,7 +1732,7 @@ function maybeAutoTriggerRobotTurn() {
     vlmPlayerAct(
       "You (robot) landed on a buyable property. There is no human voice " +
       "intent for this decision — read the State JSON AND the STRATEGIC " +
-      "CONTEXT in the system prompt before choosing. In this 5-lap game " +
+      "CONTEXT block above before choosing. In this 5-lap game " +
       "'always buy land' is a weak default; consider build / build_hotel " +
       "when you can afford them, especially in the early game. Respect " +
       "decision_pending.max_tier (utility tiles allow only buy or skip). " +
