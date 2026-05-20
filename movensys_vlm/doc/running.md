@@ -48,26 +48,42 @@ Wait until `application startup complete` in docker logs or terminal
 
 
 ## Step 5: setup Movensys_vlm and vector DB
-```
+```bash
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
-COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml build
 COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml build
-COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml build
-COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml up -d
 COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml up -d
-COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml up -d 
+```
+
+### Option 1. w/o phoenix
+```bash
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml build
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml up -d
 ```
 
 
+### Option 2. w phoenix
+```bash
+docker run -d --rm --name phoenix \
+    -p 6006:6006 -p 4317:4317 \
+    arizephoenix/phoenix:latest
+```
 
 
+```bash
+cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
+export PHOENIX_TRACING=1
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml down
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml build
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml up -d
+```
 
+### Whispher english mode
+```bash
+cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
+COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml down
+WHISPER_DEFAULT_LANGUAGE=en COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml up -d --force-recreate
+```
 
-
-
-
-
- 
 
 # Running
 open `localhost:8000` for robot controller
