@@ -13,6 +13,10 @@ x-common: &common
 x-common-env: &common-env
   HF_TOKEN: ${HF_TOKEN}
   WHISPER_DEFAULT_LANGUAGE: ${WHISPER_DEFAULT_LANGUAGE:-}
+  # "transcribe" preserves the source language; "translate" forces English
+  # output regardless of source. Use "translate" when operators may mix
+  # languages but the downstream prompt path is strictly English.
+  WHISPER_TASK: ${WHISPER_TASK:-transcribe}
 
 services:
   # ── NVIDIA Jetson AGX Thor ──────────────────────────────────────────────────

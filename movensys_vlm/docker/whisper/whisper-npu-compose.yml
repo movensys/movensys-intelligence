@@ -26,4 +26,5 @@ services:
       - WHISPER_MODEL_DIR=${WHISPER_MODEL_DIR:-/models/whisper-large-v3-turbo-fp16-ov-npu}
       - WHISPER_DEVICE=${WHISPER_DEVICE:-NPU}
       - WHISPER_DEFAULT_LANGUAGE=${WHISPER_DEFAULT_LANGUAGE:-}
+      - WHISPER_TASK=${WHISPER_TASK:-transcribe}
       - HF_TOKEN=${HF_TOKEN:-}
