@@ -243,6 +243,12 @@ async def dice_request(request: Request) -> dict[str, Any]:
 # this router under movensys_sample/movensys_robopoly/.
 _DEFAULT_PNP_SCRIPT = Path(__file__).resolve().parent / "pick_and_place.py"
 _DICE_LINE_RE = re.compile(rb"DICE_NUMBER=(\d+)")
+# pick_and_place.py prints this sentinel on its own line right after
+# get_piece_info / _search_for_target succeeds. The spawning route
+# forwards it as a `yolo_detection_done` WS event so the frontend
+# overlay closes early — operator sees the board during the physical
+# pick-and-place instead of staring at a frozen YOLO frame.
+_YOLO_DETECTED_SENTINEL = b"YOLO_DETECTED"
 
 # Board tile index → pick_and_place.py board_positions key. 14-tile board,
 # counter-clockwise from GO at bottom-left (Board3_v2).
@@ -299,12 +305,17 @@ async def _spawn_dice_subprocess(
 
     dice_value: int | None = None
     captured: list[bytes] = []
+    yolo_emitted = False
+    bus = request.app.state.game.bus
     assert proc.stdout is not None
     while True:
         line = await proc.stdout.readline()
         if not line:
             break
         captured.append(line)
+        if not yolo_emitted and _YOLO_DETECTED_SENTINEL in line:
+            bus.publish_nowait("yolo_detection_done", {"kind": "dice"})
+            yolo_emitted = True
         m = _DICE_LINE_RE.search(line)
         if m:
             dice_value = int(m.group(1))
@@ -678,7 +689,29 @@ async def move_apply_robot(request: Request, body: MoveApplyRobotRequest) -> dic
 
     # Wait for the physical pick_and_place to finish before updating the game
     # state. The frontend piece only moves once the robot is on its new tile.
-    stdout, stderr = await proc.communicate()
+    # We read stdout line-by-line (instead of a single communicate()) so the
+    # YOLO_DETECTED sentinel can fire a WS event mid-subprocess and the
+    # frontend overlay closes the moment detection completes.
+    stdout_lines: list[bytes] = []
+    yolo_emitted = False
+    bus = request.app.state.game.bus
+    assert proc.stdout is not None
+    while True:
+        line = await proc.stdout.readline()
+        if not line:
+            break
+        stdout_lines.append(line)
+        if not yolo_emitted and _YOLO_DETECTED_SENTINEL in line:
+            bus.publish_nowait("yolo_detection_done", {"kind": "cube"})
+            yolo_emitted = True
+    await proc.wait()
+    stdout = b"".join(stdout_lines)
+    stderr = b""
+    if proc.stderr is not None:
+        try:
+            stderr = await proc.stderr.read()
+        except Exception:
+            pass
     if proc.returncode != 0:
         raise HTTPException(
             status_code=502,

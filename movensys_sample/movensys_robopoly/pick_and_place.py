@@ -646,6 +646,9 @@ def _read_dice_only(is_yolo: bool, pnp: "PnP", main_start: float) -> None:
     if DRY_RUN:
         value = random.randint(1, 6)
         logger.info("[dry-run] synthetic read dice_number=%s", value)
+        # Read mode mirrors the roll-mode sentinel placement: the dice
+        # face IS the YOLO event, so the close sentinel fires alongside.
+        print("YOLO_DETECTED", flush=True)
         print(f"DICE_NUMBER={value}", flush=True)
         logger.info("read mode: emitted DICE_NUMBER=%s", value)
         logger.info("[timing] read_total: %.1f ms", (time.perf_counter() - main_start) * 1000.0)
@@ -693,6 +696,7 @@ def _read_dice_only(is_yolo: bool, pnp: "PnP", main_start: float) -> None:
     else:
         value = random.randint(1, 6)
 
+    print("YOLO_DETECTED", flush=True)
     print(f"DICE_NUMBER={value}", flush=True)
     logger.info("read mode: emitted DICE_NUMBER=%s", value)
     logger.info("[timing] read_total: %.1f ms", (time.perf_counter() - main_start) * 1000.0)
@@ -765,6 +769,14 @@ def main():
             sys.exit(1)
     logger.info("[timing] detect_phase: %.1f ms", (time.perf_counter() - detect_start) * 1000.0)
 
+    # Cube/piece moves: position detection is the only useful YOLO event,
+    # so emit the overlay-close sentinel now and let the arm physically
+    # finish the pick-and-place while the frontend shows the board.
+    # Dice rolls handle this differently — see below, after the post-drop
+    # dice_number read.
+    if sys.argv[1] != "dice":
+        print("YOLO_DETECTED", flush=True)
+
     pnp.pick_and_place(board_pos=sys.argv[2])
 
     logger.info("[timing] main_total: %.1f ms", (time.perf_counter() - main_start) * 1000.0)
@@ -800,6 +812,14 @@ def main():
                 except Exception as exc:
                     logger.warning("dice_number fallback fetch failed: %s", exc)
             if value is not None:
+                # Robot dice roll: rolled-face detection is the useful
+                # YOLO event — emit the overlay-close sentinel here, not
+                # after the pre-pickup position detection. The 0.5 s
+                # pause holds the YOLO dice frame on screen a beat longer
+                # so the operator can register the rolled face before the
+                # board reappears.
+                time.sleep(0.5)
+                print("YOLO_DETECTED", flush=True)
                 print(f"DICE_NUMBER={value}", flush=True)
                 logger.info("Detected rolled dice number: %s", value)
             else:
@@ -809,6 +829,8 @@ def main():
                 )
         else:
             value = random.randint(1, 6)
+            time.sleep(0.5)
+            print("YOLO_DETECTED", flush=True)
             print(f"DICE_NUMBER={value}", flush=True)
             logger.info("Sampled dice number: %s", value)
 

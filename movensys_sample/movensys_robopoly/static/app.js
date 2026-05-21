@@ -627,7 +627,7 @@ function toggleChatOverlay() {
   else maybeOpenChatOverlay();
 }
 
-function announce(text, kind = "info") {
+function announce(text, kind = "info", opts = {}) {
   const el = document.getElementById("notification");
   if (el) {
     el.classList.remove("empty");
@@ -635,7 +635,9 @@ function announce(text, kind = "info") {
     el.textContent = text;
   }
   if (document.body.classList.contains("game-mode")) {
-    flashGameOverlay(text);
+    // opts.durationMs overrides STATUS_FLASH_MS — used by the dice
+    // popup to flash for just 1 s instead of the default 2 s.
+    flashGameOverlay(text, opts);
   }
   // Mirror the same string into the chat transcript as a system bubble so
   // the operator sees turn changes / buys / etc. inline with the dialogue.
@@ -725,22 +727,21 @@ function announceFromEvent(env) {
       break;
     case "dice_submitted": {
       const player = currentState?.turn ?? "player";
-      // `value` is the real face read from the die (or tuple for 2d6);
-      // `sum` is `last_dice_sum` *after* rules.submit_dice's Desert-Island
-      // skip bump. When the path crosses jail_visit they differ by +1 —
-      // surface both so the operator knows the engine reflected the roll.
+      // `value` is the real face read from the die. `sum` (last_dice_sum)
+      // is +1 when rules.submit_dice bumped past jail_visit (Desert
+      // Island skip). The popup always shows the REAL face; the bump is
+      // mentioned as a side note so the player knows their physical roll
+      // wasn't ignored.
       const real = Array.isArray(payload.value)
         ? payload.value.reduce((a, b) => a + b, 0)
         : payload.value;
       const reflected = payload.sum ?? real;
-      if (reflected !== real) {
-        announce(
-          `${player} rolled ${real}\n(+1 to skip Desert Island → moves ${reflected})`,
-          "dice",
-        );
-      } else {
-        announce(`${player} rolled ${real}`, "dice");
-      }
+      const text = reflected !== real
+        ? `${player} rolled ${real}\n(+1 for crossing Desert Island)`
+        : `${player} rolled ${real}`;
+      // Short flash — the dice face is the only signal the operator needs
+      // from this popup, and the next overlay (move/buy/etc.) lands fast.
+      announce(text, "dice", { durationMs: 1000 });
       break;
     }
     case "tile_skipped":
@@ -954,6 +955,12 @@ function openStream() {
       // the modal so the operator only ever sees buy choices for the user.
       if (currentState?.turn === "robot") pendingDecision = decision;
       else showDecision(decision);
+    }
+    // Early-close the YOLO overlay the instant pick_and_place reports a
+    // successful detection. yoloStreamClose is depth-aware and idempotent,
+    // so the withYoloStream wrapper's own close at fetch-end is a no-op.
+    if (env.type === "yolo_detection_done") {
+      yoloStreamClose();
     }
     announceFromEvent(env);
     await refreshState();
