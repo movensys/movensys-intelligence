@@ -574,6 +574,12 @@ def _wait_for_rolled_dice_number(drop_time: float) -> Optional[int]:
     received_at is past (drop_time + settle) — i.e., detected after the dice
     finished rolling. Returns None if no fresh value arrives before timeout.
     """
+    if DRY_RUN:
+        # No physical dice was rolled and the orchestrator's cached
+        # dice_number would just return a stale value forever. Sample.
+        value = random.randint(1, 6)
+        logger.info("[dry-run] synthetic rolled dice_number=%s", value)
+        return value
     time.sleep(_DICE_SETTLE_S)
     fresh_after = drop_time + _DICE_SETTLE_S
     deadline = time.time() + _DICE_POLL_TIMEOUT_S
@@ -636,6 +642,14 @@ def _read_dice_only(is_yolo: bool, pnp: "PnP", main_start: float) -> None:
     value: Optional[int] = None
     last_status: Optional[int] = None
     last_detail: Optional[str] = None
+
+    if DRY_RUN:
+        value = random.randint(1, 6)
+        logger.info("[dry-run] synthetic read dice_number=%s", value)
+        print(f"DICE_NUMBER={value}", flush=True)
+        logger.info("read mode: emitted DICE_NUMBER=%s", value)
+        logger.info("[timing] read_total: %.1f ms", (time.perf_counter() - main_start) * 1000.0)
+        return
 
     if is_yolo:
         deadline = time.time() + _READ_POLL_TIMEOUT_S
