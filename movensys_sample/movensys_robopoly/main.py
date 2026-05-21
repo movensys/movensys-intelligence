@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from adapters import RobotAdapter, STTAdapter, VLMAdapter
+from adapters import RobotAdapter, RosImageSubscriber, STTAdapter, VLMAdapter
 from game.events import EventBus
 from game.manager import GameManager
 from router import api_router
@@ -33,6 +33,11 @@ async def lifespan(app: FastAPI):
     app.state.robot_adapter = RobotAdapter.from_env()
     app.state.event_bus = EventBus()
     app.state.game = GameManager(bus=app.state.event_bus)
+    # Background subscriber for /yolo_{dice,cube}_detector/debug_image —
+    # powers the board-pane overlay while pick_and_place runs. Safe no-op
+    # on hosts where rclpy isn't installed (e.g. unit-test environments).
+    app.state.ros_image = RosImageSubscriber()
+    app.state.ros_image.start()
     log.info(
         "startup",
         extra={
@@ -42,6 +47,10 @@ async def lifespan(app: FastAPI):
         },
     )
     yield
+    try:
+        app.state.ros_image.stop()
+    except Exception:
+        log.exception("ros_image stop failed")
     log.info("shutdown")
 
 

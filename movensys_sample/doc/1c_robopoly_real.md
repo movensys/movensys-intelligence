@@ -51,9 +51,5 @@ export MOVENSYS_PNP_DRY_RUN=0
 cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker
 docker compose down
 docker compose build
-docker compose up
+docker compose up -d
 ```
-
-### Step 9: Play the robopoly game
-1. Click `Toggle is_YOLO` and check `is_YOLO` is set to ON.
-2. Click `Reset game` and `Roll dice`. Enjoy the game.

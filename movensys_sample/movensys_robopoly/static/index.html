@@ -98,6 +98,15 @@
           <rect id="piece-user"  width="60" height="60" x="-100" y="-100" fill="var(--user)"  stroke="#000" stroke-width="2.5"/>
           <rect id="piece-robot" width="60" height="60" x="-100" y="-100" fill="var(--robot)" stroke="#000" stroke-width="2.5"/>
         </svg>
+        <!-- YOLO debug-image overlay: shown while a pick_and_place
+             subprocess is in flight (dice or cube). When the pnp
+             promise resolves the overlay is hidden, restoring the
+             default board view. -->
+        <div class="yolo-overlay hidden" id="yolo-overlay" aria-hidden="true">
+          <div class="yolo-overlay-label" id="yolo-overlay-label">YOLO debug image</div>
+          <img id="yolo-overlay-img" alt="YOLO debug image">
+          <div class="yolo-overlay-status" id="yolo-overlay-status">Waiting for frames…</div>
+        </div>
       </div>
       <div class="board-coords" id="board-coords">user: (—, —)  |  robot: (—, —)</div>
       <div class="money-bar">

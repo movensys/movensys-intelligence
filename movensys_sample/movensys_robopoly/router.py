@@ -635,6 +635,42 @@ async def stream_properties(ws: WebSocket) -> None:
                                              "tier_sold"})
 
 
+# ---- YOLO debug image streams ---------------------------------------------
+#
+# The static UI swaps the board pane for these streams while a
+# pick_and_place subprocess is in flight (see static/app.js
+# `withYoloStream`). Images are sourced from the rclpy subscriber spun up
+# in main.py lifespan; if rclpy is unavailable the latest frame stays
+# None and the WS keeps sending {data: null, error: "No data"}.
+
+async def _stream_image(ws: WebSocket, attr: str, interval: float = 0.1) -> None:
+    import json as _json
+    await ws.accept()
+    try:
+        while True:
+            ros_image = getattr(ws.app.state, "ros_image", None)
+            data = getattr(ros_image, attr, None) if ros_image is not None else None
+            await ws.send_text(_json.dumps({
+                "data": data,
+                "error": None if data is not None else "No frame yet",
+            }))
+            await asyncio.sleep(interval)
+    except WebSocketDisconnect:
+        return
+    except Exception:
+        ws_log.exception("stream_image_%s_error", attr)
+
+
+@api_router.websocket("/stream/yolo_dice_detector/debug_image")
+async def stream_yolo_dice_debug(ws: WebSocket) -> None:
+    await _stream_image(ws, "latest_dice_debug")
+
+
+@api_router.websocket("/stream/yolo_cube_detector/debug_image")
+async def stream_yolo_cube_debug(ws: WebSocket) -> None:
+    await _stream_image(ws, "latest_cube_debug")
+
+
 # ---- HTTPException helper --------------------------------------------------
 
 

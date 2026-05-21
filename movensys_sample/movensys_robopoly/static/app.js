@@ -725,10 +725,33 @@ function announceFromEvent(env) {
       break;
     case "dice_submitted": {
       const player = currentState?.turn ?? "player";
-      const sum = payload.sum ?? payload.value;
-      announce(`${player} rolled ${sum}`, "dice");
+      // `value` is the real face read from the die (or tuple for 2d6);
+      // `sum` is `last_dice_sum` *after* rules.submit_dice's Desert-Island
+      // skip bump. When the path crosses jail_visit they differ by +1 —
+      // surface both so the operator knows the engine reflected the roll.
+      const real = Array.isArray(payload.value)
+        ? payload.value.reduce((a, b) => a + b, 0)
+        : payload.value;
+      const reflected = payload.sum ?? real;
+      if (reflected !== real) {
+        announce(
+          `${player} rolled ${real}\n(+1 to skip Desert Island → moves ${reflected})`,
+          "dice",
+        );
+      } else {
+        announce(`${player} rolled ${real}`, "dice");
+      }
       break;
     }
+    case "tile_skipped":
+      // Mirror the skip into the chat transcript / event log so it's
+      // visible after the dice flash fades. The popup is handled by
+      // dice_submitted above.
+      announce(
+        `Crossing ${payload.tile_name || "Desert Island"} — dice reflected to ${payload.new_sum}`,
+        "move",
+      );
+      break;
     case "move_applied":
       announce(`${payload.player} moved to ${tileName(payload.to_tile)}`, "move");
       break;
@@ -914,6 +937,105 @@ function openStream() {
   ws.onerror = () => ws.close();
 }
 
+// ---- YOLO debug-image overlay --------------------------------------------
+//
+// Swap the board pane for /yolo_{dice,cube}_detector/debug_image while
+// pick_and_place is in flight. The robopoly container ships its own
+// rclpy subscriber (see adapters/ros_image.py) and exposes the frames
+// over a WebSocket on the same origin — no movensys_vlm rebuild needed
+// for this feature.
+//
+// Lifecycle: yoloStreamOpen(kind) opens a WS and replaces the board with
+// the latest JPEG frame; yoloStreamClose() tears it down and the board
+// becomes visible again. Wrap a pnp-issuing fetch in
+// `withYoloStream(kind, fn)` to bind the overlay's visibility to the
+// fetch's promise.
+const YOLO_STREAM_HOST = location.host;
+const YOLO_STREAM_TOPICS = {
+  dice: {
+    path: "/api/stream/yolo_dice_detector/debug_image",
+    label: "YOLO — dice detector",
+  },
+  cube: {
+    path: "/api/stream/yolo_cube_detector/debug_image",
+    label: "YOLO — cube detector",
+  },
+};
+let yoloStreamWs = null;
+let yoloStreamDepth = 0;  // re-entrancy: nested pnp calls keep overlay open
+
+function yoloStreamOpen(kind) {
+  const topic = YOLO_STREAM_TOPICS[kind];
+  if (!topic) return;
+  yoloStreamDepth += 1;
+  const overlay = document.getElementById("yolo-overlay");
+  const label = document.getElementById("yolo-overlay-label");
+  const status = document.getElementById("yolo-overlay-status");
+  if (!overlay) return;
+  if (label) label.textContent = topic.label;
+  if (status) status.textContent = "Waiting for frames…";
+  overlay.classList.remove("hidden");
+  overlay.setAttribute("aria-hidden", "false");
+
+  if (yoloStreamWs) {
+    try { yoloStreamWs.close(); } catch (_) {}
+    yoloStreamWs = null;
+  }
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const url = `${proto}//${YOLO_STREAM_HOST}${topic.path}`;
+  let ws;
+  try {
+    ws = new WebSocket(url);
+  } catch (err) {
+    if (status) status.textContent = `stream error: ${err}`;
+    return;
+  }
+  yoloStreamWs = ws;
+  ws.onmessage = (ev) => {
+    let env;
+    try { env = JSON.parse(ev.data); } catch { return; }
+    const data = env && env.data;
+    if (!data || !data.data) {
+      if (status) status.textContent = env.error || "No frame";
+      return;
+    }
+    const img = document.getElementById("yolo-overlay-img");
+    if (img) img.src = `data:image/jpeg;base64,${data.data}`;
+    if (status) status.textContent = `${data.width || "?"}×${data.height || "?"}`;
+  };
+  ws.onerror = () => {
+    if (status) status.textContent = "stream error (is movensys_vlm up?)";
+  };
+  ws.onclose = () => {
+    if (yoloStreamWs === ws) yoloStreamWs = null;
+  };
+}
+
+function yoloStreamClose() {
+  if (yoloStreamDepth > 0) yoloStreamDepth -= 1;
+  if (yoloStreamDepth > 0) return;  // still inside another pnp — keep open
+  const overlay = document.getElementById("yolo-overlay");
+  if (overlay) {
+    overlay.classList.add("hidden");
+    overlay.setAttribute("aria-hidden", "true");
+  }
+  if (yoloStreamWs) {
+    try { yoloStreamWs.close(); } catch (_) {}
+    yoloStreamWs = null;
+  }
+  const img = document.getElementById("yolo-overlay-img");
+  if (img) img.removeAttribute("src");
+}
+
+async function withYoloStream(kind, fn) {
+  yoloStreamOpen(kind);
+  try {
+    return await fn();
+  } finally {
+    yoloStreamClose();
+  }
+}
+
 // ---- manual controls ------------------------------------------------------
 
 // Spec §3: Roll dice chains roll → physical move → tile resolution → end turn.
@@ -939,7 +1061,13 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
       : "/api/dice/roll_robot";
     console.log("[roll-chain] dice step:",
       { endpoint: diceEndpoint, turn: currentState && currentState.turn });
-    const rollRes = await postJson(diceEndpoint, { is_YOLO: isYOLO });
+    // While pick_and_place runs the dice routine, overlay
+    // /yolo_dice_detector/debug_image on the board pane. The overlay is
+    // bound to this fetch's promise: it closes the moment the server
+    // returns DICE_NUMBER, restoring the default board view.
+    const rollRes = await withYoloStream("dice", () =>
+      postJson(diceEndpoint, { is_YOLO: isYOLO })
+    );
     console.log("[roll-chain] dice response:", rollRes);
     if (rollRes && typeof rollRes.dice_number === "number") {
       renderDiceFace(rollRes.dice_number);
@@ -972,9 +1100,14 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
     btn.textContent = "Moving…";
     console.log("[roll-chain] apply_robot:",
       { player, from_tile: from, to_tile: to, is_YOLO: isYOLO });
-    const moveRes = await postJson("/api/move/apply_robot", {
-      player, from_tile: from, to_tile: to, is_YOLO: isYOLO,
-    });
+    // Move phase: swap the board for /yolo_cube_detector/debug_image so
+    // the operator sees the cube-detection pipeline that's driving the
+    // arm. Overlay closes when the move HTTP call returns.
+    const moveRes = await withYoloStream("cube", () =>
+      postJson("/api/move/apply_robot", {
+        player, from_tile: from, to_tile: to, is_YOLO: isYOLO,
+      })
+    );
     console.log("[roll-chain] apply_robot response:", moveRes);
 
     // 3. If the tile arrival needs a human decision (Buy modal), stop here.
