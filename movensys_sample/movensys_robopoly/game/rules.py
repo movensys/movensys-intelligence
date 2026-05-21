@@ -431,24 +431,17 @@ def _resolve_once(
         )
 
     if tile.kind == "chance":
-        # Spec §4.4: random ±$200 coin flip. Deck is unused.
-        import random
-        delta = random.choice([+CHANCE_AMOUNT, -CHANCE_AMOUNT])
-        if delta > 0:
-            state.players[player].balance += delta
-            return TileResolution(
-                "chance_drawn", tile_index,
-                payload={"amount": delta, "direction": "collect",
-                         "balance": state.players[player].balance},
-            )
-        amount = -delta
-        bankrupt, liq = _pay_bank_or_bankrupt(state, board, player, amount)
+        # VLM-driven chance card flow (see router.py:game_chance_card).
+        # The tile resolution itself is a no-op — the money outcome is
+        # decided by the orchestrator's VLM reading the physical card.
+        # `deferred=True` tells the frontend to call /api/game/chance_card
+        # before /api/game/end_turn so the flow runs while the FSM is
+        # still on the chance tile.
         return TileResolution(
-            "chance_drawn" if not bankrupt else "chance_bankruptcy",
+            "chance_drawn",
             tile_index,
-            payload={"amount": -amount, "direction": "pay", "liquidation": liq,
+            payload={"deferred": True, "player": player,
                      "balance": state.players[player].balance},
-            bankrupt_player=player if bankrupt else None,
         )
 
     if tile.kind == "community_chest" and cc_deck is not None:

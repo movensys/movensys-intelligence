@@ -785,10 +785,35 @@ function announceFromEvent(env) {
       announce(`Tax paid${payload.amount ? ` ($${payload.amount})` : ""}`, "money");
       break;
     case "tile_chance_drawn": {
+      // VLM-driven chance: the per-card text/effect comes through
+      // chance_card_read + chance_card_applied below. Skip the banner
+      // here so we don't print "Chance: pay $undefined".
+      if (payload.deferred) break;
       const dir = payload.direction;
       const amt = payload.amount;
       if (dir === "collect") announce(`Chance: collect $${amt}`, "money");
       else if (dir === "pay") announce(`Chance: pay $${Math.abs(amt)}`, "money");
+      break;
+    }
+    case "chance_card_read": {
+      // Step 1 of the VLM chance flow — flash whatever the model read off
+      // the card. flashGameOverlay only fires in game-mode; mirror to chat
+      // unconditionally so the operator still has a record in debug mode.
+      const txt = `Chance card: ${payload.text || "(no text)"}`;
+      const hold = Math.max(1000, Math.round((payload.hold_s ?? 2) * 1000));
+      flashGameOverlay(txt, { durationMs: hold });
+      appendChat({ role: "sys", text: txt });
+      break;
+    }
+    case "chance_card_applied": {
+      // Step 2 — the model picked one of the 4 outcomes. Flash the result
+      // for hold_s so the user can read it before the turn moves on.
+      const player = payload.player || "player";
+      const label = payload.label || payload.choice || "$0";
+      const txt = `Chance result: ${player} ${label}`;
+      const hold = Math.max(1000, Math.round((payload.hold_s ?? 2) * 1000));
+      flashGameOverlay(txt, { durationMs: hold });
+      appendChat({ role: "sys", text: txt });
       break;
     }
     case "jail_escaped":
@@ -960,6 +985,13 @@ const YOLO_STREAM_TOPICS = {
     path: "/api/stream/yolo_cube_detector/debug_image",
     label: "YOLO — cube detector",
   },
+  // Raw gripper-mounted camera — driven during the chance card flow so
+  // the operator can see the card the VLM is reading. Not a YOLO debug
+  // topic, but it reuses the same overlay machinery.
+  hand: {
+    path: "/api/stream/image_hand/rgb",
+    label: "Hand camera — chance card",
+  },
 };
 let yoloStreamWs = null;
 let yoloStreamDepth = 0;  // re-entrancy: nested pnp calls keep overlay open
@@ -1115,6 +1147,30 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
     //    end_turn after the user picks an option.
     if (moveRes && moveRes.fsm === "AWAIT_DECISION") {
       return;
+    }
+
+    // 3b. Deferred chance card: rules.py left the money outcome to the
+    //     VLM. Run the full chance flow (arm move → 2x VLM call → apply
+    //     money → 2 popups) before ending the turn, so the new balance
+    //     reflects on the board before "It's <other>'s turn" overlays.
+    const tiles = moveRes && moveRes.resolved && moveRes.resolved.tiles;
+    const deferredChance = Array.isArray(tiles)
+      && tiles.some((t) => t && t.kind === "chance_drawn" && t.payload && t.payload.deferred);
+    if (deferredChance) {
+      // Replace the Ask-VLM chat overlay with the gripper camera feed
+      // for the duration of the chance flow — operator sees the card
+      // the VLM is reading instead of the empty chat panel.
+      closeChatOverlay();
+      try {
+        await withYoloStream("hand", () => postJson("/api/game/chance_card"));
+      } catch (err) {
+        console.warn("[roll-chain] chance_card failed:", err, "body:", err && err.body);
+        appendChat({
+          role: "sys",
+          text: `Chance card failed: ${err.message || err}\n${err && err.body ? err.body : ""}`,
+          error: true,
+        });
+      }
     }
 
     // 4. Auto end-turn — rent / tax / chance / bankruptcy already resolved
@@ -2117,7 +2173,55 @@ function snapshotRobotState() {
 // user can swap mic devices through the existing dropdown without
 // reloading the page.
 
-const HOTKEY = { ACT: "z", ASK: "x" };
+const HOTKEY = { ACT: "z", ASK: "x", CHANCE: "v" };
+// Re-entrancy guard for the V-key chance trigger — the flow is multi-second
+// (init move + 2x VLM + 2x popup hold) and we never want two overlapping
+// /api/game/chance_card calls competing for the arm and the player balance.
+let chanceCardInFlight = false;
+
+async function triggerChanceCard(reason) {
+  if (chanceCardInFlight) {
+    appendChat({ role: "sys", text: "Chance card already running — ignored." });
+    return;
+  }
+  if (!currentState) {
+    appendChat({ role: "sys", text: "No game state yet — ignored." });
+    return;
+  }
+  if (currentState.winner) {
+    appendChat({ role: "sys", text: "Game is over — ignored." });
+    return;
+  }
+  if (currentState.turn !== "user") {
+    appendChat({ role: "sys", text: "Not your turn — chance card ignored." });
+    return;
+  }
+  if (currentState.fsm !== "TURN_START") {
+    appendChat({
+      role: "sys",
+      text: `Chance card ignored — wrong phase (${currentState.fsm}). Fire it on TURN_START.`,
+    });
+    return;
+  }
+  chanceCardInFlight = true;
+  appendChat({ role: "sys", text: `Chance card → ${reason}` });
+  // Hide the chat overlay and swap the board pane for the gripper
+  // camera feed so the operator sees the card while the VLM reads it.
+  closeChatOverlay();
+  try {
+    await withYoloStream("hand", () => postJson("/api/game/chance_card"));
+    await refreshState();
+  } catch (err) {
+    console.warn("[chance] trigger failed:", err, "body:", err && err.body);
+    appendChat({
+      role: "sys",
+      text: `Chance card failed: ${err.message || err}\n${err && err.body ? err.body : ""}`,
+      error: true,
+    });
+  } finally {
+    chanceCardInFlight = false;
+  }
+}
 let hotkeyState = "idle";        // "idle" | "armed" | "recording" | "busy"
 let hotkeyMode = null;            // "act" | "ask"
 let hotkeyRecorder = null;
@@ -2472,6 +2576,17 @@ function setupHotkeys() {
       e.preventDefault();
       if (isGame) maybeOpenChatOverlay();
       hotkeyStartRecording("ask");
+      return;
+    }
+    // V: standalone chance-card trigger. Only valid in game mode on the
+    // user's TURN_START — triggerChanceCard() enforces the gate and
+    // appends a "ignored" sys message if the press was out-of-phase.
+    if (k === HOTKEY.CHANCE) {
+      if (!isGame) return;
+      e.preventDefault();
+      maybeOpenChatOverlay();
+      triggerChanceCard("V-key").catch((err) =>
+        console.warn("[chance] V-key:", err));
       return;
     }
   });

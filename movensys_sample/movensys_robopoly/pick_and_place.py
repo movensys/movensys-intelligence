@@ -716,8 +716,8 @@ def main():
     # already thrown the dice, we only need to look at it. Only valid
     # when target_object == "dice".
     mode = (sys.argv[4] if len(sys.argv) >= 5 else "roll").strip().lower()
-    if mode not in ("roll", "read"):
-        raise SystemExit(f"Unrecognized mode '{mode}'. Use 'roll' or 'read'.")
+    if mode not in ("roll", "read", "chance_init"):
+        raise SystemExit(f"Unrecognized mode '{mode}'. Use 'roll', 'read', or 'chance_init'.")
     if mode == "read" and sys.argv[1] != "dice":
         raise SystemExit("mode='read' is only valid for target_object='dice'")
 
@@ -727,6 +727,19 @@ def main():
 
     if mode == "read":
         _read_dice_only(is_yolo, pnp, main_start)
+        return
+
+    # Chance-card scan pose: park the arm at the cube-detection init
+    # position so the top camera has a clear view of the chance card laid
+    # under the gripper, then settle for 2.0 s before the caller grabs an
+    # RGB frame for the VLM. Sleep is unconditional (even in dry-run) so
+    # the caller's timing assumptions don't depend on hardware presence.
+    if mode == "chance_init":
+        # _init_move's only branch is dice vs. non-dice — pass the
+        # caller's target_object (red_cube / green_cube) so the same
+        # cube scan pose is used.
+        pnp._init_move(sys.argv[1])
+        time.sleep(2.0)
         return
 
     # init

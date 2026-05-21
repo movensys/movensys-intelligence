@@ -37,6 +37,9 @@ class RosImageSubscriber:
     def __init__(self) -> None:
         self.latest_dice_debug: Optional[dict] = None
         self.latest_cube_debug: Optional[dict] = None
+        # Raw gripper-camera RGB frame for the chance-card overlay. Same
+        # encoding pipeline as the YOLO debug streams.
+        self.latest_hand_rgb: Optional[dict] = None
         self._thread: Optional[threading.Thread] = None
         self._executor = None
         self._node = None
@@ -92,12 +95,19 @@ class RosImageSubscriber:
                     Image, "/yolo_cube_detector/debug_image",
                     self._on_cube, 1, callback_group=cb,
                 )
+                self.create_subscription(
+                    Image, "/image_hand/rgb",
+                    self._on_hand, 1, callback_group=cb,
+                )
 
             def _on_dice(self, msg: Image) -> None:
                 self._owner.latest_dice_debug = self._owner._encode(msg)
 
             def _on_cube(self, msg: Image) -> None:
                 self._owner.latest_cube_debug = self._owner._encode(msg)
+
+            def _on_hand(self, msg: Image) -> None:
+                self._owner.latest_hand_rgb = self._owner._encode(msg)
 
         self._node = _Node(self)
         self._executor = MultiThreadedExecutor()

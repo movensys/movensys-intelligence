@@ -7,12 +7,14 @@ the PRD §4.7 error envelope. Business logic lives in game/*.
 from __future__ import annotations
 
 import asyncio
+import json as _json
 import logging
 import os
 import re
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx
 import yaml
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -362,6 +364,250 @@ async def dice_roll_robot(request: Request, body: DiceRollRobotRequest) -> dict[
     return await _spawn_dice_subprocess(request, body, mode="roll", source="robot")
 
 
+# ---- chance card (VLM-driven) --------------------------------------------
+
+# Four fixed chance-card outcomes the game supports. The VLM reads a
+# physical card and the second VLM call maps the reading to one of
+# these four — there are no other possible outcomes.
+_CHANCE_CHOICES = ("-150", "0_sorry", "100", "200")
+_CHANCE_DELTA: dict[str, int] = {"-150": -150, "0_sorry": 0, "100": 100, "200": 200}
+_CHANCE_LABEL: dict[str, str] = {
+    "-150":    "-$150",
+    "0_sorry": "$0 (sorry)",
+    "100":     "+$100",
+    "200":     "+$200",
+}
+# Token-conscious prompts: the orchestrator pays per token on both
+# input AND output and we run this flow every chance card. Both prompts
+# stay under ~80 tokens; max_tokens is capped hard in the request body.
+_CHANCE_READ_PROMPT = (
+    "Read the dollar amount on this chance card.\n"
+    "Reply with ONLY digits with a sign prefix and a dollar sign. "
+    'Examples: "-$150", "$200", "$0", "$100".\n'
+    "NEVER spell numbers as words. NEVER add prose."
+)
+_CHANCE_SYSTEM_PROMPT = (
+    "Pick ONE of four chance outcomes for the dollar amount in the user message:\n"
+    '  "-150"     if the card is negative (player pays $150)\n'
+    '  "200"      if the card is +$200\n'
+    '  "100"      if the card is +$100\n'
+    '  "0_sorry"  if the card is $0 or says sorry\n'
+    'Reply ONLY: {"choice":"-150"|"0_sorry"|"100"|"200"}'
+)
+_CHANCE_POPUP_HOLD_S = 2.0
+# Regex fallback for the decision step: scan the raw reply for one of the
+# four canonical tokens. Order matters — "-150" must beat "150".
+_CHANCE_CHOICE_RE = re.compile(r"(-150|0_sorry|200|100|\bsorry\b|\b0\b)", re.IGNORECASE)
+
+
+def _parse_chance_choice(raw: str) -> str:
+    """Extract one of the four allowed outcomes from a VLM reply. Tries
+    strict JSON first, then falls back to a regex over the raw text.
+    Defaults to "0_sorry" (no-op) if nothing matches, so the flow always
+    advances even when the model goes off-script.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return "0_sorry"
+    # Try strict JSON (handles ```json … ``` fences too)
+    fenced = re.sub(r"^\s*```(?:json)?\s*|\s*```\s*$", "", text, flags=re.IGNORECASE)
+    try:
+        obj = _json.loads(fenced)
+        choice = str(obj.get("choice", "")).strip()
+        if choice in _CHANCE_CHOICES:
+            return choice
+    except (_json.JSONDecodeError, AttributeError):
+        pass
+    # Regex fallback over the whole reply
+    m = _CHANCE_CHOICE_RE.search(text)
+    if m:
+        token = m.group(1).lower()
+        if token in _CHANCE_CHOICES:
+            return token
+        if token in ("sorry", "0"):
+            return "0_sorry"
+    return "0_sorry"
+
+
+async def _run_chance_init_subprocess(is_yolo: bool) -> None:
+    """Spawn pick_and_place.py in chance_init mode: park the arm at the
+    cube-detection scan pose, sleep 2 s, exit. Raises HTTPException on
+    subprocess failure so the caller surfaces the same error envelope as
+    the other PnP routes.
+    """
+    script = Path(os.environ.get("MONOPOLY_PNP_SCRIPT", _DEFAULT_PNP_SCRIPT))
+    if not script.exists():
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "SCRIPT_NOT_FOUND",
+                    "message": f"pick_and_place.py not found at {script}"},
+        )
+    is_yolo_arg = "true" if is_yolo else "false"
+    # target_object is required by PnP.__init__ but the chance_init mode
+    # never touches the YOLO topic — any non-dice cube name works. Pick
+    # red_cube (the user's piece) so the validator passes.
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "python3", str(script), "red_cube", "GO", is_yolo_arg, "chance_init",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500,
+                            detail={"code": "SCRIPT_NOT_FOUND", "message": str(exc)})
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "PNP_FAILED",
+                "message": f"chance_init pick_and_place exited with {proc.returncode}",
+                "stdout": stdout.decode("utf-8", "replace"),
+                "stderr": stderr.decode("utf-8", "replace"),
+            },
+        )
+
+
+async def _vlm_infer(
+    *, prompt: str, camera: str, system_prompt: str | None = None,
+    max_tokens: int = 128, temperature: float = 0.0,
+) -> str:
+    """POST {MOVENSYS_VLM_URL}/api/vlm/infer and return the raw response
+    text. The orchestrator proxies to vLLM (:9000); we keep the call
+    inline rather than going through VLMAdapter because the adapter's
+    system prompt is hard-coded to an intent classifier.
+    """
+    base = os.environ.get("MOVENSYS_VLM_URL", "http://localhost:8000").strip()
+    if not base:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "VLM_OFFLINE",
+                    "message": "MOVENSYS_VLM_URL is not set — VLM in stub mode"},
+        )
+    body: dict[str, Any] = {
+        "camera": camera,
+        "prompt": prompt,
+        "client": "robopoly_chance",
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    if system_prompt:
+        body["system_prompt"] = system_prompt
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(f"{base}/api/vlm/infer", json=body)
+            r.raise_for_status()
+            data = r.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "VLM_REQUEST_FAILED", "message": str(exc)},
+        )
+    if data.get("error"):
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "VLM_ERROR", "message": str(data.get("error"))},
+        )
+    return str(data.get("response") or "").strip()
+
+
+@api_router.post("/game/chance_card")
+async def game_chance_card(request: Request) -> dict[str, Any]:
+    """Run the VLM-driven chance card flow for the current turn player.
+
+    Fired either by (a) the tile-arrival deferred resolution (chance tile
+    12) or (b) the frontend V-key hotkey on the user's TURN_START. The
+    flow is the same for both:
+      1. arm → cube scan pose, settle 2 s
+      2. VLM call 1 ("read this card") on the top camera frame
+      3. publish chance_card_read, hold popup 2 s
+      4. VLM call 2 — pick one of -100/+200/0/+100 from the read text
+      5. apply the money delta to the current player's balance
+      6. publish chance_card_applied, hold popup 2 s
+    """
+    game = request.app.state.game
+    player = game.state.turn
+    is_yolo = bool(getattr(game.state.config, "is_YOLO", True))
+
+    # 1. Park the arm so the top camera has a clean view of the card.
+    await _run_chance_init_subprocess(is_yolo)
+
+    # 2. VLM read — arm is at the cube-scan pose so the gripper-mounted
+    #    ("hand") camera is the one pointing down at the card. max_tokens
+    #    is tight (24) because the expected reply is at most 6 chars
+    #    ("-$150"); anything longer is prose we'd discard anyway.
+    try:
+        read_text = await _vlm_infer(
+            prompt=_CHANCE_READ_PROMPT,
+            camera="hand",
+            max_tokens=24,
+            temperature=0.0,
+        )
+    except HTTPException:
+        raise
+    if not read_text:
+        read_text = "(VLM returned no text for the card)"
+
+    # 3. Tell the UI to flash the read text in the chat / overlay.
+    game.bus.publish_nowait("chance_card_read", {
+        "player": player,
+        "text": read_text,
+        "hold_s": _CHANCE_POPUP_HOLD_S,
+    })
+    await asyncio.sleep(_CHANCE_POPUP_HOLD_S)
+
+    # 4. Decision call — small system prompt forces a 1-of-4 outcome.
+    decision_prompt = (
+        f"Read this card and consider it to the game.\n"
+        f"Card text: {read_text!r}\n"
+        f'Return JSON: {{"choice": "-100"|"+200"|"0"|"+100"}}.'
+    )
+    decision_raw = await _vlm_infer(
+        prompt=decision_prompt,
+        camera="none",
+        system_prompt=_CHANCE_SYSTEM_PROMPT,
+        max_tokens=64,
+        temperature=0.0,
+    )
+    choice = _parse_chance_choice(decision_raw)
+    delta = _CHANCE_DELTA[choice]
+
+    # 5. Apply the money change to the current turn player's liquid balance.
+    #    No bankruptcy chain here (the deltas are tiny relative to seed
+    #    money / typical balances) — just clamp at 0 on a pay outcome.
+    async with game._lock:
+        p_state = game.state.players.get(player)
+        if p_state is not None:
+            if delta > 0:
+                p_state.balance += delta
+            elif delta < 0:
+                p_state.balance = max(0, p_state.balance + delta)
+        new_balance = p_state.balance if p_state is not None else 0
+
+    # 6. Result popup — frontend listens for chance_card_applied to flash
+    #    "{player}: -$100" etc. and updates the money widget via state refresh.
+    game.bus.publish_nowait("chance_card_applied", {
+        "player": player,
+        "choice": choice,
+        "label": _CHANCE_LABEL[choice],
+        "delta": delta,
+        "balance": new_balance,
+        "card_text": read_text,
+        "raw_decision": decision_raw,
+        "hold_s": _CHANCE_POPUP_HOLD_S,
+    })
+    await asyncio.sleep(_CHANCE_POPUP_HOLD_S)
+
+    return {
+        "player": player,
+        "card_text": read_text,
+        "choice": choice,
+        "label": _CHANCE_LABEL[choice],
+        "delta": delta,
+        "balance": new_balance,
+    }
+
+
 async def _drain_subprocess(proc: asyncio.subprocess.Process) -> None:
     """Consume any remaining stdout/stderr and reap the process."""
     try:
@@ -669,6 +915,13 @@ async def stream_yolo_dice_debug(ws: WebSocket) -> None:
 @api_router.websocket("/stream/yolo_cube_detector/debug_image")
 async def stream_yolo_cube_debug(ws: WebSocket) -> None:
     await _stream_image(ws, "latest_cube_debug")
+
+
+@api_router.websocket("/stream/image_hand/rgb")
+async def stream_image_hand_rgb(ws: WebSocket) -> None:
+    """Raw gripper-mounted camera RGB. Used by the chance-card overlay so
+    the operator can see the card the VLM is reading."""
+    await _stream_image(ws, "latest_hand_rgb")
 
 
 # ---- HTTPException helper --------------------------------------------------
