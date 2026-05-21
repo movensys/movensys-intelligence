@@ -1692,9 +1692,10 @@ function parseVoiceDecision(text) {
 // Catch-up rule: if the opponent has more hotels, jump our owned-tier-2
 // straight to hotel on revisit.
 //
-// "$200 power play": once we own 3+ properties, on a fresh unowned tile
-// we'll buy+house ($200) instead of buy ($100) — a big rent jump for
-// little extra cash, but only when buffer permits.
+// Unowned-tile default is buy + house ($200), not bare land — bare land
+// is the fallback when cash is tight. Hotels never fire from unowned
+// (the two-step buy + build server txn risks a partial failure at the
+// $200 boundary); they only happen on revisit.
 function pickRobotDecision(state, pending) {
   const liquid = state.players?.robot?.balance ?? 0;
   const lap = state.lap_count?.robot ?? 0;
@@ -1732,10 +1733,11 @@ function pickRobotDecision(state, pending) {
     return "build_hotel";
   }
 
-  // Unowned tile.
+  // Unowned tile: buy + house ($200) by default — bigger rent jump than
+  // bare land, and the buffer keeps both server txns safe. Fall back to
+  // land-only when cash is tight.
   if (currentTier === 0) {
-    // $200 power play once we have a real portfolio.
-    if (ownTotal >= 3 && maxTier >= 2 && canAfford(200)) return "build";
+    if (maxTier >= 2 && canAfford(200)) return "build";
     if (canAfford(100)) return "buy";
     return "skip";
   }
