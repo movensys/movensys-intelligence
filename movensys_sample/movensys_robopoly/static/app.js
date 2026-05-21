@@ -1677,35 +1677,75 @@ function parseVoiceDecision(text) {
   return null;
 }
 
-// Deterministic robot strategy for AWAIT_DECISION. Replaces the VLM
-// round-trip (image + state + ~600 strategic tokens) with a small
-// state-driven heuristic. Always returns a choice legal for the tile,
-// so executeVlmAction's validator can't override it.
+// Deterministic robot strategy for AWAIT_DECISION. Pure JS, zero VLM
+// tokens. Returns a choice legal for the tile.
 //
-// Rule: on a FIRST arrival (unowned) we never jump straight to a hotel.
-// The combined buy_property + build(hotel) in manager.decide_property is
-// two server transactions — if either one's funds-check straddles the
-// JS estimate, the land succeeds and the hotel fails, leaving the robot
-// with a land-only property and a silent property_build_rejected event.
-// One-tier-at-a-time keeps every transaction atomic.
+// Phase-based:
+//   - lap 0–1 (early): land-grab. Spend cheaply on multiple properties
+//     before locking cash in upgrades. Skip the buy+hotel combo entirely
+//     — manager.decide_property does buy+build as two server txns and a
+//     boundary miss leaves a silent property_build_rejected.
+//   - lap 2–3 (mid):   upgrade owned land to houses; if the opponent is
+//     escalating, push the same tier to keep rent symmetric.
+//   - lap 4+  (late):  conserve cash, only upgrade the tile we're on.
+//
+// Catch-up rule: if the opponent has more hotels, jump our owned-tier-2
+// straight to hotel on revisit.
+//
+// "$200 power play": once we own 3+ properties, on a fresh unowned tile
+// we'll buy+house ($200) instead of buy ($100) — a big rent jump for
+// little extra cash, but only when buffer permits.
 function pickRobotDecision(state, pending) {
   const liquid = state.players?.robot?.balance ?? 0;
+  const lap = state.lap_count?.robot ?? 0;
   const currentTier = pending.current_tier ?? 0;
   const maxTier = pending.max_tier ?? 3;
   const isUtility = pending.kind === "utility" || maxTier === 1;
   if (isUtility) {
     return (currentTier === 0 && liquid >= 200) ? "buy" : "skip";
   }
-  // Upgrade one tier at a time. Target = min(current+1, maxTier).
-  // Buffer requirement scales with current holdings: keep at least $200
-  // liquid after the move so rent / tax don't bankrupt us next turn.
-  const target = Math.min(currentTier + 1, maxTier);
-  if (target <= currentTier) return "skip";
-  const cost = (target - currentTier) * 100;
+
+  let oppHotels = 0, ownHotels = 0, ownTotal = 0;
+  for (const p of Object.values(state.properties || {})) {
+    if (!p.owner) continue;
+    if (p.owner === "robot") {
+      ownTotal++;
+      if (p.has_hotel) ownHotels++;
+    } else if (p.has_hotel) {
+      oppHotels++;
+    }
+  }
+
   const BUFFER = 200;
-  if (liquid - cost >= BUFFER) return tierToChoice(target);
-  // Tight on cash: only buy land if we can afford it with $100 spare.
-  if (currentTier === 0 && liquid >= 200) return "buy";
+  const canAfford = (cost) => liquid - cost >= BUFFER;
+
+  // Late game: hoard cash, only act if cheap and safe.
+  if (lap >= 4) {
+    if (currentTier < maxTier && canAfford(100)) {
+      return tierToChoice(currentTier + 1);
+    }
+    return "skip";
+  }
+
+  // Catch-up on opponent hotels: push owned property to hotel if we can.
+  if (oppHotels > ownHotels && currentTier === 2 && maxTier >= 3 && canAfford(100)) {
+    return "build_hotel";
+  }
+
+  // Unowned tile.
+  if (currentTier === 0) {
+    // $200 power play once we have a real portfolio.
+    if (ownTotal >= 3 && maxTier >= 2 && canAfford(200)) return "build";
+    if (canAfford(100)) return "buy";
+    return "skip";
+  }
+
+  // Revisit on owned land — build a house.
+  if (currentTier === 1 && maxTier >= 2 && canAfford(100)) return "build";
+
+  // Revisit on owned house — build a hotel (mid-game default).
+  if (currentTier === 2 && maxTier >= 3 && canAfford(100)) return "build_hotel";
+
   return "skip";
 }
 
