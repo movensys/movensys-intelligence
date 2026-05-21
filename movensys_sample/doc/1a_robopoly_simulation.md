@@ -25,7 +25,7 @@ Run `movensys_vlm/doc/running.md`
 
 ## Step 3: Running movensys_robopoly
 ```bash
-export MOVENSYS_PNP_DRY_RUN=1
+export MOVENSYS_PNP_DRY_RUN=0
 cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker
 docker compose down
 docker compose build

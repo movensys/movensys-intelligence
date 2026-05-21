@@ -940,17 +940,17 @@ function openStream() {
 // ---- YOLO debug-image overlay --------------------------------------------
 //
 // Swap the board pane for /yolo_{dice,cube}_detector/debug_image while
-// pick_and_place is in flight. The robopoly container ships its own
-// rclpy subscriber (see adapters/ros_image.py) and exposes the frames
-// over a WebSocket on the same origin — no movensys_vlm rebuild needed
-// for this feature.
+// pick_and_place is in flight. The frames are sourced from the
+// movensys_vlm orchestrator on :8000 (same ROS host as joint_states /
+// eef_pose) — robopoly's UI cross-origins to it like it already does
+// for the other ROS-fed streams.
 //
 // Lifecycle: yoloStreamOpen(kind) opens a WS and replaces the board with
 // the latest JPEG frame; yoloStreamClose() tears it down and the board
 // becomes visible again. Wrap a pnp-issuing fetch in
 // `withYoloStream(kind, fn)` to bind the overlay's visibility to the
 // fetch's promise.
-const YOLO_STREAM_HOST = location.host;
+const YOLO_STREAM_HOST = `${location.hostname}:8000`;
 const YOLO_STREAM_TOPICS = {
   dice: {
     path: "/api/stream/yolo_dice_detector/debug_image",
