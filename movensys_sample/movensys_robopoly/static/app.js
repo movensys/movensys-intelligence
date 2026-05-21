@@ -493,24 +493,35 @@ function hideDecision() {
 async function submitDecision(action, houseCount = 0) {
   if (!pendingDecision) return;
   const pid = pendingDecision.property_id;
+  let decideOk = true;
   try {
     await postJson(`/api/properties/${encodeURIComponent(pid)}/decide`,
                    { action, house_count: houseCount });
-  } catch (err) { console.warn("decide:", err); }
+  } catch (err) {
+    decideOk = false;
+    console.warn("decide:", err);
+    // Clear the auto-trigger dedup key so the robot's AWAIT_DECISION
+    // state can re-fire. Without this, an illegal choice (e.g. "buy"
+    // on a tile the robot already owns) leaves fsm=AWAIT_DECISION but
+    // the (turn, fsm, turn_number, pid) key still matches — the loop
+    // never retries and the game deadlocks.
+    vlmPlayerLastTurnKey = null;
+  }
   hideDecision();
   // Game mode: hold the result on screen before swapping turns —
   // STATUS_FLASH_MS for the buy/build flash to play out, then another 3s
   // of clean board view so the operator can take in the new building
   // before "It's robot's turn" overlays the screen.
-  if (document.body.classList.contains("game-mode") && action !== "skip") {
+  if (document.body.classList.contains("game-mode") && action !== "skip" && decideOk) {
     await new Promise((res) => setTimeout(res, STATUS_FLASH_MS + 3000));
   }
   // Spec §3.4: end-turn is automatic. After the buy/skip/build choice
   // the FSM is back at RESOLVE_TILE, so end_turn is safe to call.
   try {
-    await postJson("/api/game/end_turn");
+    if (decideOk) await postJson("/api/game/end_turn");
   } catch (err) {
     console.warn("post-decide end_turn:", err);
+    vlmPlayerLastTurnKey = null;
   } finally {
     turnInFlight = false;
   }
@@ -1444,33 +1455,9 @@ User voice intent (Context: line) — highest priority, head-noun wins:
 If illegal for the tile, fall back to the closest legal choice
 (utility→buy; over-tier→next legal upgrade; else skip).
 
-Robot-turn AWAIT_DECISION calls include a STRATEGIC CONTEXT block in
-the user prompt — read it before picking. "Always buy land" is weak.`;
-
-// Strategic-reasoning block injected into the per-call USER prompt only on
-// AWAIT_DECISION turns. Keeping it out of the system prompt saves ~600
-// tokens on every TURN_START roll (where reasoning is unused) at the cost
-// of ~600 tokens on AWAIT_DECISION (where it actually matters).
-const VLM_PLAYER_STRATEGIC_CONTEXT = `STRATEGIC CONTEXT (facts to reason with, not rules):
-
-Game length: 5 laps wins, ~10 turns per player. Any one tile gets ~0.7
-opponent visits on expectation (P(≥2 hits) ≈ 16%). Per-tier ROI is
-identical (cost = rent); break-even at 1 hit, profit at 2+. Land is NOT
-safer per dollar — same payback ratio at every tier.
-
-Aggressive (buy / build_hotel) when:
-- Early game (lap_count ≤ 1) and liquid ≥ $400. Hotels deal $300/hit,
-  the only realistic path to bankrupt the opponent in a short game.
-- Behind in laps or assets — high-variance plays correct.
-- Opponent has hotels — match tier or be out-leveraged ($300 vs $100).
-
-Conservative (skip / land only) when:
-- Late game (lap_count ≥ 3) — preserve cash to reach lap 5.
-- Liquid < $200 after the buy — one rent hit could bankrupt you.
-- Opponent has hotels you might land on — keep $300 buffer.
-
-End-game cash has no value beyond surviving; winner = lap cap or
-bankruptcy. Land buys mainly deny opponent future hotel slots.`;
+Robot AWAIT_DECISION is handled deterministically in the frontend — you
+will not be asked to pick on the robot's behalf, only to honor the
+user's voice intent on user turns.`;
 
 let vlmPlayerInFlight = false;
 let vlmPlayerLastTurnKey = null;
@@ -1623,6 +1610,90 @@ function buildVlmStateSummary(state) {
   return summary;
 }
 
+// Map a target tier (1/2/3) to the matching decide-action choice.
+function tierToChoice(t) {
+  if (t === 1) return "buy";
+  if (t === 2) return "build";
+  return "build_hotel";
+}
+
+// Rewrite a decide-choice into the nearest legal one for the live
+// decision_pending. Prevents the "robot lands on its own property, VLM
+// says buy, server returns PROPERTY_OWNED, end_turn fails, dedup key
+// blocks retry" deadlock — every choice we forward to the server is
+// legal by construction, so AWAIT_DECISION always advances.
+function legalizeDecisionChoice(choice, pending) {
+  const currentTier = pending?.current_tier ?? 0;
+  const maxTier = pending?.max_tier ?? 3;
+  if (choice === "skip") return "skip";
+  // Utility (Electric Company): land tier only, no houses/hotels.
+  if (maxTier === 1) {
+    return currentTier === 0 ? "buy" : "skip";
+  }
+  let target;
+  if (choice === "buy") target = 1;
+  else if (choice === "build") target = 2;
+  else if (choice === "build_hotel") target = 3;
+  else return "skip";
+  if (target <= currentTier) target = currentTier + 1;
+  if (target > maxTier) target = maxTier;
+  if (target <= currentTier) return "skip";
+  return tierToChoice(target);
+}
+
+// Head-noun keyword match on a voice transcript. Returns one of
+// "skip"/"buy"/"build"/"build_hotel" or null when no keyword was found
+// (caller falls through to the VLM). Mirrors the priority documented in
+// VLM_PLAYER_SYSTEM_PROMPT, but runs in JS so a small Whisper+Gemma
+// pipeline can't mishear "buy hotel" as "buy" / "build" on the way out.
+function parseVoiceDecision(text) {
+  if (!text) return null;
+  const t = String(text).toLowerCase();
+  if (/\bhotel/.test(t)) return "build_hotel";
+  if (/\b(house|build)/.test(t)) return "build";
+  if (/\b(land|buy|purchase)/.test(t)) return "buy";
+  if (/\b(skip|pass|nope|don'?t|no\b)/.test(t)) return "skip";
+  return null;
+}
+
+// Deterministic robot strategy for AWAIT_DECISION. Replaces the VLM
+// round-trip (image + state + ~600 strategic tokens) with a small
+// state-driven heuristic. Always returns a choice legal for the tile,
+// so executeVlmAction's validator can't override it. Knobs:
+//   - early-game (lap ≤ 1) + liquid ≥ $400 ⇒ hotel if buffer holds
+//   - opponent already at hotels ⇒ match-or-be-leveraged
+//   - late-game (lap ≥ 3) ⇒ minimum upgrade only, large buffer
+//   - default mid-game ⇒ one tier up if $200 buffer remains
+function pickRobotDecision(state, pending) {
+  const liquid = state.players?.robot?.balance ?? 0;
+  const lap = state.lap_count?.robot ?? 0;
+  const currentTier = pending.current_tier ?? 0;
+  const maxTier = pending.max_tier ?? 3;
+  const isUtility = pending.kind === "utility" || maxTier === 1;
+  if (isUtility) {
+    return (currentTier === 0 && liquid >= 200) ? "buy" : "skip";
+  }
+  let oppMaxTier = 0;
+  for (const p of Object.values(state.properties || {})) {
+    if (p.owner !== "user") continue;
+    const t = p.has_hotel ? 3 : (p.houses > 0 ? 2 : 1);
+    if (t > oppMaxTier) oppMaxTier = t;
+  }
+  const afterBuy = (t) => liquid - (t - currentTier) * 100;
+  if (lap >= 3) {
+    const t = Math.min(currentTier + 1, maxTier);
+    return afterBuy(t) >= 200 ? tierToChoice(t) : "skip";
+  }
+  if (lap <= 1 && liquid >= 400 && maxTier >= 3 && afterBuy(3) >= 200) {
+    return "build_hotel";
+  }
+  if (oppMaxTier >= 3 && maxTier >= 3 && afterBuy(3) >= 100) {
+    return "build_hotel";
+  }
+  const t = Math.min(currentTier + 1, maxTier);
+  return afterBuy(t) >= 200 ? tierToChoice(t) : "skip";
+}
+
 async function executeVlmAction(action) {
   if (!action || typeof action !== "object") {
     console.warn("[vlm-player] executeVlmAction: not an object:", action);
@@ -1655,14 +1726,17 @@ async function executeVlmAction(action) {
     return true;
   }
   if (action.action === "decide") {
-    const c = action.choice;
-    if (c === "build") { await submitDecision("build", 1); return true; }
-    if (["skip", "buy", "build_hotel"].includes(c)) {
-      await submitDecision(c);
-      return true;
+    const raw = action.choice;
+    const choice = legalizeDecisionChoice(raw, pendingDecision);
+    if (raw !== choice) {
+      console.warn("[vlm-player] legalized decide choice:", {
+        raw, used: choice,
+        current_tier: pendingDecision?.current_tier,
+        max_tier: pendingDecision?.max_tier,
+      });
     }
-    console.warn("[vlm-player] executeVlmAction: unknown decide choice:", c);
-    return false;
+    await submitDecision(choice, choice === "build" ? 1 : 0);
+    return true;
   }
   console.warn("[vlm-player] executeVlmAction: unknown action:", action.action);
   return false;
@@ -1688,16 +1762,8 @@ async function vlmPlayerAct(userMessage) {
   vlmPlayerInFlight = true;
   try {
     const summary = buildVlmStateSummary(currentState);
-    // STRATEGIC CONTEXT (~600 tok) lives outside the system prompt now;
-    // inject it only when the model actually needs to reason about a
-    // buy/build/skip choice. TURN_START rolls are mechanical and gain
-    // nothing from the block.
-    const strategic = currentState.fsm === "AWAIT_DECISION"
-      ? `${VLM_PLAYER_STRATEGIC_CONTEXT}\n\n`
-      : "";
     const prompt =
       `${VLM_PLAYER_INLINE_RULES}\n\n` +
-      strategic +
       `Context: ${userMessage}\n\n` +
       `State:\n${JSON.stringify(summary)}\n\n` +
       `Your reply (ONE JSON object, nothing else):`;
@@ -1729,15 +1795,13 @@ function maybeAutoTriggerRobotTurn() {
     vlmPlayerAct("It's your turn (robot). Roll the dice and move your cube.");
   } else if (currentState.fsm === "AWAIT_DECISION" && pendingDecision) {
     vlmPlayerLastTurnKey = key;
-    vlmPlayerAct(
-      "You (robot) landed on a buyable property. There is no human voice " +
-      "intent for this decision — read the State JSON AND the STRATEGIC " +
-      "CONTEXT block above before choosing. In this 5-lap game " +
-      "'always buy land' is a weak default; consider build / build_hotel " +
-      "when you can afford them, especially in the early game. Respect " +
-      "decision_pending.max_tier (utility tiles allow only buy or skip). " +
-      "Output exactly one of: skip / buy / build / build_hotel.",
-    );
+    // Deterministic strategy lives in pickRobotDecision — no VLM call.
+    // The choice is legal by construction (skip is always legal), so we
+    // can submitDecision directly and AWAIT_DECISION always advances.
+    const choice = pickRobotDecision(currentState, pendingDecision);
+    appendChat({ role: "sys", text: `Robot decision → ${choice}` });
+    submitDecision(choice, choice === "build" ? 1 : 0)
+      .catch((err) => console.warn("[robot-decide]", err));
   }
 }
 
@@ -2071,6 +2135,21 @@ async function dispatchVoiceAction(text) {
   if (fsm === "TURN_START" && currentState.turn !== "user") {
     appendChat({ role: "sys", text: "Not your turn — wait for the robot." });
     return;
+  }
+  // Voice-decide fast path: when the user is staring at the buy modal
+  // and says "buy hotel", route head-noun → submitDecision in JS rather
+  // than asking the small VLM to extract the intent (which mis-picks
+  // ~50% of the time on "buy hotel" → buy/build). Falls through to the
+  // VLM only when no keyword matched.
+  if (fsm === "AWAIT_DECISION" && pendingDecision) {
+    const parsed = parseVoiceDecision(text);
+    if (parsed) {
+      const choice = legalizeDecisionChoice(parsed, pendingDecision);
+      appendChat({ role: "me", text });
+      appendChat({ role: "sys", text: `Voice → ${choice}` });
+      await submitDecision(choice, choice === "build" ? 1 : 0);
+      return;
+    }
   }
   const pending = appendChat({ role: "bot", text: "Dispatching action…", pending: true });
   try {
