@@ -47,11 +47,11 @@ pip install -r requirements.txt
 
 #### Running movensys_robopoly
 ```bash
-export MOVENSYS_PNP_DRY_RUN=1   # optional — skips real robot motion
+export MOVENSYS_PNP_DRY_RUN=0
 cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker
 docker compose down
-docker compose build            # only needed when deps/Dockerfile change
-docker compose up               # foreground; Ctrl-C to stop
+docker compose build
+docker compose up
 ```
 
 ### Step 9: Play the robopoly game
