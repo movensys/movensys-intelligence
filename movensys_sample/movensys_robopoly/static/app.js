@@ -445,9 +445,27 @@ function renderDiceFace(value) {
 // ---- decision modal -------------------------------------------------------
 
 let pendingDecision = null;  // { property_id, card }
+// Voice intent cached from the user's earlier utterance ("buy a house"
+// spoken during TURN_START while the dice was rolling). When AWAIT_DECISION
+// fires, dispatchVoiceAction's fast path missed it because pendingDecision
+// wasn't set yet — we replay the cached choice here. Cleared on use or
+// when the turn changes.
+let pendingVoiceIntent = null;  // { choice: "skip"|"buy"|"build"|"build_hotel", text }
 
 function showDecision(decision) {
   pendingDecision = decision;
+  // If the user already voiced a choice this turn, apply it instead of
+  // forcing them to repeat themselves.
+  if (pendingVoiceIntent) {
+    const intent = pendingVoiceIntent;
+    pendingVoiceIntent = null;
+    const choice = legalizeDecisionChoice(intent.choice, decision);
+    appendChat({ role: "sys",
+      text: `Voice (cached "${intent.text}") → ${choice}` });
+    submitDecision(choice, choice === "build" ? 1 : 0)
+      .catch((err) => console.warn("[voice-cache] submit:", err));
+    return;
+  }
   const { card } = decision;
   const currentTier = decision.current_tier ?? 0;
   const maxTier = decision.max_tier ?? (card.kind === "property" ? 3 : 1);
@@ -851,6 +869,9 @@ function renderState(state) {
   if (!winner && state.turn && state.turn !== lastAnnouncedTurn) {
     lastAnnouncedTurn = state.turn;
     announce(`It's ${state.turn}'s turn`, "turn");
+    // Voice intents are turn-scoped — don't leak last turn's "buy a house"
+    // into the next one.
+    pendingVoiceIntent = null;
   }
 }
 
@@ -1659,39 +1680,33 @@ function parseVoiceDecision(text) {
 // Deterministic robot strategy for AWAIT_DECISION. Replaces the VLM
 // round-trip (image + state + ~600 strategic tokens) with a small
 // state-driven heuristic. Always returns a choice legal for the tile,
-// so executeVlmAction's validator can't override it. Knobs:
-//   - early-game (lap ≤ 1) + liquid ≥ $400 ⇒ hotel if buffer holds
-//   - opponent already at hotels ⇒ match-or-be-leveraged
-//   - late-game (lap ≥ 3) ⇒ minimum upgrade only, large buffer
-//   - default mid-game ⇒ one tier up if $200 buffer remains
+// so executeVlmAction's validator can't override it.
+//
+// Rule: on a FIRST arrival (unowned) we never jump straight to a hotel.
+// The combined buy_property + build(hotel) in manager.decide_property is
+// two server transactions — if either one's funds-check straddles the
+// JS estimate, the land succeeds and the hotel fails, leaving the robot
+// with a land-only property and a silent property_build_rejected event.
+// One-tier-at-a-time keeps every transaction atomic.
 function pickRobotDecision(state, pending) {
   const liquid = state.players?.robot?.balance ?? 0;
-  const lap = state.lap_count?.robot ?? 0;
   const currentTier = pending.current_tier ?? 0;
   const maxTier = pending.max_tier ?? 3;
   const isUtility = pending.kind === "utility" || maxTier === 1;
   if (isUtility) {
     return (currentTier === 0 && liquid >= 200) ? "buy" : "skip";
   }
-  let oppMaxTier = 0;
-  for (const p of Object.values(state.properties || {})) {
-    if (p.owner !== "user") continue;
-    const t = p.has_hotel ? 3 : (p.houses > 0 ? 2 : 1);
-    if (t > oppMaxTier) oppMaxTier = t;
-  }
-  const afterBuy = (t) => liquid - (t - currentTier) * 100;
-  if (lap >= 3) {
-    const t = Math.min(currentTier + 1, maxTier);
-    return afterBuy(t) >= 200 ? tierToChoice(t) : "skip";
-  }
-  if (lap <= 1 && liquid >= 400 && maxTier >= 3 && afterBuy(3) >= 200) {
-    return "build_hotel";
-  }
-  if (oppMaxTier >= 3 && maxTier >= 3 && afterBuy(3) >= 100) {
-    return "build_hotel";
-  }
-  const t = Math.min(currentTier + 1, maxTier);
-  return afterBuy(t) >= 200 ? tierToChoice(t) : "skip";
+  // Upgrade one tier at a time. Target = min(current+1, maxTier).
+  // Buffer requirement scales with current holdings: keep at least $200
+  // liquid after the move so rent / tax don't bankrupt us next turn.
+  const target = Math.min(currentTier + 1, maxTier);
+  if (target <= currentTier) return "skip";
+  const cost = (target - currentTier) * 100;
+  const BUFFER = 200;
+  if (liquid - cost >= BUFFER) return tierToChoice(target);
+  // Tight on cash: only buy land if we can afford it with $100 spare.
+  if (currentTier === 0 && liquid >= 200) return "buy";
+  return "skip";
 }
 
 async function executeVlmAction(action) {
@@ -2148,6 +2163,22 @@ async function dispatchVoiceAction(text) {
       appendChat({ role: "me", text });
       appendChat({ role: "sys", text: `Voice → ${choice}` });
       await submitDecision(choice, choice === "build" ? 1 : 0);
+      return;
+    }
+  }
+  // Pre-decision capture: user often says "buy a house" while the dice
+  // is still rolling, so AWAIT_DECISION hasn't fired yet. Cache the
+  // intent — showDecision will replay it when the modal arrives.
+  if (fsm === "TURN_START" && currentState.turn === "user") {
+    const parsed = parseVoiceDecision(text);
+    if (parsed) {
+      pendingVoiceIntent = { choice: parsed, text };
+      appendChat({ role: "me", text });
+      appendChat({ role: "sys",
+        text: `Voice cached → ${parsed} (applied when you land)` });
+      // Still trigger the roll so the turn progresses.
+      const btn = document.getElementById("btn-roll-dice");
+      if (btn && !btn.disabled) btn.click();
       return;
     }
   }

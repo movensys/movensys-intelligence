@@ -181,6 +181,19 @@ def submit_dice(state: GameState, value: int | tuple[int, int]) -> dict[str, Any
         else:
             p_state.in_jail = False
             jail_payload = {"kind": "jail_released", "player": player}
+
+    # House rule: a dice roll must never park a piece on the jail_visit
+    # tile (Desert Island). Only the go_to_jail effect can place a piece
+    # there. If the rolled destination would land there, advance one extra
+    # tile so we "drive past" Just Visiting.
+    board = load_board(state.board_id)
+    size = board.tile_count
+    from_tile = state.positions.get(player, 0)
+    dest = (from_tile + state.pending_dice) % size
+    if board.tiles[dest].kind == "jail_visit":
+        state.pending_dice += 1
+        state.last_dice_sum = state.pending_dice
+
     state.fsm = FSM.MOVING
     return jail_payload
 
