@@ -839,7 +839,7 @@ function announceFromEvent(env) {
         const t = payload.totals || {};
         text = `🤝 Draw — both players at $${t.user ?? "?"}`;
       } else {
-        const reason = payload.reason === "lap_cap" ? " (3 laps)" : "";
+        const reason = payload.reason === "lap_cap" ? " (2 laps)" : "";
         text = `🏆 ${payload.winner} wins the game!${reason}`;
       }
       announce(text, "win", { sticky: true });
@@ -1718,7 +1718,7 @@ Choice meaning (cumulative cost from unowned = rent opponent pays):
   build_hotel tier 3, $300   land + hotel
   skip        no purchase
 Upgrade delta from owned = $100 × (target_tier − current_tier).
-Seed $500, GO bonus $100, tax $100, chance ±$200, 3 laps to win. Rent $150/$300/$450 per tier.
+Seed $500, GO bonus $100, tax $100, chance ±$200, 2 laps to win. Rent $150/$300/$450 per tier.
 
 Constraints:
 - decision_pending.kind=="utility" → only buy or skip are legal.
