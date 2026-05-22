@@ -291,13 +291,16 @@ def main() -> int:
     parser.add_argument("--base", default=os.environ.get("ROBOPOLY_BASE", DEFAULT_BASE),
                         help=f"robopoly base URL (default: {DEFAULT_BASE})")
     parser.add_argument("--seed", type=int, default=None,
-                        help="seed the decision RNG for repeatable runs")
+                        help="seed the decision RNG (auto-derived per run when --runs > 1)")
     parser.add_argument("--max-turns", type=int, default=300,
-                        help="hard cap on turns played (safety net)")
+                        help="hard cap on turns played per game (safety net)")
     parser.add_argument("--no-reset", action="store_true",
                         help="continue an in-progress game instead of starting fresh")
     parser.add_argument("--delay", type=float, default=0.0,
                         help="seconds to sleep between turns (default: 0)")
+    parser.add_argument("--runs", type=int, default=1,
+                        help="play N complete games back-to-back, "
+                             "resetting between each (default: 1)")
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
 
@@ -315,38 +318,85 @@ def main() -> int:
         log.error("server not reachable at %s: %s", client.base, exc)
         return 2
 
-    if not args.no_reset:
-        log.info("starting fresh game (board=final)")
-        client.post("/api/game/start", {"board": "final"})
+    results: list[dict[str, Any]] = []
+    overall_start = time.perf_counter()
+    for run_i in range(1, args.runs + 1):
+        # Per-run seed: deterministic across runs when --seed is set, but
+        # each run gets a distinct stream so the games aren't identical.
+        per_run_seed = (args.seed + run_i - 1) if args.seed is not None else None
+        rng = random.Random(per_run_seed)
+        if args.runs > 1:
+            log.info("========== run %d / %d (seed=%s) ==========",
+                     run_i, args.runs, per_run_seed)
 
-    rng = random.Random(args.seed)
-    start = time.perf_counter()
+        if run_i > 1 or not args.no_reset:
+            log.info("starting fresh game (board=final)")
+            client.post("/api/game/start", {"board": "final"})
 
-    for turn_i in range(args.max_turns):
+        run_start = time.perf_counter()
+        outcome: dict[str, Any] = {"run": run_i, "seed": per_run_seed}
         try:
-            cont = play_one_turn(client, rng)
+            for turn_i in range(args.max_turns):
+                cont = play_one_turn(client, rng)
+                if not cont:
+                    state = client.get("/api/game/state")
+                    elapsed = time.perf_counter() - run_start
+                    log.info(
+                        "GAME OVER after %d turns in %.1fs — "
+                        "winner=%s, balances=%s, laps=%s",
+                        state.get("turn_number"), elapsed, state.get("winner"),
+                        {p: state["players"][p]["balance"]
+                         for p in ("user", "robot")},
+                        state.get("lap_count"),
+                    )
+                    outcome.update({
+                        "ok": True,
+                        "winner": state.get("winner"),
+                        "turns": state.get("turn_number"),
+                        "elapsed_s": elapsed,
+                    })
+                    break
+                if args.delay:
+                    time.sleep(args.delay)
+            else:
+                log.warning("max-turns=%d reached without a winner",
+                            args.max_turns)
+                outcome.update({"ok": False, "reason": "max_turns"})
         except requests.HTTPError as exc:
             body = exc.response.text if exc.response is not None else ""
-            log.error("HTTP error after %d turns: %s — %s", turn_i, exc, body)
-            return 1
+            log.error("HTTP error: %s — %s", exc, body)
+            outcome.update({"ok": False, "reason": f"http {exc}"})
         except AutoPlayError as exc:
-            log.error("auto-play aborted after %d turns: %s", turn_i, exc)
-            return 1
-        if not cont:
-            state = client.get("/api/game/state")
-            elapsed = time.perf_counter() - start
-            log.info(
-                "GAME OVER after %d turns in %.1fs — winner=%s, balances=%s, laps=%s",
-                state.get("turn_number"), elapsed, state.get("winner"),
-                {p: state["players"][p]["balance"] for p in ("user", "robot")},
-                state.get("lap_count"),
-            )
-            return 0
-        if args.delay:
-            time.sleep(args.delay)
+            log.error("auto-play aborted: %s", exc)
+            outcome.update({"ok": False, "reason": str(exc)})
 
-    log.warning("max-turns=%d reached without a winner", args.max_turns)
-    return 1
+        results.append(outcome)
+        # Bail the multi-run loop on the first failure — the user wants
+        # to fix bugs before continuing.
+        if not outcome.get("ok"):
+            log.error("aborting --runs sweep at run %d/%d", run_i, args.runs)
+            break
+
+    # Summary
+    if args.runs > 1:
+        ok_runs = [r for r in results if r.get("ok")]
+        log.info("==================== summary ====================")
+        log.info("completed %d / %d runs in %.1fs",
+                 len(ok_runs), args.runs, time.perf_counter() - overall_start)
+        for r in results:
+            if r.get("ok"):
+                log.info(
+                    "  run %d: winner=%s in %d turns (%.1fs)",
+                    r["run"], r["winner"], r["turns"], r["elapsed_s"],
+                )
+            else:
+                log.info("  run %d: FAILED — %s", r["run"], r.get("reason"))
+        wins = {"user": 0, "robot": 0, None: 0}
+        for r in ok_runs:
+            wins[r.get("winner")] = wins.get(r.get("winner"), 0) + 1
+        log.info("  wins: user=%d robot=%d draws=%d",
+                 wins["user"], wins["robot"], wins[None])
+    return 0 if all(r.get("ok") for r in results) else 1
 
 
 if __name__ == "__main__":

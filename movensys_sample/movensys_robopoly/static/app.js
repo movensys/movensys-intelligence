@@ -576,6 +576,11 @@ function flashGameOverlay(text, opts = {}) {
   else slot.textContent = text;
   overlay.classList.add("visible");
   if (gameOverlayTimer) clearTimeout(gameOverlayTimer);
+  gameOverlayTimer = null;
+  // opts.sticky keeps the overlay up until the next flash (e.g. a new
+  // game's "Game started" / "It's X's turn" overwrites it). Used for
+  // game_won so the operator doesn't blink and miss the 2s flash.
+  if (opts.sticky) return;
   gameOverlayTimer = setTimeout(() => {
     overlay.classList.remove("visible");
     gameOverlayTimer = null;
@@ -826,15 +831,25 @@ function announceFromEvent(env) {
     case "jail_released":
       announce(`${payload.player} served their time and is free`, "turn");
       break;
-    case "game_won":
+    case "game_won": {
+      // Sticky overlay — leave the win banner up until Reset / new game.
+      // The 2s default flash is too brief for a game-end event.
+      let text;
       if (payload.draw) {
         const t = payload.totals || {};
-        announce(`🤝 Draw — both players at $${t.user ?? "?"}`, "win");
+        text = `🤝 Draw — both players at $${t.user ?? "?"}`;
       } else {
         const reason = payload.reason === "lap_cap" ? " (5 laps)" : "";
-        announce(`🏆 ${payload.winner} wins the game!${reason}`, "win");
+        text = `🏆 ${payload.winner} wins the game!${reason}`;
+      }
+      announce(text, "win", { sticky: true });
+      // Force the overlay even in debug-mode so the operator still sees
+      // a full-screen banner instead of only the notification strip.
+      if (!document.body.classList.contains("game-mode")) {
+        flashGameOverlay(text, { sticky: true });
       }
       break;
+    }
     case "state_loaded":
       announce("Game state loaded", "turn");
       lastAnnouncedTurn = null;
@@ -955,6 +970,19 @@ function openStream() {
       // the modal so the operator only ever sees buy choices for the user.
       if (currentState?.turn === "robot") pendingDecision = decision;
       else showDecision(decision);
+    }
+    // Close the modal when *any* client (script, second tab, agent loop)
+    // resolves the decision via REST. Without this the modal stays
+    // painted because hideDecision() was only wired to the local button
+    // click in submitDecision().
+    if (env.type === "purchase_skipped" || env.type === "property_bought" ||
+        env.type === "property_built") {
+      if (pendingDecision) hideDecision();
+    } else if (env.type === "fsm_transition" &&
+               env.payload?.from === "AWAIT_DECISION" &&
+               env.payload?.to !== "AWAIT_DECISION") {
+      // Safety net: any path that leaves AWAIT_DECISION should clear it.
+      if (pendingDecision) hideDecision();
     }
     // Early-close the YOLO overlay the instant pick_and_place reports a
     // successful detection. yoloStreamClose is depth-aware and idempotent,
