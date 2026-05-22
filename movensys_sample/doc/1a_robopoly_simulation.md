@@ -35,3 +35,11 @@ docker compose up -d
 ## Step 4: Enjoy the robopoly game
 1. Click `Toggle is_YOLO` and check `is_YOLO` is set to ON.
 2. Click Reset game and play the game.
+
+
+
+# Auto dry run test
+```
+cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/
+python3 scripts/auto_play_dry_run.py
+```

@@ -208,14 +208,19 @@ def play_one_turn(client: Client, rng: random.Random) -> bool:
     if state["fsm"] == "GAME_OVER":
         return False
     turn = state["turn"]
-    turn_no = state.get("turn_number", "?")
+    turn_no = int(state.get("turn_number", 0))
     log.info("turn %s — %s [%s]", turn_no, turn, _summarize(state))
 
     # 1. Dice. User turn = read-only (no pickup); robot turn = full roll.
     #    Both short-circuit to random.randint(1, 6) under MOVENSYS_PNP_DRY_RUN.
+    #    expected_turn_number guards against the browser's roll-and-move
+    #    chain straddling a turn boundary (server returns 409 STALE_TURN).
     dice_ep = "/api/dice/read_robot" if turn == "user" else "/api/dice/roll_robot"
     try:
-        dice_resp = client.post(dice_ep, {"is_YOLO": False})
+        dice_resp = client.post(dice_ep, {
+            "is_YOLO": False,
+            "expected_turn_number": turn_no,
+        })
         dice_n = dice_resp.get("dice_number")
         log.info("  rolled %s", dice_n)
     except requests.HTTPError as exc:
@@ -252,6 +257,7 @@ def play_one_turn(client: Client, rng: random.Random) -> bool:
             "from_tile": from_tile,
             "to_tile": to_tile,
             "is_YOLO": False,
+            "expected_turn_number": turn_no,
         })
     except requests.HTTPError as exc:
         body = exc.response.text if exc.response is not None else ""

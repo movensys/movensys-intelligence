@@ -1117,6 +1117,10 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
   btn.textContent = "Rolling…";
 
   try {
+    // Snapshot the dispatch turn so the server can refuse with STALE_TURN
+    // if this chain straddled a turn boundary (e.g. VLM latency made our
+    // POST land after another client already advanced the game).
+    const chainTurnNumber = currentState ? currentState.turn_number : null;
     // 1. Get the dice value. Two paths depending on whose turn it is:
     //    - User turn  → /api/dice/read_robot. The human already threw the
     //      die by hand; the arm only moves to the scan pose so the camera
@@ -1127,14 +1131,28 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
       ? "/api/dice/read_robot"
       : "/api/dice/roll_robot";
     console.log("[roll-chain] dice step:",
-      { endpoint: diceEndpoint, turn: currentState && currentState.turn });
+      { endpoint: diceEndpoint, turn: currentState && currentState.turn,
+        expected_turn_number: chainTurnNumber });
     // While pick_and_place runs the dice routine, overlay
     // /yolo_dice_detector/debug_image on the board pane. The overlay is
     // bound to this fetch's promise: it closes the moment the server
     // returns DICE_NUMBER, restoring the default board view.
-    const rollRes = await withYoloStream("dice", () =>
-      postJson(diceEndpoint, { is_YOLO: isYOLO })
-    );
+    let rollRes;
+    try {
+      rollRes = await withYoloStream("dice", () =>
+        postJson(diceEndpoint, {
+          is_YOLO: isYOLO,
+          expected_turn_number: chainTurnNumber,
+        })
+      );
+    } catch (err) {
+      if (err && err.status === 409 && typeof err.body === "string"
+          && err.body.includes("STALE_TURN")) {
+        console.warn("[roll-chain] dice dropped — STALE_TURN:", err.body);
+        return;
+      }
+      throw err;
+    }
     console.log("[roll-chain] dice response:", rollRes);
     if (rollRes && typeof rollRes.dice_number === "number") {
       renderDiceFace(rollRes.dice_number);
@@ -1166,15 +1184,27 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
     const to = (from + rollRes.sum) % size;
     btn.textContent = "Moving…";
     console.log("[roll-chain] apply_robot:",
-      { player, from_tile: from, to_tile: to, is_YOLO: isYOLO });
+      { player, from_tile: from, to_tile: to, is_YOLO: isYOLO,
+        expected_turn_number: chainTurnNumber });
     // Move phase: swap the board for /yolo_cube_detector/debug_image so
     // the operator sees the cube-detection pipeline that's driving the
     // arm. Overlay closes when the move HTTP call returns.
-    const moveRes = await withYoloStream("cube", () =>
-      postJson("/api/move/apply_robot", {
-        player, from_tile: from, to_tile: to, is_YOLO: isYOLO,
-      })
-    );
+    let moveRes;
+    try {
+      moveRes = await withYoloStream("cube", () =>
+        postJson("/api/move/apply_robot", {
+          player, from_tile: from, to_tile: to, is_YOLO: isYOLO,
+          expected_turn_number: chainTurnNumber,
+        })
+      );
+    } catch (err) {
+      if (err && err.status === 409 && typeof err.body === "string"
+          && err.body.includes("STALE_TURN")) {
+        console.warn("[roll-chain] apply_robot dropped — STALE_TURN:", err.body);
+        return;
+      }
+      throw err;
+    }
     console.log("[roll-chain] apply_robot response:", moveRes);
 
     // 3. If the tile arrival needs a human decision (Buy modal), stop here.
@@ -2062,10 +2092,16 @@ async function vlmPlayerAct(userMessage) {
   }
 }
 
+// `?solo=1` in the URL disables the browser's auto-driver entirely.
+// Used when an external client (the auto-play script) is driving the
+// game so we don't race over robot turns. Read once at module load.
+const SOLO_MODE = new URLSearchParams(location.search).get("solo") === "1";
+
 // Auto-trigger on robot's TURN_START or AWAIT_DECISION. Idempotent per
 // (turn, fsm, turn_number, pending_property) so we don't spam the VLM on
 // every WS event during the same logical step.
 function maybeAutoTriggerRobotTurn() {
+  if (SOLO_MODE) return;  // external driver owns the game; stand down
   if (!currentState || currentState.winner) return;
   if (currentState.turn !== "robot") return;
   const pendingPid = pendingDecision ? pendingDecision.property_id : "";
@@ -2642,6 +2678,19 @@ function setupHotkeys() {
 async function resetGame() {
   turnInFlight = false;
   vlmPlayerLastTurnKey = null;
+  // Force-clear the sticky game-over overlay (e.g. "🏆 Robot wins…").
+  // Without this, the win banner lingers until the next non-sticky flash
+  // arrives via WS — and on a fresh /api/game/start that race is visible.
+  const overlay = document.getElementById("game-overlay");
+  if (overlay) {
+    overlay.classList.remove("visible");
+    const slot = document.getElementById("game-overlay-text");
+    if (slot) slot.textContent = "";
+  }
+  if (gameOverlayTimer) {
+    clearTimeout(gameOverlayTimer);
+    gameOverlayTimer = null;
+  }
   const chat = chatEl();
   if (chat) chat.replaceChildren();
   // System prompt slot is separate from the vector-DB memory, but a

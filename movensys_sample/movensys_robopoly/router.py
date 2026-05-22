@@ -73,6 +73,11 @@ class DiceSubmitRequest(BaseModel):
 
 class DiceRollRobotRequest(BaseModel):
     is_YOLO: bool = True
+    # Caller's snapshot of state.turn_number when the chain was dispatched.
+    # Server refuses with STALE_TURN if the actual turn has advanced before
+    # the call lands — guards against multi-client races (browser auto-trigger
+    # racing the auto-play script, etc.). None disables the check.
+    expected_turn_number: int | None = None
 
 
 class MoveApplyRequest(BaseModel):
@@ -83,6 +88,8 @@ class MoveApplyRequest(BaseModel):
 
 class MoveApplyRobotRequest(MoveApplyRequest):
     is_YOLO: bool = True
+    # Same stale-turn guard as DiceRollRobotRequest.
+    expected_turn_number: int | None = None
 
 
 class ConfigPatch(BaseModel):
@@ -284,6 +291,22 @@ async def _spawn_dice_subprocess(
     the human-thrown face (user turn). `source` is forwarded to
     game.submit_dice — "robot" or "manual".
     """
+    # Stale-turn guard: refuse before spawning the subprocess if the
+    # caller dispatched for a turn the server has already moved past
+    # (browser/script race, slow VLM call straddling end_turn, etc.).
+    if body.expected_turn_number is not None:
+        cur = request.app.state.game.state.turn_number
+        if cur != body.expected_turn_number:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "STALE_TURN",
+                    "message": f"dice dispatched for turn {body.expected_turn_number} "
+                               f"but server is on turn {cur}",
+                    "expected": body.expected_turn_number,
+                    "actual": cur,
+                },
+            )
     script = Path(os.environ.get("MONOPOLY_PNP_SCRIPT", _DEFAULT_PNP_SCRIPT))
     if not script.exists():
         raise HTTPException(
@@ -656,6 +679,21 @@ async def move_apply(request: Request, body: MoveApplyRequest) -> dict[str, Any]
 
 @api_router.post("/move/apply_robot")
 async def move_apply_robot(request: Request, body: MoveApplyRobotRequest) -> dict[str, Any]:
+    # Stale-turn guard: refuse before spawning the subprocess if the
+    # caller dispatched for a turn the server has already moved past.
+    if body.expected_turn_number is not None:
+        cur = request.app.state.game.state.turn_number
+        if cur != body.expected_turn_number:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "STALE_TURN",
+                    "message": f"apply_move dispatched for turn {body.expected_turn_number} "
+                               f"but server is on turn {cur}",
+                    "expected": body.expected_turn_number,
+                    "actual": cur,
+                },
+            )
     # Spawn pick_and_place.py <cube> <board_pos> <is_YOLO> in the background,
     # then apply the game move. The HTTP response waits for the physical motion
     # so the on-screen piece moves at the same moment as the robot.
