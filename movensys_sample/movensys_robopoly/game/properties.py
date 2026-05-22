@@ -67,7 +67,7 @@ def utilities_owned(state: GameState, board: Board, owner: Player) -> int:
 
 # Spec §4.1.3, §4.2.2: rent = the cumulative buy cost for the opponent's
 # current tier ($100 land, $200 house, $300 hotel). Utilities cap at land.
-_RENT_BY_TIER = {1: 100, 2: 200, 3: 300}
+_RENT_BY_TIER = {1: 150, 2: 300, 3: 450}
 
 
 def compute_rent(

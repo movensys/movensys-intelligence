@@ -33,7 +33,7 @@ HOUSE_PRICE = 2 * TIER_PRICE  # tier 2 → $200 cumulative
 HOTEL_PRICE = 3 * TIER_PRICE  # tier 3 → $300 cumulative
 TAX_AMOUNT = 100          # flat tax for Non-Free Parking (§4.3)
 CHANCE_AMOUNT = 200       # chance card payout magnitude (§4.4)
-LAPS_TO_WIN = 5           # end-of-game lap-count cap (§6.2)
+LAPS_TO_WIN = 3           # end-of-game lap-count cap (§6.2)
 
 
 def tier_of(p) -> int:
