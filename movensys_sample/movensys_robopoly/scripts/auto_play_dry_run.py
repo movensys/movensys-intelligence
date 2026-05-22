@@ -46,19 +46,74 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import base64
+import io
+import json
 import logging
 import os
 import random
+import re
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 import requests
 
+try:
+    from PIL import Image  # board image downscale + JPEG re-encode
+except ImportError:
+    Image = None  # type: ignore[assignment]
+
 DEFAULT_BASE = "http://localhost:7999"
+DEFAULT_VLM_BASE = "http://localhost:8000"
 TILE_COUNT = 14          # board_final.json: 14-tile counter-clockwise loop
 LAND_PRICE = 100         # spec §4.1: Land tier (also utility flat price)
 TIER_PRICE = 100         # spec §4.1.2: $100 per tier crossed on upgrade
+
+# Mirror of static/app.js VLM_PLAYER_SYSTEM_PROMPT — kept in sync by hand.
+# Sent as system_prompt on every /api/vlm/infer call so the orchestrator
+# doesn't need a prior PUT /api/vlm/system_prompt from the browser.
+VLM_AGENT_SYSTEM_PROMPT = """You are an action-emitter agent for robopoly, a 2-player Monopoly-style
+game. You ARE rolling the dice by emitting JSON — the code reads your
+reply and drives the robot arm. Players: "user" (red), "robot" (you, green).
+
+OUTPUT: exactly one JSON object. No prose, no markdown, no fences.
+
+Valid actions:
+  fsm=="TURN_START":     {"action":"roll_and_move","player":<state.turn>}
+  fsm=="AWAIT_DECISION": {"action":"decide","choice":<one below>}
+
+Choice meaning (cumulative cost from unowned = rent opponent pays):
+  buy         tier 1, $100   land
+  build       tier 2, $200   land + house
+  build_hotel tier 3, $300   land + hotel
+  skip        no purchase
+Upgrade delta from owned = $100 × (target_tier − current_tier).
+Seed $1000, GO bonus $100, tax $100, chance ±$200, 5 laps to win.
+
+Constraints:
+- decision_pending.kind=="utility" → only buy or skip are legal.
+- build needs current_tier<2; build_hotel needs current_tier<3.
+"""
+
+# Static board image used as VLM grounding. Mimics the browser's
+# captureBoardImage() but without the live SVG piece overlay — the JSON
+# state we attach carries authoritative positions.
+_BOARD_PNG_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "static" / "assets" / "boards" / "board.png"
+)
+# Match BOARD_IMAGE_MAX_WIDTH / BOARD_IMAGE_JPEG_QUALITY in static/app.js.
+# Keeps the payload tiny (~256 image tokens in Gemma 4) so VLM latency
+# and token cost stay flat.
+_BOARD_IMAGE_MAX_WIDTH = 468
+_BOARD_IMAGE_JPEG_QUALITY = 50
+_board_image_b64_cache: str | None = None
+
+# First balanced {...} block in a VLM reply — tolerant of code fences /
+# leading prose. Mirrors parseVlmAction() in app.js.
+_JSON_BLOCK_RE = re.compile(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", re.DOTALL)
 
 log = logging.getLogger("auto_play")
 
@@ -86,6 +141,139 @@ class Client:
         return r.json()
 
 
+def _load_board_image_b64() -> str | None:
+    """Read board.png once, downscale to BOARD_IMAGE_MAX_WIDTH, re-encode
+    as JPEG at quality BOARD_IMAGE_JPEG_QUALITY, and cache the base64
+    payload. Mirrors static/app.js captureBoardImage() — same width cap
+    and quality so the VLM sees the same token footprint regardless of
+    which client drove the inference.
+    """
+    global _board_image_b64_cache
+    if _board_image_b64_cache is not None:
+        return _board_image_b64_cache
+    if not _BOARD_PNG_PATH.exists():
+        log.warning("vlm: board.png not found at %s — sending camera=none with no image",
+                    _BOARD_PNG_PATH)
+        return None
+    if Image is None:
+        log.warning("vlm: Pillow not installed; sending raw board.png "
+                    "(no downscale, larger payload)")
+        _board_image_b64_cache = base64.b64encode(_BOARD_PNG_PATH.read_bytes()).decode()
+        return _board_image_b64_cache
+    with Image.open(_BOARD_PNG_PATH) as img:
+        img = img.convert("RGB")
+        w, h = img.size
+        if w > _BOARD_IMAGE_MAX_WIDTH:
+            new_h = round(h * _BOARD_IMAGE_MAX_WIDTH / w)
+            img = img.resize((_BOARD_IMAGE_MAX_WIDTH, new_h), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=_BOARD_IMAGE_JPEG_QUALITY)
+        _board_image_b64_cache = base64.b64encode(buf.getvalue()).decode()
+    log.info("vlm: board image %d bytes (%dx%d JPEG q=%d)",
+             len(_board_image_b64_cache), _BOARD_IMAGE_MAX_WIDTH,
+             round(h * _BOARD_IMAGE_MAX_WIDTH / w) if w > _BOARD_IMAGE_MAX_WIDTH else h,
+             _BOARD_IMAGE_JPEG_QUALITY)
+    return _board_image_b64_cache
+
+
+def _build_vlm_state_summary(state: dict[str, Any]) -> dict[str, Any]:
+    """Mirror of buildVlmStateSummary() in app.js — compact state for
+    the agent prompt."""
+    props_owned: dict[str, list[dict[str, Any]]] = {"user": [], "robot": []}
+    for _pid, p in (state.get("properties") or {}).items():
+        owner = p.get("owner")
+        if owner not in props_owned:
+            continue
+        tier = 3 if p.get("has_hotel") else (2 if p.get("houses", 0) > 0 else 1)
+        props_owned[owner].append({
+            "id": p["id"], "tile_index": p["tile_index"], "tier": tier,
+        })
+    return {
+        "turn": state["turn"],
+        "fsm": state["fsm"],
+        "turn_number": state.get("turn_number"),
+        "positions": state["positions"],
+        "balances": {p: state["players"][p]["balance"] for p in ("user", "robot")},
+        "lap_count": state.get("lap_count", {}),
+        "last_dice": state.get("last_dice"),
+        "last_dice_sum": state.get("last_dice_sum"),
+        "properties_owned": props_owned,
+    }
+
+
+def _parse_vlm_action(raw: str) -> dict[str, Any] | None:
+    """Extract the first balanced {...} JSON object from a VLM reply."""
+    if not raw:
+        return None
+    # Strip ```json ... ``` fences if present.
+    text = re.sub(r"^\s*```(?:json)?\s*|\s*```\s*$", "", raw.strip(), flags=re.IGNORECASE)
+    m = _JSON_BLOCK_RE.search(text)
+    if not m:
+        return None
+    try:
+        obj = json.loads(m.group(0))
+        return obj if isinstance(obj, dict) else None
+    except json.JSONDecodeError:
+        return None
+
+
+def vlm_infer(vlm_base: str, state: dict[str, Any],
+              user_message: str, *, decision: dict[str, Any] | None = None,
+              timeout_s: float = 30.0) -> dict[str, Any] | None:
+    """Call the orchestrator's /api/vlm/infer with the agent prompt + a
+    compact state JSON, parse the returned action. Returns None on any
+    failure — caller falls back to the deterministic policy.
+    """
+    summary = _build_vlm_state_summary(state)
+    if decision is not None:
+        summary["decision_pending"] = {
+            "property_id": decision.get("property_id"),
+            "current_tier": decision.get("current_tier", 0),
+            "max_tier": decision.get("max_tier", 3),
+            "kind": decision.get("kind", "property"),
+        }
+    prompt = (
+        f"{user_message}\n\n"
+        f"State:\n{json.dumps(summary, separators=(',', ':'))}\n\n"
+        "Your reply (ONE JSON object, nothing else):"
+    )
+    body = {
+        "client": "robopoly",
+        "system_prompt": VLM_AGENT_SYSTEM_PROMPT,
+        "prompt": prompt,
+        "camera": "none",
+        "max_tokens": 64,
+        "temperature": 0.0,
+    }
+    image_b64 = _load_board_image_b64()
+    if image_b64:
+        body["image_b64"] = image_b64
+    try:
+        r = requests.post(f"{vlm_base.rstrip('/')}/api/vlm/infer",
+                          json=body, timeout=timeout_s)
+        r.raise_for_status()
+        resp = r.json()
+    except (requests.RequestException, ValueError) as exc:
+        log.warning("  vlm: infer failed: %s", exc)
+        return None
+    # Orchestrator returns the model text under various keys depending
+    # on version: "response", "text", "choices[0].message.content".
+    raw = (resp.get("response") or resp.get("text")
+           or _extract_chat_content(resp) or "")
+    action = _parse_vlm_action(raw)
+    if action is None:
+        log.warning("  vlm: unparseable reply: %r", raw[:200])
+        return None
+    return action
+
+
+def _extract_chat_content(resp: dict[str, Any]) -> str | None:
+    try:
+        return resp["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
 def _choose_action(current_tier: int, max_tier: int, balance: int,
                    rng: random.Random) -> str:
     """Uniformly pick an action from the legal set for this modal.
@@ -106,8 +294,13 @@ def _choose_action(current_tier: int, max_tier: int, balance: int,
 
 
 def _handle_decision(client: Client, move_resp: dict[str, Any],
-                     rng: random.Random) -> None:
-    """If the move resolution opened a buy modal, decide and submit it."""
+                     rng: random.Random, *, vlm_base: str | None = None) -> None:
+    """If the move resolution opened a buy modal, decide and submit it.
+
+    When `vlm_base` is set AND the current turn is robot, ask the VLM
+    for the choice; fall back to the random policy on parse failure or
+    illegal output.
+    """
     for tile in move_resp.get("resolved", {}).get("tiles", []):
         if not tile.get("needs_decision"):
             continue
@@ -120,12 +313,59 @@ def _handle_decision(client: Client, move_resp: dict[str, Any],
         max_tier = int(payload.get("max_tier", 1))
         state = client.get("/api/game/state")
         balance = int(state["players"][state["turn"]]["balance"])
-        action = _choose_action(current_tier, max_tier, balance, rng)
-        log.info(
-            "  decide: %s tier=%d/%d cash=$%d -> %s",
-            pid, current_tier, max_tier, balance, action,
-        )
-        client.post(f"/api/properties/{pid}/decide", {"action": action})
+        action = None
+        if vlm_base and state["turn"] == "robot":
+            decision = {
+                "property_id": pid,
+                "current_tier": current_tier,
+                "max_tier": max_tier,
+                "kind": (payload.get("card") or {}).get("kind", "property"),
+            }
+            vlm_action = vlm_infer(
+                vlm_base, state,
+                "It's your turn (robot). Decide on this property tile.",
+                decision=decision,
+            )
+            if vlm_action and vlm_action.get("action") == "decide":
+                choice = str(vlm_action.get("choice", "")).strip()
+                if choice in _legal_choices(current_tier, max_tier, balance):
+                    action = choice
+                    log.info("  vlm-decide: %s -> %s", pid, action)
+                else:
+                    log.warning("  vlm-decide illegal/unsupported choice %r — falling back",
+                                choice)
+        if action is None:
+            action = _choose_action(current_tier, max_tier, balance, rng)
+            log.info(
+                "  decide: %s tier=%d/%d cash=$%d -> %s",
+                pid, current_tier, max_tier, balance, action,
+            )
+        try:
+            client.post(f"/api/properties/{pid}/decide", {"action": action})
+        except requests.HTTPError as exc:
+            # Race: another driver (browser deterministic robot picker,
+            # second tab) already resolved this decision. Confirm by
+            # re-reading state and continuing if the modal is gone.
+            body = exc.response.text if exc.response is not None else ""
+            if (exc.response is not None and exc.response.status_code == 409
+                    and "AWAIT_DECISION" not in body):
+                log.warning("  decide race (%s); already resolved by another client",
+                            body.strip())
+                return
+            raise
+
+
+def _legal_choices(current_tier: int, max_tier: int, balance: int) -> list[str]:
+    """Compute the set of actions that pass the rules engine for this
+    tier/cap/cash. `skip` is always legal."""
+    options = ["skip"]
+    if max_tier >= 1 and current_tier < 1 and balance >= LAND_PRICE:
+        options.append("buy")
+    if max_tier >= 2 and current_tier < 2 and balance >= (2 - current_tier) * TIER_PRICE:
+        options.append("build")
+    if max_tier >= 3 and current_tier < 3 and balance >= (3 - current_tier) * TIER_PRICE:
+        options.append("build_hotel")
+    return options
 
 
 def _summarize(state: dict[str, Any]) -> str:
@@ -202,7 +442,8 @@ def _wait_for_turn_start(client: Client, rng: random.Random,
     raise AutoPlayError(f"timed out waiting for TURN_START (stuck at fsm={last_fsm})")
 
 
-def play_one_turn(client: Client, rng: random.Random) -> bool:
+def play_one_turn(client: Client, rng: random.Random, *,
+                  vlm_base: str | None = None) -> bool:
     """Drive exactly one turn. Returns False once the game is over."""
     state = _wait_for_turn_start(client, rng)
     if state["fsm"] == "GAME_OVER":
@@ -210,6 +451,24 @@ def play_one_turn(client: Client, rng: random.Random) -> bool:
     turn = state["turn"]
     turn_no = int(state.get("turn_number", 0))
     log.info("turn %s — %s [%s]", turn_no, turn, _summarize(state))
+
+    # 0. If VLM-mode is on and this is the robot's turn, gate the roll on
+    #    a /api/vlm/infer call so the dice POST mirrors the browser's
+    #    VLM-as-player loop (vlm_as_player.md §5). User turns stay on the
+    #    direct REST path — they're the "human typed/spoke" branch.
+    if vlm_base and turn == "robot":
+        vlm_action = vlm_infer(
+            vlm_base, state,
+            "It's your turn (robot). Roll the dice and move your cube.",
+        )
+        if vlm_action and vlm_action.get("action") == "roll_and_move":
+            log.info("  vlm: roll_and_move OK (player=%s)",
+                     vlm_action.get("player"))
+        elif vlm_action is None:
+            log.warning("  vlm: no action returned — falling back to direct REST")
+        else:
+            log.warning("  vlm: unexpected action %s — falling back",
+                        vlm_action.get("action"))
 
     # 1. Dice. User turn = read-only (no pickup); robot turn = full roll.
     #    Both short-circuit to random.randint(1, 6) under MOVENSYS_PNP_DRY_RUN.
@@ -272,7 +531,7 @@ def play_one_turn(client: Client, rng: random.Random) -> bool:
                  [f"{r.get('kind')}@{r.get('tile_index')}" for r in resolved])
 
     # 3. Property decision modal (the only place the chain pauses).
-    _handle_decision(client, move_resp, rng)
+    _handle_decision(client, move_resp, rng, vlm_base=vlm_base)
 
     # 4. Bankruptcy-driven game over surfaces here (spec §6.1).
     state = client.get("/api/game/state")
@@ -307,6 +566,13 @@ def main() -> int:
     parser.add_argument("--runs", type=int, default=1,
                         help="play N complete games back-to-back, "
                              "resetting between each (default: 1)")
+    parser.add_argument("--vlm", action="store_true",
+                        help="drive robot turns through the orchestrator's "
+                             "/api/vlm/infer (mirrors the browser's "
+                             "VLM-as-player loop). User turns stay on the "
+                             "direct REST path.")
+    parser.add_argument("--vlm-base", default=os.environ.get("VLM_BASE", DEFAULT_VLM_BASE),
+                        help=f"orchestrator base URL for --vlm (default: {DEFAULT_VLM_BASE})")
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
 
@@ -323,6 +589,11 @@ def main() -> int:
     except requests.RequestException as exc:
         log.error("server not reachable at %s: %s", client.base, exc)
         return 2
+
+    vlm_base = args.vlm_base.rstrip("/") if args.vlm else None
+    if vlm_base:
+        log.info("vlm: robot turns will hit %s/api/vlm/infer", vlm_base)
+        _load_board_image_b64()  # warm cache, surface size/quality log line
 
     results: list[dict[str, Any]] = []
     overall_start = time.perf_counter()
@@ -343,7 +614,7 @@ def main() -> int:
         outcome: dict[str, Any] = {"run": run_i, "seed": per_run_seed}
         try:
             for turn_i in range(args.max_turns):
-                cont = play_one_turn(client, rng)
+                cont = play_one_turn(client, rng, vlm_base=vlm_base)
                 if not cont:
                     state = client.get("/api/game/state")
                     elapsed = time.perf_counter() - run_start
