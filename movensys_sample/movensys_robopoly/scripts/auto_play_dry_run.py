@@ -413,14 +413,23 @@ def _resolve_pending_decision(client: Client, state: dict[str, Any],
 
 
 def _wait_for_turn_start(client: Client, rng: random.Random,
-                         timeout_s: float = 30.0) -> dict[str, Any]:
+                         timeout_s: float = 90.0,
+                         moving_recovery_after_s: float = 6.0) -> dict[str, Any]:
     """Poll until FSM settles at TURN_START or GAME_OVER. Tolerates a
-    racing browser tab whose previous robot-turn drive is still
-    finishing. If a race left the FSM stuck at AWAIT_DECISION (browser
-    opened a user-turn buy modal it won't auto-close), resolve it.
+    racing browser tab whose previous turn drive is still finishing,
+    and actively recovers from two stuck states:
+
+    - **AWAIT_DECISION**: opens-and-leaves-open modal (browser auto-decides
+      only for robot; user-turn modals just sit there). We pick a legal
+      decision and submit it.
+    - **MOVING**: dice was submitted but apply_move never landed (racer's
+      chain crashed mid-step). After `moving_recovery_after_s` we take
+      over: compute to_tile from state and POST /api/move/apply_robot
+      ourselves so the game can advance.
     """
     deadline = time.time() + timeout_s
     last_fsm: str | None = None
+    moving_since: float | None = None
     while time.time() < deadline:
         state = client.get("/api/game/state")
         fsm = state["fsm"]
@@ -429,17 +438,57 @@ def _wait_for_turn_start(client: Client, rng: random.Random,
         if fsm == "AWAIT_DECISION":
             log.warning("  race stuck at AWAIT_DECISION; resolving")
             _resolve_pending_decision(client, state, rng)
-            # Decision drops fsm back to RESOLVE_TILE — end_turn handles
-            # the rest. Loop continues; we'll see RESOLVE_TILE next tick.
             state2 = client.get("/api/game/state")
             if state2["fsm"] in ("RESOLVE_TILE", "END_TURN"):
                 client.post("/api/game/end_turn")
+            moving_since = None
             continue
+        if fsm == "END_TURN":
+            client.post("/api/game/end_turn")
+            moving_since = None
+            continue
+        if fsm == "MOVING":
+            if moving_since is None:
+                moving_since = time.time()
+            elif time.time() - moving_since >= moving_recovery_after_s:
+                _recover_from_stuck_moving(client, state)
+                moving_since = None
+                continue
+        else:
+            moving_since = None
         if fsm != last_fsm:
             log.info("  waiting for TURN_START (fsm=%s)", fsm)
             last_fsm = fsm
         time.sleep(0.5)
     raise AutoPlayError(f"timed out waiting for TURN_START (stuck at fsm={last_fsm})")
+
+
+def _recover_from_stuck_moving(client: Client, state: dict[str, Any]) -> None:
+    """Apply the pending move ourselves when a racer's chain wedged FSM
+    at MOVING. Reads state.turn / positions / last_dice_sum (already
+    adjusted for IN_JAIL skip by submit_dice) and POSTs apply_robot.
+    Best-effort — swallow errors, the outer loop will keep polling.
+    """
+    turn = state["turn"]
+    from_tile = state["positions"][turn]
+    dice_sum = state.get("last_dice_sum")
+    if dice_sum is None:
+        log.warning("  stuck MOVING with no last_dice_sum; cannot recover")
+        return
+    to_tile = (from_tile + dice_sum) % TILE_COUNT
+    log.warning("  stuck MOVING — taking over apply_move(%s, %d→%d)",
+                turn, from_tile, to_tile)
+    try:
+        client.post("/api/move/apply_robot", {
+            "player": turn,
+            "from_tile": from_tile,
+            "to_tile": to_tile,
+            "is_YOLO": False,
+            "expected_turn_number": int(state.get("turn_number", 0)),
+        })
+    except requests.HTTPError as exc:
+        body = exc.response.text if exc.response is not None else ""
+        log.warning("  moving-recovery apply_move failed: %s", body.strip())
 
 
 def play_one_turn(client: Client, rng: random.Random, *,
