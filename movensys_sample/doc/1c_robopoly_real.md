@@ -1,5 +1,5 @@
 # Running Robopoly Game
-## Execution Procedure
+## 1. Execution Procedure
 
 ### Step 1. Launch wmx-ros2 (Terminal 1)
 ```bash
@@ -7,37 +7,40 @@ cd ~/workspaces/movensys-intelligence/doc
 ./run_robopoly.sh wmx-ros2
 ```
 
-### Step 2. Build containers (Terminal 2)
-1. Build & Run movensys-manipulator, vllm
-2. Build whispher, vectorDB, movensys-robopoly, movensys_vlm
+### Step 2. Build containers on Nvidia env (Terminal 2)
 ```bash
-./run_robopoly.sh build
+./run_robopoly.sh build_nvidia
 ```
 
-After sucess of running `vllm_container` and `movensys-manipulator`,
-move Step 3.
+### Step 2-2. Build containers on Intel env (Terminal 2)
+```bash
+./run_robopoly.sh build_intel
+```
+
+Check logs using 2-1, 2-2 commands.
 
 ### Step 3. Run moveit, containers, yolo (Terminal 3)
 ```bash
 ./run_robopoly.sh run
 ```
+Check tmux logs using a 2-3, 2-4 command.
 
 
-## Debug tips (Optional)
-### vllm
+## 2. Debug tips (Optional)
+### 2-1. vllm
 ```bash
 docker logs -f vllm_container
 ```
-### movensys-manipulator
+### 2-2. movensys-manipulator
 ```bash
 docker logs -f movensys-manipulator
 ```
-### moveit
+### 2-3. moveit
 ```bash
 tmux a -t robopoly
 ```
 
-### tmux
+### 2-4. tmux
 1. excape tmux
 - Sequentially press `Ctrl b` and `d`
 

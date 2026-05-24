@@ -5,14 +5,16 @@ MODE=${1:-}
 case "$MODE" in
   wmx-ros2|build_nvidia|build_intel|run) ;;
   *)
-    echo "Usage: $0 {wmx-ros2|build|run}" >&2
+    echo "Usage: $0 {wmx-ros2|build_nvidia|build_intel|run}" >&2
     echo "  wmx-ros2                       Launch the wmx-ros2 manipulator driver (foreground, prompts for sudo)" >&2
-    echo "  build_nvidia / build_intel     Rebuild docker images and start persistent containers" >&2
+    echo "  build_nvidia                   Rebuild docker images and start persistent containers (NVIDIA GPU)" >&2
+    echo "  build_intel                    Rebuild docker images and start persistent containers (Intel GPU)" >&2
     echo "  run                            Start runtime containers + ROS launches in a tmux session" >&2
     echo "" >&2
     echo "Recommended order (each in its own terminal):" >&2
     echo "  Terminal 1:  $0 wmx-ros2" >&2
-    echo "  Terminal 2:  $0 build   (only when code/images change)" >&2
+    echo "  Terminal 2:  $0 build_nvidia  (NVIDIA GPU, only when code/images change)" >&2
+    echo "  Terminal 2:  $0 build_intel   (Intel GPU,  only when code/images change)" >&2
     echo "  Terminal 2:  $0 run" >&2
     exit 1
     ;;
