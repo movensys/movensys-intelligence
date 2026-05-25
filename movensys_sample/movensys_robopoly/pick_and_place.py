@@ -11,168 +11,168 @@ logger = logging.getLogger(__name__)
 board_positions = {
     "GO": {
         "red_cube": {
-            "pos": [-0.38973, -0.14509, 0.3],
+            "pos": [-0.38632, -0.14548, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [-0.37876, -0.15907, 0.3]
         },
         "green_cube": {
-            "pos": [-0.32786, -0.14509, 0.3],
+            "pos": [-0.32625, -0.14554, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [-0.3323, -0.15907, 0.3]
         }
     },
     "BOSTON": {
         "red_cube": {
-            "pos": [-0.38973, -0.07005, 0.3],
+            "pos": [-0.38640, -0.09043, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [-0.38615, -0.09402,0.3]
         },
         "green_cube": {
-            "pos": [-0.32786, -0.07005, 0.3],
+            "pos": [-0.32625, -0.09051, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [-0.34041, -0.09396, 0.3]
         }
     },
     "SEOUL": {
         "red_cube": {
-            "pos": [-0.38973, -0.00499, 0.3],
+            "pos": [-0.38640, -0.01535, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [-0.38615, -0.02562, 0.3]
         },
         "green_cube": {
-            "pos": [-0.32786, -0.00499, 0.3],
+            "pos": [-0.32625, -0.01535, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [-0.34041, -0.02614, 0.3]
         }
     },
     "DESERT_ISLAND": {
         "red_cube": {
-            "pos": [-0.38973, 0.05505, 0.3],
+            "pos": [-0.38640, 0.04475, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [-0.38615, 0.0405, 0.3]
         },
         "green_cube": {
-            "pos": [-0.32786, 0.05505, 0.3],
+            "pos": [-0.32625, 0.04475, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [-0.34041, 0.04039, 0.3]
         }
     },
     "ELECTRIC_COMPANY": {
         "red_cube": {
-            "pos": [-0.26, 0.05505, 0.3],
+            "pos": [-0.27139, 0.04460, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [-0.27231, 0.0405, 0.3]
         },
         "green_cube": {
-            "pos": [-0.215, 0.05505, 0.3],
+            "pos": [-0.21632, 0.04458, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [-0.23001, 0.04039, 0.3]
         }
     },
     "TAIPEI": {
         "red_cube": {
-            "pos": [-0.15, 0.05505, 0.3],
+            "pos": [-0.16125, 0.04458, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [-0.15219, 0.0405, 0.3]
         },
         "green_cube": {
-            "pos": [-0.11, 0.05505, 0.3],
+            "pos": [-0.10619, 0.04458, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [-0.10781, 0.04039, 0.3]
         }
     },
     "SHANGHAI": {
         "red_cube": {
-            "pos": [-0.035, 0.05505, 0.3],
+            "pos": [-0.05614, 0.04458, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [-0.03453, 0.0405, 0.3]
         },
         "green_cube": {
-            "pos": [0.012, 0.05505, 0.3],
+            "pos": [0.00390, 0.04458, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [0.00802, 0.04039, 0.3]
         }
     },
     "NON-FREE_PARKING": {
         "red_cube": {
-            "pos": [0.082, 0.055, 0.3],
+            "pos": [0.05398, 0.04458, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [0.07915, 0.0405, 0.3]
         },
         "green_cube": {
-            "pos": [0.124, 0.055, 0.3],
+            "pos": [0.11407, 0.04457, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [0.12049, 0.04039, 0.3]
         }
     },
     "TOKYO": {
         "red_cube": {
-            "pos": [0.082, -0.005, 0.3],
+            "pos": [0.05393, -0.023, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [0.07915, -0.02496, 0.3]
         },
         "green_cube": {
-            "pos": [0.124, -0.005, 0.3],
+            "pos": [0.10903, -0.02301, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [0.12049, -0.02767, 0.3]
         }
     },
     "BUSAN": {
         "red_cube": {
-            "pos": [0.082, -0.07005, 0.3],
+            "pos": [0.05388, -0.09308, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [0.07915, -0.09243, 0.3]
         },
         "green_cube": {
-            "pos": [0.124, -0.07005, 0.3],
+            "pos": [0.11401, -0.09306, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [0.12049, -0.09362, 0.3]
         }
     },
     "GO_TO_DESERT_ISLAND": {
         "red_cube": {
-            "pos": [0.082, -0.14509, 0.3],
+            "pos": [0.0538, -0.15813, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [0.07991, -0.16428, 0.3]
         },
         "green_cube": {
-            "pos": [0.124, -0.14509, 0.3],
+            "pos": [0.10897, -0.16310, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [0.12049, -0.16341, 0.3]
         }
     },
     "NEW_YORK": {
         "red_cube": {
-            "pos": [-0.035, -0.14509, 0.3],
+            "pos": [-0.05662, -0.16319, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [-0.03824, -0.16428, 0.3]
         },
         "green_cube": {
-            "pos": [0.012, -0.14509, 0.3],
+            "pos": [0.0352, -0.16317, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [0.00573, -0.16341, 0.3]
         }
     },
     "CHANCE": {
         "red_cube": {
-            "pos": [-0.15, -0.14509, 0.3],
+            "pos": [-0.16186, -0.16317, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [-0.1527, -0.16428, 0.3]
         },
         "green_cube": {
-            "pos": [-0.11, -0.14509, 0.3],
+            "pos": [-0.10666, -0.16320, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [-0.11251, -0.16341, 0.3]
         }
     },
     "LONDON": {
         "red_cube": {
-            "pos": [-0.26, -0.14509, 0.29],
+            "pos": [-0.27194, -0.16313, 0.30],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [-0.26724, -0.16428, 0.3]
         },
         "green_cube": {
-            "pos": [-0.215, -0.14509, 0.29],
+            "pos": [-0.21182, -0.16319, 0.3],
             "ori": [3.14, 0.0, -1.57],
             "sim_pos": [-0.22484, -0.16341, 0.3]
         }
@@ -574,6 +574,12 @@ def _wait_for_rolled_dice_number(drop_time: float) -> Optional[int]:
     received_at is past (drop_time + settle) — i.e., detected after the dice
     finished rolling. Returns None if no fresh value arrives before timeout.
     """
+    if DRY_RUN:
+        # No physical dice was rolled and the orchestrator's cached
+        # dice_number would just return a stale value forever. Sample.
+        value = random.randint(1, 6)
+        logger.info("[dry-run] synthetic rolled dice_number=%s", value)
+        return value
     time.sleep(_DICE_SETTLE_S)
     fresh_after = drop_time + _DICE_SETTLE_S
     deadline = time.time() + _DICE_POLL_TIMEOUT_S
@@ -637,6 +643,17 @@ def _read_dice_only(is_yolo: bool, pnp: "PnP", main_start: float) -> None:
     last_status: Optional[int] = None
     last_detail: Optional[str] = None
 
+    if DRY_RUN:
+        value = random.randint(1, 6)
+        logger.info("[dry-run] synthetic read dice_number=%s", value)
+        # Read mode mirrors the roll-mode sentinel placement: the dice
+        # face IS the YOLO event, so the close sentinel fires alongside.
+        print("YOLO_DETECTED", flush=True)
+        print(f"DICE_NUMBER={value}", flush=True)
+        logger.info("read mode: emitted DICE_NUMBER=%s", value)
+        logger.info("[timing] read_total: %.1f ms", (time.perf_counter() - main_start) * 1000.0)
+        return
+
     if is_yolo:
         deadline = time.time() + _READ_POLL_TIMEOUT_S
         attempts = 0
@@ -679,6 +696,7 @@ def _read_dice_only(is_yolo: bool, pnp: "PnP", main_start: float) -> None:
     else:
         value = random.randint(1, 6)
 
+    print("YOLO_DETECTED", flush=True)
     print(f"DICE_NUMBER={value}", flush=True)
     logger.info("read mode: emitted DICE_NUMBER=%s", value)
     logger.info("[timing] read_total: %.1f ms", (time.perf_counter() - main_start) * 1000.0)
@@ -702,8 +720,8 @@ def main():
     # already thrown the dice, we only need to look at it. Only valid
     # when target_object == "dice".
     mode = (sys.argv[4] if len(sys.argv) >= 5 else "roll").strip().lower()
-    if mode not in ("roll", "read"):
-        raise SystemExit(f"Unrecognized mode '{mode}'. Use 'roll' or 'read'.")
+    if mode not in ("roll", "read", "chance_init"):
+        raise SystemExit(f"Unrecognized mode '{mode}'. Use 'roll', 'read', or 'chance_init'.")
     if mode == "read" and sys.argv[1] != "dice":
         raise SystemExit("mode='read' is only valid for target_object='dice'")
 
@@ -713,6 +731,19 @@ def main():
 
     if mode == "read":
         _read_dice_only(is_yolo, pnp, main_start)
+        return
+
+    # Chance-card scan pose: park the arm at the cube-detection init
+    # position so the top camera has a clear view of the chance card laid
+    # under the gripper, then settle for 2.0 s before the caller grabs an
+    # RGB frame for the VLM. Sleep is unconditional (even in dry-run) so
+    # the caller's timing assumptions don't depend on hardware presence.
+    if mode == "chance_init":
+        # _init_move's only branch is dice vs. non-dice — pass the
+        # caller's target_object (red_cube / green_cube) so the same
+        # cube scan pose is used.
+        pnp._init_move(sys.argv[1])
+        time.sleep(2.0)
         return
 
     # init
@@ -737,6 +768,14 @@ def main():
             logger.error("Failed to get piece info, aborting.")
             sys.exit(1)
     logger.info("[timing] detect_phase: %.1f ms", (time.perf_counter() - detect_start) * 1000.0)
+
+    # Cube/piece moves: position detection is the only useful YOLO event,
+    # so emit the overlay-close sentinel now and let the arm physically
+    # finish the pick-and-place while the frontend shows the board.
+    # Dice rolls handle this differently — see below, after the post-drop
+    # dice_number read.
+    if sys.argv[1] != "dice":
+        print("YOLO_DETECTED", flush=True)
 
     pnp.pick_and_place(board_pos=sys.argv[2])
 
@@ -773,6 +812,14 @@ def main():
                 except Exception as exc:
                     logger.warning("dice_number fallback fetch failed: %s", exc)
             if value is not None:
+                # Robot dice roll: rolled-face detection is the useful
+                # YOLO event — emit the overlay-close sentinel here, not
+                # after the pre-pickup position detection. The 0.5 s
+                # pause holds the YOLO dice frame on screen a beat longer
+                # so the operator can register the rolled face before the
+                # board reappears.
+                time.sleep(0.5)
+                print("YOLO_DETECTED", flush=True)
                 print(f"DICE_NUMBER={value}", flush=True)
                 logger.info("Detected rolled dice number: %s", value)
             else:
@@ -782,6 +829,8 @@ def main():
                 )
         else:
             value = random.randint(1, 6)
+            time.sleep(0.5)
+            print("YOLO_DETECTED", flush=True)
             print(f"DICE_NUMBER={value}", flush=True)
             logger.info("Sampled dice number: %s", value)
 

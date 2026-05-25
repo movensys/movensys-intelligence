@@ -153,6 +153,17 @@ async def ws_hand_depth(websocket: WebSocket):
 async def ws_hand_rgb(websocket: WebSocket):
     await _ws_stream(websocket, "latest_hand_rgb_image", interval=0.1)
 
+# YOLO debug overlays — consumed by the robopoly board pane while
+# pick_and_place runs. Robopoly is served on :7999 but cross-origins
+# to :8000 for ROS-fed streams (same as joint_states / eef_pose).
+@router.websocket("/api/stream/yolo_dice_detector/debug_image")
+async def ws_yolo_dice_debug(websocket: WebSocket):
+    await _ws_stream(websocket, "latest_yolo_dice_debug_image", interval=0.1)
+
+@router.websocket("/api/stream/yolo_cube_detector/debug_image")
+async def ws_yolo_cube_debug(websocket: WebSocket):
+    await _ws_stream(websocket, "latest_yolo_cube_debug_image", interval=0.1)
+
 
 # ---------------------------------------------------------------------------
 # Image top — REST snapshots

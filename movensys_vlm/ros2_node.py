@@ -58,6 +58,30 @@ def _encode_rgb(msg: sensor_msgs.msg.Image) -> Optional[dict]:
         return None
 
 
+def _encode_color_image(msg: sensor_msgs.msg.Image) -> Optional[dict]:
+    """Convert an rgb8/bgr8 image to base64-encoded JPEG.
+
+    YOLO debug overlays in this stack are sometimes published as bgr8
+    (OpenCV native) and sometimes rgb8 — pick a converter from the
+    encoding field instead of assuming.
+    """
+    try:
+        img = np.frombuffer(bytes(msg.data), dtype=np.uint8).reshape(msg.height, msg.width, 3)
+        if msg.encoding == "rgb8":
+            bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        else:
+            bgr = img
+        _, buf = cv2.imencode('.jpg', bgr, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        return {
+            "data": base64.b64encode(buf.tobytes()).decode('utf-8'),
+            "encoding": "jpeg",
+            "width": msg.width,
+            "height": msg.height,
+        }
+    except Exception:
+        return None
+
+
 class ManipulatorNode(Node):
     def __init__(self):
         super().__init__("movensys_vlm_api")
@@ -79,6 +103,8 @@ class ManipulatorNode(Node):
         self.latest_dice_pose: Optional[dict] = None
         self.latest_yolo_tf: Optional[dict] = None
         self.latest_dice_number: Optional[dict] = None
+        self.latest_yolo_dice_debug_image: Optional[dict] = None
+        self.latest_yolo_cube_debug_image: Optional[dict] = None
 
         _transient_local = QoSProfile(
             depth=1,
@@ -102,6 +128,13 @@ class ManipulatorNode(Node):
         self.create_subscription(geometry_msgs.msg.Pose,           "/piece_2",                self._cb_piece_2_pose,      10, callback_group=cb)
         self.create_subscription(geometry_msgs.msg.Pose,           "/dice",                self._cb_dice_pose,      10, callback_group=cb)
         self.create_subscription(std_msgs.msg.Int32,               "/yolo_dice_detector/dice_number", self._cb_dice_number, 10, callback_group=cb)
+        # YOLO debug overlays — robopoly's board pane swaps to these
+        # frames while pick_and_place runs (dice scan / cube tracking).
+        # The subscription lives here next to the other image topics so
+        # robopoly stays a thin HTTP/WS consumer of :8000 and doesn't
+        # need its own rclpy stack.
+        self.create_subscription(sensor_msgs.msg.Image,            "/yolo_dice_detector/debug_image", self._cb_yolo_dice_debug, 1, callback_group=cb)
+        self.create_subscription(sensor_msgs.msg.Image,            "/yolo_cube_detector/debug_image", self._cb_yolo_cube_debug, 1, callback_group=cb)
 
         self.cli_get_eef_pose   = self.create_client(GetEefPose,           "/wmx/moveit2/get_eef_pose",                     callback_group=cb)
         self.cli_gripper        = self.create_client(std_srvs.srv.SetBool, "/wmx/set_gripper",                              callback_group=cb)
@@ -193,6 +226,12 @@ class ManipulatorNode(Node):
 
     def _cb_dice_number(self, msg: std_msgs.msg.Int32):
         self.latest_dice_number = {"value": int(msg.data), "received_at": time.time()}
+
+    def _cb_yolo_dice_debug(self, msg: sensor_msgs.msg.Image):
+        self.latest_yolo_dice_debug_image = _encode_color_image(msg)
+
+    def _cb_yolo_cube_debug(self, msg: sensor_msgs.msg.Image):
+        self.latest_yolo_cube_debug_image = _encode_color_image(msg)
 
     _TF_PARENT = "world_manipulator"
     _TF_CHILD  = "camera_top_color_optical_frame"

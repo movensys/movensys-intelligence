@@ -33,7 +33,7 @@ HOUSE_PRICE = 2 * TIER_PRICE  # tier 2 → $200 cumulative
 HOTEL_PRICE = 3 * TIER_PRICE  # tier 3 → $300 cumulative
 TAX_AMOUNT = 100          # flat tax for Non-Free Parking (§4.3)
 CHANCE_AMOUNT = 200       # chance card payout magnitude (§4.4)
-LAPS_TO_WIN = 5           # end-of-game lap-count cap (§6.2)
+LAPS_TO_WIN = 2           # end-of-game lap-count cap (§6.2)
 
 
 def tier_of(p) -> int:
@@ -181,6 +181,35 @@ def submit_dice(state: GameState, value: int | tuple[int, int]) -> dict[str, Any
         else:
             p_state.in_jail = False
             jail_payload = {"kind": "jail_released", "player": player}
+
+    # House rule: the jail_visit tile (Desert Island) is invisible for
+    # dice movement — neither landed on nor counted as a step when passed
+    # through. Only the go_to_jail effect can place a piece there. If the
+    # path { from+1, …, from+dice } includes a jail_visit tile, bump the
+    # roll by one so the count of "real" tiles crossed equals the dice.
+    # Single die ≤ 6 and only one jail_visit per board, so one bump
+    # suffices (the path covers each tile index at most once).
+    board = load_board(state.board_id)
+    size = board.tile_count
+    from_tile = state.positions.get(player, 0)
+    dice = state.pending_dice
+    for jail_idx, tile in enumerate(board.tiles):
+        if tile.kind != "jail_visit":
+            continue
+        offset = (jail_idx - from_tile) % size
+        if 1 <= offset <= dice:
+            state.pending_dice += 1
+            state.last_dice_sum = state.pending_dice
+            if jail_payload is None:
+                jail_payload = {
+                    "kind": "tile_skipped",
+                    "player": player,
+                    "tile_index": jail_idx,
+                    "tile_name": tile.name,
+                    "new_sum": state.pending_dice,
+                }
+        break
+
     state.fsm = FSM.MOVING
     return jail_payload
 
@@ -402,24 +431,17 @@ def _resolve_once(
         )
 
     if tile.kind == "chance":
-        # Spec §4.4: random ±$200 coin flip. Deck is unused.
-        import random
-        delta = random.choice([+CHANCE_AMOUNT, -CHANCE_AMOUNT])
-        if delta > 0:
-            state.players[player].balance += delta
-            return TileResolution(
-                "chance_drawn", tile_index,
-                payload={"amount": delta, "direction": "collect",
-                         "balance": state.players[player].balance},
-            )
-        amount = -delta
-        bankrupt, liq = _pay_bank_or_bankrupt(state, board, player, amount)
+        # VLM-driven chance card flow (see router.py:game_chance_card).
+        # The tile resolution itself is a no-op — the money outcome is
+        # decided by the orchestrator's VLM reading the physical card.
+        # `deferred=True` tells the frontend to call /api/game/chance_card
+        # before /api/game/end_turn so the flow runs while the FSM is
+        # still on the chance tile.
         return TileResolution(
-            "chance_drawn" if not bankrupt else "chance_bankruptcy",
+            "chance_drawn",
             tile_index,
-            payload={"amount": -amount, "direction": "pay", "liquidation": liq,
+            payload={"deferred": True, "player": player,
                      "balance": state.players[player].balance},
-            bankrupt_player=player if bankrupt else None,
         )
 
     if tile.kind == "community_chest" and cc_deck is not None:

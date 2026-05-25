@@ -1,59 +1,52 @@
 # Running Robopoly Game
-## Execution Procedure
+## 1. Execution Procedure
 
-### Step 1: Open Isaac Sim
-`~/workspaces/movensys-simulation/dobot_cr3a/6a_robopoly_real.usd`
-
-### Step 2: Run wmx-ros2 for manipulator
-check `~/workspaces/movensys_ws/src/wmx-ros2/doc/launch_<MANIPULATOR_MODEL>_manipulator.md`
-
-### Step 3: Launch MoveIt2's OMPL + API
-```
-mros ros2 launch movensys_manipulator_moveit_config moveit.launch.py use_sim_time:=true
-```
-
-### Step 4: Run YOLO for cube detection
+### Step 1. Launch wmx-ros2 (Terminal 1)
 ```bash
-cd ~/workspaces/movensys_ws/src/movensys-manpulator/movensys_manipulator_perception
-mros ros2 launch movensys_manipulator_perception yolo_cube_detector.launch.py
+cd ~/workspaces/movensys-intelligence/movensys_sample/doc
+./run_robopoly.sh wmx-ros2
 ```
 
-### Step 5: Run YOLO for dice detection
+### Step 2. Build containers on Nvidia env (Terminal 2)
 ```bash
-cd ~/workspaces/movensys_ws/src/movensys-manpulator/movensys_manipulator_perception
-mros ros2 launch movensys_manipulator_perception yolo_dice_detector.launch.py
+./run_robopoly.sh build_nvidia
 ```
 
-### Step 6: Run YOLO debugger (Optional)
+### Step 2-2. Build containers on Intel env (Terminal 2)
 ```bash
-ros2 run rqt_image_view rqt_image_view /yolo_dice_detector/debug_image
-ros2 run rqt_image_view rqt_image_view /yolo_cube_detector/debug_image
+./run_robopoly.sh build_intel
 ```
 
-### Step 7: Running movensys_vlm
-```
-cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
-COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml down
-COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml build
-COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml up -d
-```
+Check logs using 2-1, 2-2 commands.
 
-### Step 8: Running movensys_robopoly
-#### Only first run
+### Step 3. Run moveit, containers, yolo (Terminal 3)
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+./run_robopoly.sh run
 ```
+Check tmux logs using a 2-3, 2-4 command.
 
-#### Running movensys_robopoly
+
+## 2. Debug tips (Optional)
+### 2-1. vllm
 ```bash
-export MOVENSYS_PNP_DRY_RUN=1   # optional — skips real robot motion
-cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker
-docker compose down
-docker compose build            # only needed when deps/Dockerfile change
-docker compose up               # foreground; Ctrl-C to stop
+docker logs -f vllm_container
+```
+### 2-2. movensys-manipulator
+```bash
+docker logs -f movensys-manipulator
+```
+### 2-3. moveit
+```bash
+tmux a -t robopoly
 ```
 
-### Step 9: Play the robopoly game
-1. Click `Toggle is_YOLO` and check `is_YOLO` is set to ON.
-2. Click `Reset game` and `Roll dice`. Enjoy the game.
+### 2-4. tmux
+1. excape tmux
+- Sequentially press `Ctrl b` and `d`
+
+2. move screen
+- Sequentially press `Ctrl b` and `<screen_number>`
+
+3. Visual mode
+- Sequentially press `Ctrl b` and `[`
+- Then, use `PgUp` or `PgDn`. 

@@ -445,9 +445,27 @@ function renderDiceFace(value) {
 // ---- decision modal -------------------------------------------------------
 
 let pendingDecision = null;  // { property_id, card }
+// Voice intent cached from the user's earlier utterance ("buy a house"
+// spoken during TURN_START while the dice was rolling). When AWAIT_DECISION
+// fires, dispatchVoiceAction's fast path missed it because pendingDecision
+// wasn't set yet — we replay the cached choice here. Cleared on use or
+// when the turn changes.
+let pendingVoiceIntent = null;  // { choice: "skip"|"buy"|"build"|"build_hotel", text }
 
 function showDecision(decision) {
   pendingDecision = decision;
+  // If the user already voiced a choice this turn, apply it instead of
+  // forcing them to repeat themselves.
+  if (pendingVoiceIntent) {
+    const intent = pendingVoiceIntent;
+    pendingVoiceIntent = null;
+    const choice = legalizeDecisionChoice(intent.choice, decision);
+    appendChat({ role: "sys",
+      text: `Voice (cached "${intent.text}") → ${choice}` });
+    submitDecision(choice, choice === "build" ? 1 : 0)
+      .catch((err) => console.warn("[voice-cache] submit:", err));
+    return;
+  }
   const { card } = decision;
   const currentTier = decision.current_tier ?? 0;
   const maxTier = decision.max_tier ?? (card.kind === "property" ? 3 : 1);
@@ -493,24 +511,35 @@ function hideDecision() {
 async function submitDecision(action, houseCount = 0) {
   if (!pendingDecision) return;
   const pid = pendingDecision.property_id;
+  let decideOk = true;
   try {
     await postJson(`/api/properties/${encodeURIComponent(pid)}/decide`,
                    { action, house_count: houseCount });
-  } catch (err) { console.warn("decide:", err); }
+  } catch (err) {
+    decideOk = false;
+    console.warn("decide:", err);
+    // Clear the auto-trigger dedup key so the robot's AWAIT_DECISION
+    // state can re-fire. Without this, an illegal choice (e.g. "buy"
+    // on a tile the robot already owns) leaves fsm=AWAIT_DECISION but
+    // the (turn, fsm, turn_number, pid) key still matches — the loop
+    // never retries and the game deadlocks.
+    vlmPlayerLastTurnKey = null;
+  }
   hideDecision();
   // Game mode: hold the result on screen before swapping turns —
   // STATUS_FLASH_MS for the buy/build flash to play out, then another 3s
   // of clean board view so the operator can take in the new building
   // before "It's robot's turn" overlays the screen.
-  if (document.body.classList.contains("game-mode") && action !== "skip") {
+  if (document.body.classList.contains("game-mode") && action !== "skip" && decideOk) {
     await new Promise((res) => setTimeout(res, STATUS_FLASH_MS + 3000));
   }
   // Spec §3.4: end-turn is automatic. After the buy/skip/build choice
   // the FSM is back at RESOLVE_TILE, so end_turn is safe to call.
   try {
-    await postJson("/api/game/end_turn");
+    if (decideOk) await postJson("/api/game/end_turn");
   } catch (err) {
     console.warn("post-decide end_turn:", err);
+    vlmPlayerLastTurnKey = null;
   } finally {
     turnInFlight = false;
   }
@@ -547,6 +576,11 @@ function flashGameOverlay(text, opts = {}) {
   else slot.textContent = text;
   overlay.classList.add("visible");
   if (gameOverlayTimer) clearTimeout(gameOverlayTimer);
+  gameOverlayTimer = null;
+  // opts.sticky keeps the overlay up until the next flash (e.g. a new
+  // game's "Game started" / "It's X's turn" overwrites it). Used for
+  // game_won so the operator doesn't blink and miss the 2s flash.
+  if (opts.sticky) return;
   gameOverlayTimer = setTimeout(() => {
     overlay.classList.remove("visible");
     gameOverlayTimer = null;
@@ -598,7 +632,7 @@ function toggleChatOverlay() {
   else maybeOpenChatOverlay();
 }
 
-function announce(text, kind = "info") {
+function announce(text, kind = "info", opts = {}) {
   const el = document.getElementById("notification");
   if (el) {
     el.classList.remove("empty");
@@ -606,7 +640,9 @@ function announce(text, kind = "info") {
     el.textContent = text;
   }
   if (document.body.classList.contains("game-mode")) {
-    flashGameOverlay(text);
+    // opts.durationMs overrides STATUS_FLASH_MS — used by the dice
+    // popup to flash for just 1 s instead of the default 2 s.
+    flashGameOverlay(text, opts);
   }
   // Mirror the same string into the chat transcript as a system bubble so
   // the operator sees turn changes / buys / etc. inline with the dialogue.
@@ -696,10 +732,32 @@ function announceFromEvent(env) {
       break;
     case "dice_submitted": {
       const player = currentState?.turn ?? "player";
-      const sum = payload.sum ?? payload.value;
-      announce(`${player} rolled ${sum}`, "dice");
+      // `value` is the real face read from the die. `sum` (last_dice_sum)
+      // is +1 when rules.submit_dice bumped past jail_visit (Desert
+      // Island skip). The popup always shows the REAL face; the bump is
+      // mentioned as a side note so the player knows their physical roll
+      // wasn't ignored.
+      const real = Array.isArray(payload.value)
+        ? payload.value.reduce((a, b) => a + b, 0)
+        : payload.value;
+      const reflected = payload.sum ?? real;
+      const text = reflected !== real
+        ? `${player} rolled ${real}\n(+1 for crossing Desert Island)`
+        : `${player} rolled ${real}`;
+      // Short flash — the dice face is the only signal the operator needs
+      // from this popup, and the next overlay (move/buy/etc.) lands fast.
+      announce(text, "dice", { durationMs: 1000 });
       break;
     }
+    case "tile_skipped":
+      // Mirror the skip into the chat transcript / event log so it's
+      // visible after the dice flash fades. The popup is handled by
+      // dice_submitted above.
+      announce(
+        `Crossing ${payload.tile_name || "Desert Island"} — dice reflected to ${payload.new_sum}`,
+        "move",
+      );
+      break;
     case "move_applied":
       announce(`${payload.player} moved to ${tileName(payload.to_tile)}`, "move");
       break;
@@ -733,10 +791,35 @@ function announceFromEvent(env) {
       announce(`Tax paid${payload.amount ? ` ($${payload.amount})` : ""}`, "money");
       break;
     case "tile_chance_drawn": {
+      // VLM-driven chance: the per-card text/effect comes through
+      // chance_card_read + chance_card_applied below. Skip the banner
+      // here so we don't print "Chance: pay $undefined".
+      if (payload.deferred) break;
       const dir = payload.direction;
       const amt = payload.amount;
       if (dir === "collect") announce(`Chance: collect $${amt}`, "money");
       else if (dir === "pay") announce(`Chance: pay $${Math.abs(amt)}`, "money");
+      break;
+    }
+    case "chance_card_read": {
+      // Step 1 of the VLM chance flow — flash whatever the model read off
+      // the card. flashGameOverlay only fires in game-mode; mirror to chat
+      // unconditionally so the operator still has a record in debug mode.
+      const txt = `Chance card: ${payload.text || "(no text)"}`;
+      const hold = Math.max(1000, Math.round((payload.hold_s ?? 2) * 1000));
+      flashGameOverlay(txt, { durationMs: hold });
+      appendChat({ role: "sys", text: txt });
+      break;
+    }
+    case "chance_card_applied": {
+      // Step 2 — the model picked one of the 4 outcomes. Flash the result
+      // for hold_s so the user can read it before the turn moves on.
+      const player = payload.player || "player";
+      const label = payload.label || payload.choice || "$0";
+      const txt = `Chance result: ${player} ${label}`;
+      const hold = Math.max(1000, Math.round((payload.hold_s ?? 2) * 1000));
+      flashGameOverlay(txt, { durationMs: hold });
+      appendChat({ role: "sys", text: txt });
       break;
     }
     case "jail_escaped":
@@ -748,15 +831,25 @@ function announceFromEvent(env) {
     case "jail_released":
       announce(`${payload.player} served their time and is free`, "turn");
       break;
-    case "game_won":
+    case "game_won": {
+      // Sticky overlay — leave the win banner up until Reset / new game.
+      // The 2s default flash is too brief for a game-end event.
+      let text;
       if (payload.draw) {
         const t = payload.totals || {};
-        announce(`🤝 Draw — both players at $${t.user ?? "?"}`, "win");
+        text = `🤝 Draw — both players at $${t.user ?? "?"}`;
       } else {
-        const reason = payload.reason === "lap_cap" ? " (5 laps)" : "";
-        announce(`🏆 ${payload.winner} wins the game!${reason}`, "win");
+        const reason = payload.reason === "lap_cap" ? " (2 laps)" : "";
+        text = `🏆 ${payload.winner} wins the game!${reason}`;
+      }
+      announce(text, "win", { sticky: true });
+      // Force the overlay even in debug-mode so the operator still sees
+      // a full-screen banner instead of only the notification strip.
+      if (!document.body.classList.contains("game-mode")) {
+        flashGameOverlay(text, { sticky: true });
       }
       break;
+    }
     case "state_loaded":
       announce("Game state loaded", "turn");
       lastAnnouncedTurn = null;
@@ -840,6 +933,9 @@ function renderState(state) {
   if (!winner && state.turn && state.turn !== lastAnnouncedTurn) {
     lastAnnouncedTurn = state.turn;
     announce(`It's ${state.turn}'s turn`, "turn");
+    // Voice intents are turn-scoped — don't leak last turn's "buy a house"
+    // into the next one.
+    pendingVoiceIntent = null;
   }
 }
 
@@ -875,11 +971,136 @@ function openStream() {
       if (currentState?.turn === "robot") pendingDecision = decision;
       else showDecision(decision);
     }
+    // Close the modal when *any* client (script, second tab, agent loop)
+    // resolves the decision via REST. Without this the modal stays
+    // painted because hideDecision() was only wired to the local button
+    // click in submitDecision().
+    if (env.type === "purchase_skipped" || env.type === "property_bought" ||
+        env.type === "property_built") {
+      if (pendingDecision) hideDecision();
+    } else if (env.type === "fsm_transition" &&
+               env.payload?.from === "AWAIT_DECISION" &&
+               env.payload?.to !== "AWAIT_DECISION") {
+      // Safety net: any path that leaves AWAIT_DECISION should clear it.
+      if (pendingDecision) hideDecision();
+    }
+    // Early-close the YOLO overlay the instant pick_and_place reports a
+    // successful detection. yoloStreamClose is depth-aware and idempotent,
+    // so the withYoloStream wrapper's own close at fetch-end is a no-op.
+    if (env.type === "yolo_detection_done") {
+      yoloStreamClose();
+    }
     announceFromEvent(env);
     await refreshState();
   };
   ws.onclose = () => setTimeout(openStream, 1500);
   ws.onerror = () => ws.close();
+}
+
+// ---- YOLO debug-image overlay --------------------------------------------
+//
+// Swap the board pane for /yolo_{dice,cube}_detector/debug_image while
+// pick_and_place is in flight. The frames are sourced from the
+// movensys_vlm orchestrator on :8000 (same ROS host as joint_states /
+// eef_pose) — robopoly's UI cross-origins to it like it already does
+// for the other ROS-fed streams.
+//
+// Lifecycle: yoloStreamOpen(kind) opens a WS and replaces the board with
+// the latest JPEG frame; yoloStreamClose() tears it down and the board
+// becomes visible again. Wrap a pnp-issuing fetch in
+// `withYoloStream(kind, fn)` to bind the overlay's visibility to the
+// fetch's promise.
+const YOLO_STREAM_HOST = `${location.hostname}:8000`;
+const YOLO_STREAM_TOPICS = {
+  dice: {
+    path: "/api/stream/yolo_dice_detector/debug_image",
+    label: "YOLO — dice detector",
+  },
+  cube: {
+    path: "/api/stream/yolo_cube_detector/debug_image",
+    label: "YOLO — cube detector",
+  },
+  // Raw gripper-mounted camera — driven during the chance card flow so
+  // the operator can see the card the VLM is reading. Not a YOLO debug
+  // topic, but it reuses the same overlay machinery.
+  hand: {
+    path: "/api/stream/image_hand/rgb",
+    label: "Hand camera — chance card",
+  },
+};
+let yoloStreamWs = null;
+let yoloStreamDepth = 0;  // re-entrancy: nested pnp calls keep overlay open
+
+function yoloStreamOpen(kind) {
+  const topic = YOLO_STREAM_TOPICS[kind];
+  if (!topic) return;
+  yoloStreamDepth += 1;
+  const overlay = document.getElementById("yolo-overlay");
+  const label = document.getElementById("yolo-overlay-label");
+  const status = document.getElementById("yolo-overlay-status");
+  if (!overlay) return;
+  if (label) label.textContent = topic.label;
+  if (status) status.textContent = "Waiting for frames…";
+  overlay.classList.remove("hidden");
+  overlay.setAttribute("aria-hidden", "false");
+
+  if (yoloStreamWs) {
+    try { yoloStreamWs.close(); } catch (_) {}
+    yoloStreamWs = null;
+  }
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const url = `${proto}//${YOLO_STREAM_HOST}${topic.path}`;
+  let ws;
+  try {
+    ws = new WebSocket(url);
+  } catch (err) {
+    if (status) status.textContent = `stream error: ${err}`;
+    return;
+  }
+  yoloStreamWs = ws;
+  ws.onmessage = (ev) => {
+    let env;
+    try { env = JSON.parse(ev.data); } catch { return; }
+    const data = env && env.data;
+    if (!data || !data.data) {
+      if (status) status.textContent = env.error || "No frame";
+      return;
+    }
+    const img = document.getElementById("yolo-overlay-img");
+    if (img) img.src = `data:image/jpeg;base64,${data.data}`;
+    if (status) status.textContent = `${data.width || "?"}×${data.height || "?"}`;
+  };
+  ws.onerror = () => {
+    if (status) status.textContent = "stream error (is movensys_vlm up?)";
+  };
+  ws.onclose = () => {
+    if (yoloStreamWs === ws) yoloStreamWs = null;
+  };
+}
+
+function yoloStreamClose() {
+  if (yoloStreamDepth > 0) yoloStreamDepth -= 1;
+  if (yoloStreamDepth > 0) return;  // still inside another pnp — keep open
+  const overlay = document.getElementById("yolo-overlay");
+  if (overlay) {
+    overlay.classList.add("hidden");
+    overlay.setAttribute("aria-hidden", "true");
+  }
+  if (yoloStreamWs) {
+    try { yoloStreamWs.close(); } catch (_) {}
+    yoloStreamWs = null;
+  }
+  const img = document.getElementById("yolo-overlay-img");
+  if (img) img.removeAttribute("src");
+}
+
+async function withYoloStream(kind, fn) {
+  yoloStreamOpen(kind);
+  try {
+    return await fn();
+  } finally {
+    yoloStreamClose();
+  }
 }
 
 // ---- manual controls ------------------------------------------------------
@@ -896,6 +1117,10 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
   btn.textContent = "Rolling…";
 
   try {
+    // Snapshot the dispatch turn so the server can refuse with STALE_TURN
+    // if this chain straddled a turn boundary (e.g. VLM latency made our
+    // POST land after another client already advanced the game).
+    const chainTurnNumber = currentState ? currentState.turn_number : null;
     // 1. Get the dice value. Two paths depending on whose turn it is:
     //    - User turn  → /api/dice/read_robot. The human already threw the
     //      die by hand; the arm only moves to the scan pose so the camera
@@ -906,8 +1131,28 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
       ? "/api/dice/read_robot"
       : "/api/dice/roll_robot";
     console.log("[roll-chain] dice step:",
-      { endpoint: diceEndpoint, turn: currentState && currentState.turn });
-    const rollRes = await postJson(diceEndpoint, { is_YOLO: isYOLO });
+      { endpoint: diceEndpoint, turn: currentState && currentState.turn,
+        expected_turn_number: chainTurnNumber });
+    // While pick_and_place runs the dice routine, overlay
+    // /yolo_dice_detector/debug_image on the board pane. The overlay is
+    // bound to this fetch's promise: it closes the moment the server
+    // returns DICE_NUMBER, restoring the default board view.
+    let rollRes;
+    try {
+      rollRes = await withYoloStream("dice", () =>
+        postJson(diceEndpoint, {
+          is_YOLO: isYOLO,
+          expected_turn_number: chainTurnNumber,
+        })
+      );
+    } catch (err) {
+      if (err && err.status === 409 && typeof err.body === "string"
+          && err.body.includes("STALE_TURN")) {
+        console.warn("[roll-chain] dice dropped — STALE_TURN:", err.body);
+        return;
+      }
+      throw err;
+    }
     console.log("[roll-chain] dice response:", rollRes);
     if (rollRes && typeof rollRes.dice_number === "number") {
       renderDiceFace(rollRes.dice_number);
@@ -939,10 +1184,27 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
     const to = (from + rollRes.sum) % size;
     btn.textContent = "Moving…";
     console.log("[roll-chain] apply_robot:",
-      { player, from_tile: from, to_tile: to, is_YOLO: isYOLO });
-    const moveRes = await postJson("/api/move/apply_robot", {
-      player, from_tile: from, to_tile: to, is_YOLO: isYOLO,
-    });
+      { player, from_tile: from, to_tile: to, is_YOLO: isYOLO,
+        expected_turn_number: chainTurnNumber });
+    // Move phase: swap the board for /yolo_cube_detector/debug_image so
+    // the operator sees the cube-detection pipeline that's driving the
+    // arm. Overlay closes when the move HTTP call returns.
+    let moveRes;
+    try {
+      moveRes = await withYoloStream("cube", () =>
+        postJson("/api/move/apply_robot", {
+          player, from_tile: from, to_tile: to, is_YOLO: isYOLO,
+          expected_turn_number: chainTurnNumber,
+        })
+      );
+    } catch (err) {
+      if (err && err.status === 409 && typeof err.body === "string"
+          && err.body.includes("STALE_TURN")) {
+        console.warn("[roll-chain] apply_robot dropped — STALE_TURN:", err.body);
+        return;
+      }
+      throw err;
+    }
     console.log("[roll-chain] apply_robot response:", moveRes);
 
     // 3. If the tile arrival needs a human decision (Buy modal), stop here.
@@ -950,6 +1212,30 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
     //    end_turn after the user picks an option.
     if (moveRes && moveRes.fsm === "AWAIT_DECISION") {
       return;
+    }
+
+    // 3b. Deferred chance card: rules.py left the money outcome to the
+    //     VLM. Run the full chance flow (arm move → 2x VLM call → apply
+    //     money → 2 popups) before ending the turn, so the new balance
+    //     reflects on the board before "It's <other>'s turn" overlays.
+    const tiles = moveRes && moveRes.resolved && moveRes.resolved.tiles;
+    const deferredChance = Array.isArray(tiles)
+      && tiles.some((t) => t && t.kind === "chance_drawn" && t.payload && t.payload.deferred);
+    if (deferredChance) {
+      // Replace the Ask-VLM chat overlay with the gripper camera feed
+      // for the duration of the chance flow — operator sees the card
+      // the VLM is reading instead of the empty chat panel.
+      closeChatOverlay();
+      try {
+        await withYoloStream("hand", () => postJson("/api/game/chance_card"));
+      } catch (err) {
+        console.warn("[roll-chain] chance_card failed:", err, "body:", err && err.body);
+        appendChat({
+          role: "sys",
+          text: `Chance card failed: ${err.message || err}\n${err && err.body ? err.body : ""}`,
+          error: true,
+        });
+      }
     }
 
     // 4. Auto end-turn — rent / tax / chance / bankruptcy already resolved
@@ -1432,7 +1718,7 @@ Choice meaning (cumulative cost from unowned = rent opponent pays):
   build_hotel tier 3, $300   land + hotel
   skip        no purchase
 Upgrade delta from owned = $100 × (target_tier − current_tier).
-Seed $1000, GO bonus $100, tax $100, chance ±$200, 5 laps to win.
+Seed $500, GO bonus $100, tax $100, chance ±$200, 2 laps to win. Rent $150/$300/$450 per tier.
 
 Constraints:
 - decision_pending.kind=="utility" → only buy or skip are legal.
@@ -1444,33 +1730,9 @@ User voice intent (Context: line) — highest priority, head-noun wins:
 If illegal for the tile, fall back to the closest legal choice
 (utility→buy; over-tier→next legal upgrade; else skip).
 
-Robot-turn AWAIT_DECISION calls include a STRATEGIC CONTEXT block in
-the user prompt — read it before picking. "Always buy land" is weak.`;
-
-// Strategic-reasoning block injected into the per-call USER prompt only on
-// AWAIT_DECISION turns. Keeping it out of the system prompt saves ~600
-// tokens on every TURN_START roll (where reasoning is unused) at the cost
-// of ~600 tokens on AWAIT_DECISION (where it actually matters).
-const VLM_PLAYER_STRATEGIC_CONTEXT = `STRATEGIC CONTEXT (facts to reason with, not rules):
-
-Game length: 5 laps wins, ~10 turns per player. Any one tile gets ~0.7
-opponent visits on expectation (P(≥2 hits) ≈ 16%). Per-tier ROI is
-identical (cost = rent); break-even at 1 hit, profit at 2+. Land is NOT
-safer per dollar — same payback ratio at every tier.
-
-Aggressive (buy / build_hotel) when:
-- Early game (lap_count ≤ 1) and liquid ≥ $400. Hotels deal $300/hit,
-  the only realistic path to bankrupt the opponent in a short game.
-- Behind in laps or assets — high-variance plays correct.
-- Opponent has hotels — match tier or be out-leveraged ($300 vs $100).
-
-Conservative (skip / land only) when:
-- Late game (lap_count ≥ 3) — preserve cash to reach lap 5.
-- Liquid < $200 after the buy — one rent hit could bankrupt you.
-- Opponent has hotels you might land on — keep $300 buffer.
-
-End-game cash has no value beyond surviving; winner = lap cap or
-bankruptcy. Land buys mainly deny opponent future hotel slots.`;
+Robot AWAIT_DECISION is handled deterministically in the frontend — you
+will not be asked to pick on the robot's behalf, only to honor the
+user's voice intent on user turns.`;
 
 let vlmPlayerInFlight = false;
 let vlmPlayerLastTurnKey = null;
@@ -1623,6 +1885,126 @@ function buildVlmStateSummary(state) {
   return summary;
 }
 
+// Map a target tier (1/2/3) to the matching decide-action choice.
+function tierToChoice(t) {
+  if (t === 1) return "buy";
+  if (t === 2) return "build";
+  return "build_hotel";
+}
+
+// Rewrite a decide-choice into the nearest legal one for the live
+// decision_pending. Prevents the "robot lands on its own property, VLM
+// says buy, server returns PROPERTY_OWNED, end_turn fails, dedup key
+// blocks retry" deadlock — every choice we forward to the server is
+// legal by construction, so AWAIT_DECISION always advances.
+function legalizeDecisionChoice(choice, pending) {
+  const currentTier = pending?.current_tier ?? 0;
+  const maxTier = pending?.max_tier ?? 3;
+  if (choice === "skip") return "skip";
+  // Utility (Electric Company): land tier only, no houses/hotels.
+  if (maxTier === 1) {
+    return currentTier === 0 ? "buy" : "skip";
+  }
+  let target;
+  if (choice === "buy") target = 1;
+  else if (choice === "build") target = 2;
+  else if (choice === "build_hotel") target = 3;
+  else return "skip";
+  if (target <= currentTier) target = currentTier + 1;
+  if (target > maxTier) target = maxTier;
+  if (target <= currentTier) return "skip";
+  return tierToChoice(target);
+}
+
+// Head-noun keyword match on a voice transcript. Returns one of
+// "skip"/"buy"/"build"/"build_hotel" or null when no keyword was found
+// (caller falls through to the VLM). Mirrors the priority documented in
+// VLM_PLAYER_SYSTEM_PROMPT, but runs in JS so a small Whisper+Gemma
+// pipeline can't mishear "buy hotel" as "buy" / "build" on the way out.
+function parseVoiceDecision(text) {
+  if (!text) return null;
+  const t = String(text).toLowerCase();
+  if (/\bhotel/.test(t)) return "build_hotel";
+  if (/\b(house|build)/.test(t)) return "build";
+  if (/\b(land|buy|purchase)/.test(t)) return "buy";
+  if (/\b(skip|pass|nope|don'?t|no\b)/.test(t)) return "skip";
+  return null;
+}
+
+// Deterministic robot strategy for AWAIT_DECISION. Pure JS, zero VLM
+// tokens. Returns a choice legal for the tile.
+//
+// Phase-based:
+//   - lap 0–1 (early): land-grab. Spend cheaply on multiple properties
+//     before locking cash in upgrades. Skip the buy+hotel combo entirely
+//     — manager.decide_property does buy+build as two server txns and a
+//     boundary miss leaves a silent property_build_rejected.
+//   - lap 2–3 (mid):   upgrade owned land to houses; if the opponent is
+//     escalating, push the same tier to keep rent symmetric.
+//   - lap 4+  (late):  conserve cash, only upgrade the tile we're on.
+//
+// Catch-up rule: if the opponent has more hotels, jump our owned-tier-2
+// straight to hotel on revisit.
+//
+// Unowned-tile default is buy + house ($200), not bare land — bare land
+// is the fallback when cash is tight. Hotels never fire from unowned
+// (the two-step buy + build server txn risks a partial failure at the
+// $200 boundary); they only happen on revisit.
+function pickRobotDecision(state, pending) {
+  const liquid = state.players?.robot?.balance ?? 0;
+  const lap = state.lap_count?.robot ?? 0;
+  const currentTier = pending.current_tier ?? 0;
+  const maxTier = pending.max_tier ?? 3;
+  const isUtility = pending.kind === "utility" || maxTier === 1;
+  if (isUtility) {
+    return (currentTier === 0 && liquid >= 200) ? "buy" : "skip";
+  }
+
+  let oppHotels = 0, ownHotels = 0, ownTotal = 0;
+  for (const p of Object.values(state.properties || {})) {
+    if (!p.owner) continue;
+    if (p.owner === "robot") {
+      ownTotal++;
+      if (p.has_hotel) ownHotels++;
+    } else if (p.has_hotel) {
+      oppHotels++;
+    }
+  }
+
+  const BUFFER = 200;
+  const canAfford = (cost) => liquid - cost >= BUFFER;
+
+  // Late game: hoard cash, only act if cheap and safe.
+  if (lap >= 4) {
+    if (currentTier < maxTier && canAfford(100)) {
+      return tierToChoice(currentTier + 1);
+    }
+    return "skip";
+  }
+
+  // Catch-up on opponent hotels: push owned property to hotel if we can.
+  if (oppHotels > ownHotels && currentTier === 2 && maxTier >= 3 && canAfford(100)) {
+    return "build_hotel";
+  }
+
+  // Unowned tile: buy + house ($200) by default — bigger rent jump than
+  // bare land, and the buffer keeps both server txns safe. Fall back to
+  // land-only when cash is tight.
+  if (currentTier === 0) {
+    if (maxTier >= 2 && canAfford(200)) return "build";
+    if (canAfford(100)) return "buy";
+    return "skip";
+  }
+
+  // Revisit on owned land — build a house.
+  if (currentTier === 1 && maxTier >= 2 && canAfford(100)) return "build";
+
+  // Revisit on owned house — build a hotel (mid-game default).
+  if (currentTier === 2 && maxTier >= 3 && canAfford(100)) return "build_hotel";
+
+  return "skip";
+}
+
 async function executeVlmAction(action) {
   if (!action || typeof action !== "object") {
     console.warn("[vlm-player] executeVlmAction: not an object:", action);
@@ -1655,14 +2037,17 @@ async function executeVlmAction(action) {
     return true;
   }
   if (action.action === "decide") {
-    const c = action.choice;
-    if (c === "build") { await submitDecision("build", 1); return true; }
-    if (["skip", "buy", "build_hotel"].includes(c)) {
-      await submitDecision(c);
-      return true;
+    const raw = action.choice;
+    const choice = legalizeDecisionChoice(raw, pendingDecision);
+    if (raw !== choice) {
+      console.warn("[vlm-player] legalized decide choice:", {
+        raw, used: choice,
+        current_tier: pendingDecision?.current_tier,
+        max_tier: pendingDecision?.max_tier,
+      });
     }
-    console.warn("[vlm-player] executeVlmAction: unknown decide choice:", c);
-    return false;
+    await submitDecision(choice, choice === "build" ? 1 : 0);
+    return true;
   }
   console.warn("[vlm-player] executeVlmAction: unknown action:", action.action);
   return false;
@@ -1688,16 +2073,8 @@ async function vlmPlayerAct(userMessage) {
   vlmPlayerInFlight = true;
   try {
     const summary = buildVlmStateSummary(currentState);
-    // STRATEGIC CONTEXT (~600 tok) lives outside the system prompt now;
-    // inject it only when the model actually needs to reason about a
-    // buy/build/skip choice. TURN_START rolls are mechanical and gain
-    // nothing from the block.
-    const strategic = currentState.fsm === "AWAIT_DECISION"
-      ? `${VLM_PLAYER_STRATEGIC_CONTEXT}\n\n`
-      : "";
     const prompt =
       `${VLM_PLAYER_INLINE_RULES}\n\n` +
-      strategic +
       `Context: ${userMessage}\n\n` +
       `State:\n${JSON.stringify(summary)}\n\n` +
       `Your reply (ONE JSON object, nothing else):`;
@@ -1715,10 +2092,16 @@ async function vlmPlayerAct(userMessage) {
   }
 }
 
+// `?solo=1` in the URL disables the browser's auto-driver entirely.
+// Used when an external client (the auto-play script) is driving the
+// game so we don't race over robot turns. Read once at module load.
+const SOLO_MODE = new URLSearchParams(location.search).get("solo") === "1";
+
 // Auto-trigger on robot's TURN_START or AWAIT_DECISION. Idempotent per
 // (turn, fsm, turn_number, pending_property) so we don't spam the VLM on
 // every WS event during the same logical step.
 function maybeAutoTriggerRobotTurn() {
+  if (SOLO_MODE) return;  // external driver owns the game; stand down
   if (!currentState || currentState.winner) return;
   if (currentState.turn !== "robot") return;
   const pendingPid = pendingDecision ? pendingDecision.property_id : "";
@@ -1729,15 +2112,13 @@ function maybeAutoTriggerRobotTurn() {
     vlmPlayerAct("It's your turn (robot). Roll the dice and move your cube.");
   } else if (currentState.fsm === "AWAIT_DECISION" && pendingDecision) {
     vlmPlayerLastTurnKey = key;
-    vlmPlayerAct(
-      "You (robot) landed on a buyable property. There is no human voice " +
-      "intent for this decision — read the State JSON AND the STRATEGIC " +
-      "CONTEXT block above before choosing. In this 5-lap game " +
-      "'always buy land' is a weak default; consider build / build_hotel " +
-      "when you can afford them, especially in the early game. Respect " +
-      "decision_pending.max_tier (utility tiles allow only buy or skip). " +
-      "Output exactly one of: skip / buy / build / build_hotel.",
-    );
+    // Deterministic strategy lives in pickRobotDecision — no VLM call.
+    // The choice is legal by construction (skip is always legal), so we
+    // can submitDecision directly and AWAIT_DECISION always advances.
+    const choice = pickRobotDecision(currentState, pendingDecision);
+    appendChat({ role: "sys", text: `Robot decision → ${choice}` });
+    submitDecision(choice, choice === "build" ? 1 : 0)
+      .catch((err) => console.warn("[robot-decide]", err));
   }
 }
 
@@ -1863,7 +2244,55 @@ function snapshotRobotState() {
 // user can swap mic devices through the existing dropdown without
 // reloading the page.
 
-const HOTKEY = { ACT: "z", ASK: "x" };
+const HOTKEY = { ACT: "z", ASK: "x", CHANCE: "v" };
+// Re-entrancy guard for the V-key chance trigger — the flow is multi-second
+// (init move + 2x VLM + 2x popup hold) and we never want two overlapping
+// /api/game/chance_card calls competing for the arm and the player balance.
+let chanceCardInFlight = false;
+
+async function triggerChanceCard(reason) {
+  if (chanceCardInFlight) {
+    appendChat({ role: "sys", text: "Chance card already running — ignored." });
+    return;
+  }
+  if (!currentState) {
+    appendChat({ role: "sys", text: "No game state yet — ignored." });
+    return;
+  }
+  if (currentState.winner) {
+    appendChat({ role: "sys", text: "Game is over — ignored." });
+    return;
+  }
+  if (currentState.turn !== "user") {
+    appendChat({ role: "sys", text: "Not your turn — chance card ignored." });
+    return;
+  }
+  if (currentState.fsm !== "TURN_START") {
+    appendChat({
+      role: "sys",
+      text: `Chance card ignored — wrong phase (${currentState.fsm}). Fire it on TURN_START.`,
+    });
+    return;
+  }
+  chanceCardInFlight = true;
+  appendChat({ role: "sys", text: `Chance card → ${reason}` });
+  // Hide the chat overlay and swap the board pane for the gripper
+  // camera feed so the operator sees the card while the VLM reads it.
+  closeChatOverlay();
+  try {
+    await withYoloStream("hand", () => postJson("/api/game/chance_card"));
+    await refreshState();
+  } catch (err) {
+    console.warn("[chance] trigger failed:", err, "body:", err && err.body);
+    appendChat({
+      role: "sys",
+      text: `Chance card failed: ${err.message || err}\n${err && err.body ? err.body : ""}`,
+      error: true,
+    });
+  } finally {
+    chanceCardInFlight = false;
+  }
+}
 let hotkeyState = "idle";        // "idle" | "armed" | "recording" | "busy"
 let hotkeyMode = null;            // "act" | "ask"
 let hotkeyRecorder = null;
@@ -2072,6 +2501,37 @@ async function dispatchVoiceAction(text) {
     appendChat({ role: "sys", text: "Not your turn — wait for the robot." });
     return;
   }
+  // Voice-decide fast path: when the user is staring at the buy modal
+  // and says "buy hotel", route head-noun → submitDecision in JS rather
+  // than asking the small VLM to extract the intent (which mis-picks
+  // ~50% of the time on "buy hotel" → buy/build). Falls through to the
+  // VLM only when no keyword matched.
+  if (fsm === "AWAIT_DECISION" && pendingDecision) {
+    const parsed = parseVoiceDecision(text);
+    if (parsed) {
+      const choice = legalizeDecisionChoice(parsed, pendingDecision);
+      appendChat({ role: "me", text });
+      appendChat({ role: "sys", text: `Voice → ${choice}` });
+      await submitDecision(choice, choice === "build" ? 1 : 0);
+      return;
+    }
+  }
+  // Pre-decision capture: user often says "buy a house" while the dice
+  // is still rolling, so AWAIT_DECISION hasn't fired yet. Cache the
+  // intent — showDecision will replay it when the modal arrives.
+  if (fsm === "TURN_START" && currentState.turn === "user") {
+    const parsed = parseVoiceDecision(text);
+    if (parsed) {
+      pendingVoiceIntent = { choice: parsed, text };
+      appendChat({ role: "me", text });
+      appendChat({ role: "sys",
+        text: `Voice cached → ${parsed} (applied when you land)` });
+      // Still trigger the roll so the turn progresses.
+      const btn = document.getElementById("btn-roll-dice");
+      if (btn && !btn.disabled) btn.click();
+      return;
+    }
+  }
   const pending = appendChat({ role: "bot", text: "Dispatching action…", pending: true });
   try {
     await vlmPlayerAct(text);
@@ -2189,6 +2649,17 @@ function setupHotkeys() {
       hotkeyStartRecording("ask");
       return;
     }
+    // V: standalone chance-card trigger. Only valid in game mode on the
+    // user's TURN_START — triggerChanceCard() enforces the gate and
+    // appends a "ignored" sys message if the press was out-of-phase.
+    if (k === HOTKEY.CHANCE) {
+      if (!isGame) return;
+      e.preventDefault();
+      maybeOpenChatOverlay();
+      triggerChanceCard("V-key").catch((err) =>
+        console.warn("[chance] V-key:", err));
+      return;
+    }
   });
   document.addEventListener("keyup", (e) => {
     const k = e.key.toLowerCase();
@@ -2207,6 +2678,19 @@ function setupHotkeys() {
 async function resetGame() {
   turnInFlight = false;
   vlmPlayerLastTurnKey = null;
+  // Force-clear the sticky game-over overlay (e.g. "🏆 Robot wins…").
+  // Without this, the win banner lingers until the next non-sticky flash
+  // arrives via WS — and on a fresh /api/game/start that race is visible.
+  const overlay = document.getElementById("game-overlay");
+  if (overlay) {
+    overlay.classList.remove("visible");
+    const slot = document.getElementById("game-overlay-text");
+    if (slot) slot.textContent = "";
+  }
+  if (gameOverlayTimer) {
+    clearTimeout(gameOverlayTimer);
+    gameOverlayTimer = null;
+  }
   const chat = chatEl();
   if (chat) chat.replaceChildren();
   // System prompt slot is separate from the vector-DB memory, but a
