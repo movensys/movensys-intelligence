@@ -3,7 +3,7 @@
 
 ### Step 1. Launch wmx-ros2 (Terminal 1)
 ```bash
-cd ~/workspaces/movensys-intelligence/doc
+cd ~/workspaces/movensys-intelligence/movensys_sample/doc
 ./run_robopoly.sh wmx-ros2
 ```
 
