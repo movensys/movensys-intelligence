@@ -99,6 +99,15 @@ MODEL_REPO = os.environ.get("HF_WHISPER_REPO", _DEFAULT_REPO)
 MODEL_DIR = os.environ.get("WHISPER_MODEL_DIR", _DEFAULT_DIR)
 DEVICE = _DEFAULT_DEVICE
 DEFAULT_LANGUAGE = os.environ.get("WHISPER_DEFAULT_LANGUAGE", "")
+# WHISPER_TASK — "transcribe" (default) keeps the source language in the
+# output. "translate" forces English output regardless of source language,
+# which is the right setting when the operator may mix languages (e.g.
+# Korean accent slipping in) but the downstream prompt path is strictly
+# English. The `language` parameter still works in translate mode — it
+# acts as a source-language hint, not an output-language selector.
+TASK = os.environ.get("WHISPER_TASK", "transcribe").strip().lower() or "transcribe"
+if TASK not in ("transcribe", "translate"):
+    raise RuntimeError(f"unknown WHISPER_TASK={TASK!r}; expected 'transcribe' or 'translate'")
 MAX_NEW_TOKENS = int(os.environ.get("WHISPER_MAX_NEW_TOKENS", "448"))
 TORCH_DTYPE = os.environ.get("WHISPER_TORCH_DTYPE", "float16")  # transformers only
 CHUNK_LENGTH_S = int(os.environ.get("WHISPER_CHUNK_LENGTH_S", "30"))  # transformers only
@@ -134,7 +143,7 @@ class _OpenVINOBackend:
     def transcribe(self, audio: np.ndarray, language: Optional[str], temperature: float) -> str:
         del temperature  # OpenVINO GenAI Whisper doesn't expose a sampling temperature knob
         config = self._pipe.get_generation_config()
-        config.task = "transcribe"
+        config.task = TASK
         config.max_new_tokens = MAX_NEW_TOKENS
         lang_token = _normalize_lang_ov(language) or _normalize_lang_ov(DEFAULT_LANGUAGE)
         if lang_token:
@@ -184,8 +193,10 @@ class _TransformersBackend:
         # transformers passes language/task through generate_kwargs to Whisper's
         # forced decoder ids. temperature=0 is the deterministic-greedy default
         # that the OpenAI client sends; we only pass it through when nonzero so
-        # we don't accidentally enable sampling on a 0.0 request.
-        generate_kwargs: dict = {"task": "transcribe"}
+        # we don't accidentally enable sampling on a 0.0 request. TASK is
+        # process-wide ("transcribe" or "translate"); see the WHISPER_TASK env
+        # var description at the top of this module.
+        generate_kwargs: dict = {"task": TASK}
         if lang:
             generate_kwargs["language"] = lang
         if temperature and temperature > 0:

@@ -35,7 +35,7 @@ sync && sudo sysctl vm.drop_caches=3
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
 COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml down
 COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml build
-COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml up -d  
+COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml up -d
 ```
 ## Step 4b: VLLM For Intel Panther Lake [Docker setup is failed]
 ```
@@ -48,26 +48,42 @@ Wait until `application startup complete` in docker logs or terminal
 
 
 ## Step 5: setup Movensys_vlm and vector DB
-```
+```bash
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
-COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml build
 COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml build
-COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml build
-COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml up -d
 COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml up -d
-COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml up -d 
+```
+
+### Option 1. w/o phoenix
+```bash
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml build
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml up -d
 ```
 
 
+### Option 2. w phoenix
+```bash
+docker run -d --rm --name phoenix \
+    -p 6006:6006 -p 4317:4317 \
+    arizephoenix/phoenix:latest
+```
 
 
+```bash
+cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
+export PHOENIX_TRACING=1
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml down
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml build
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml up -d
+```
 
+### Whispher english mode
+```bash
+cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
+COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml down
+WHISPER_DEFAULT_LANGUAGE=en COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml up -d --force-recreate
+```
 
-
-
-
-
- 
 
 # Running
 open `localhost:8000` for robot controller
@@ -187,3 +203,78 @@ vllm serve ~/models/gemma-4-E4B-it \
 The Docker assets ([Dockerfile.xpu](../docker/vllm/) and [vllm-xpu-compose.yml](../docker/vllm/vllm-xpu-compose.yml)) are kept in-tree as documentation of what we tried. Revisit them once any of: (a) a vLLM/torch-xpu-ops release with a fix lands, (b) the host moves off PREEMPT_RT, or (c) a non-multimodal model works fully in-container. Full context in [vllm-xpu-README.md](../docker/vllm/vllm-xpu-README.md).
 
 The Whisper service on this same machine is unaffected — it runs on the **NPU** (`/dev/accel/accel0`), not the iGPU, and the NPU container path works today.
+
+---
+
+# Tracing with Phoenix (troubleshooting)
+
+[Arize Phoenix](https://phoenix.arize.com) is wired into the orchestrator
+as an opt-in tool for diagnosing VLM / Whisper inference latency and
+connection failures. The orchestrator auto-instruments the OpenAI
+client and **exports spans to a standalone Phoenix server** — every
+`chat.completions.create` and `audio.transcriptions.create` call
+produces a span with model, token counts, image payload size, and
+wall-clock latency.
+
+Tracing is **off by default** — production / demo runs pay zero cost.
+
+### Enable
+
+Step 1 — run Phoenix in its own container (do this once; leave it up):
+
+```bash
+docker run -d --rm --name phoenix \
+    -p 6006:6006 -p 4317:4317 \
+    arizephoenix/phoenix:latest
+```
+
+Step 2 — flip the orchestrator flag and recreate it so it picks up the env:
+
+```bash
+cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
+export PHOENIX_TRACING=1
+# Optional; defaults to http://localhost:6006, which works as-is when
+# Phoenix is on the same host (orchestrator runs network_mode: host).
+# export PHOENIX_COLLECTOR_ENDPOINT=http://<phoenix-host>:6006
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml \
+    up -d --force-recreate
+```
+
+`--build` is not required — the Phoenix exporter packages
+(`arize-phoenix`, `openinference-instrumentation-openai`) are baked into
+the image; only the env var toggles activation.
+
+### Open the UI
+
+```
+http://<phoenix-host>:6006
+```
+
+Drive a VLM or Whisper call (roll dice, click Ask VLM, press Rec) and
+the trace appears in the **Traces** tab under the `movensys-vlm`
+project. Each row shows total wall time; clicking expands the waterfall
+with sub-spans for image upload, request, and response parsing.
+
+### What's traced and what isn't
+
+| Traced | Not traced |
+|---|---|
+| `vlm_client.infer` → `client.chat.completions.create` | GPU-side inference cost inside vLLM / Whisper server |
+| `whisper_client.transcribe` → `client.audio.transcriptions.create` | ROS topic latency for `latest_top_rgb_image` |
+| Model name, token counts, image base64 size | Browser-side `captureBoardImage` time |
+| Per-call latency end-to-end (orchestrator-side) | Memory-client (Qdrant) calls |
+
+For GPU inference time, check the vLLM / Whisper server logs separately
+(`docker logs <vllm-container>` etc.) — Phoenix sees only the HTTP
+client's view.
+
+### Disable
+
+```bash
+unset PHOENIX_TRACING
+COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml \
+    up -d --force-recreate
+```
+
+Env vars are read at process start; a plain `docker restart` is not
+enough — the container must be recreated to pick up the new value.

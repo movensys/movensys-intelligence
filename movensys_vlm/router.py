@@ -70,7 +70,13 @@ class ScalesRequest(BaseModel):
     }
 
 class VlmInferRequest(BaseModel):
-    camera: str = "top"   # "top" or "hand"
+    camera: str = "top"   # "top", "hand", or "none"
+    # Optional caller-supplied image. When provided, this overrides the
+    # camera lookup — the orchestrator does not consult ros_node at all
+    # and passes this base64 string straight to vlm_client.infer. Lets
+    # browser clients send a captured screenshot of their own UI (e.g.
+    # robopoly's rendered game board) without needing a physical camera.
+    image_b64: Optional[str] = None
     prompt: Optional[str] = None
     system_prompt: Optional[str] = None
     max_tokens: int = 128
@@ -146,6 +152,17 @@ async def ws_hand_depth(websocket: WebSocket):
 @router.websocket("/api/stream/image_hand/rgb")
 async def ws_hand_rgb(websocket: WebSocket):
     await _ws_stream(websocket, "latest_hand_rgb_image", interval=0.1)
+
+# YOLO debug overlays — consumed by the robopoly board pane while
+# pick_and_place runs. Robopoly is served on :7999 but cross-origins
+# to :8000 for ROS-fed streams (same as joint_states / eef_pose).
+@router.websocket("/api/stream/yolo_dice_detector/debug_image")
+async def ws_yolo_dice_debug(websocket: WebSocket):
+    await _ws_stream(websocket, "latest_yolo_dice_debug_image", interval=0.1)
+
+@router.websocket("/api/stream/yolo_cube_detector/debug_image")
+async def ws_yolo_cube_debug(websocket: WebSocket):
+    await _ws_stream(websocket, "latest_yolo_cube_debug_image", interval=0.1)
 
 
 # ---------------------------------------------------------------------------
@@ -357,24 +374,30 @@ async def vlm_infer(body: VlmInferRequest):
     if rn.ros_node is None:
         raise HTTPException(503, detail="ROS node not running")
 
-    if body.camera == "hand":
-        img = rn.ros_node.latest_hand_rgb_image
-    elif body.camera == "top":
-        img = rn.ros_node.latest_top_rgb_image
-    elif body.camera == "none":
-        img = None
+    # Caller-supplied image overrides the camera lookup entirely. Useful
+    # for browser clients that want the VLM to "see" their own rendered
+    # UI instead of (or in addition to) the physical workspace camera.
+    img = None
+    if body.image_b64:
+        image_b64: Optional[str] = body.image_b64
     else:
-        raise HTTPException(400, detail="camera must be 'top', 'hand', or 'none'")
-
-    image_b64: Optional[str] = None
-    if img is not None:
-        image_b64 = img["data"]
-        if body.rotate180:
-            pil_img = Image.open(io.BytesIO(base64.b64decode(image_b64)))
-            pil_img = pil_img.rotate(180)
-            buf = io.BytesIO()
-            pil_img.save(buf, format="JPEG")
-            image_b64 = base64.b64encode(buf.getvalue()).decode()
+        if body.camera == "hand":
+            img = rn.ros_node.latest_hand_rgb_image
+        elif body.camera == "top":
+            img = rn.ros_node.latest_top_rgb_image
+        elif body.camera == "none":
+            img = None
+        else:
+            raise HTTPException(400, detail="camera must be 'top', 'hand', or 'none'")
+        image_b64 = None
+        if img is not None:
+            image_b64 = img["data"]
+    if image_b64 is not None and body.rotate180:
+        pil_img = Image.open(io.BytesIO(base64.b64decode(image_b64)))
+        pil_img = pil_img.rotate(180)
+        buf = io.BytesIO()
+        pil_img.save(buf, format="JPEG")
+        image_b64 = base64.b64encode(buf.getvalue()).decode()
 
     user_prompt = body.prompt or "Report the tokens on the board."
 

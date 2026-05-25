@@ -47,6 +47,10 @@ All robot motion ultimately goes through the orchestrator — the
 - `POST /api/game/load_state` — reads `saved_status.yaml` and replaces
   state.
 - `GET /api/game/next_prompt` — M1 stub hint string.
+- `GET /api/game/rules` — returns `doc/game_logic.md` verbatim as
+  `text/markdown`. Used by the VLM-player agent loop to seed the
+  system prompt with the authoritative spec on every page load
+  (see `vlm_as_player.md` §3).
 
 ### Dice / move
 
@@ -101,9 +105,18 @@ bypass robopoly's backend and hit the orchestrator directly.
 
 ### VLM inference
 
-- `POST /api/vlm/infer` — fired by the **Ask** button. Body includes
-  `client: "robopoly"` so the orchestrator reads the per-client system
-  prompt slot. On the orchestrator side this call triggers:
+- `POST /api/vlm/infer` — fired by the **Ask** button and by the
+  VLM-player agent loop. Body includes `client: "robopoly"` so the
+  orchestrator reads the per-client system prompt slot.
+  Image source (one of):
+  - `image_b64: "<base64-jpeg>"` (+ `camera: "none"`) — caller-supplied
+    image; the orchestrator skips ROS lookup entirely. The agent loop
+    sends a screenshot of the on-screen GAME BOARD block via this
+    path (see `vlm_as_player.md` §2.3).
+  - `camera: "top" | "hand"` — orchestrator grabs the latest ROS RGB
+    frame and uses that.
+  - `camera: "none"` (no `image_b64`) — text-only inference.
+  On the orchestrator side this call triggers:
   - `memory_client.recall(prompt)` → TEI embedder `:9020` + Qdrant `:6333`
     (search for related past Q&A pairs to inject into the system prompt).
   - vLLM `:9000` — actual chat completion.

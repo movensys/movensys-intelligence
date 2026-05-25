@@ -18,10 +18,16 @@ RUN if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then \
 # subscribe to /image_{top,hand}/* and encode RGB/depth as JPEG for the
 # browser WS proxy (§11.5). sensor_msgs is already in ros-base; we add
 # opencv (brings numpy as a dep) and std_msgs is already pulled in.
+# YOLO overlay: adapters/ros_image.py spins an rclpy subscriber for
+# /yolo_{dice,cube}_detector/debug_image so the board pane can swap to a
+# camera view during pick_and_place. ros-base ships the C/C++ ROS
+# layer; rclpy + sensor-msgs Python bindings are pulled in explicitly.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     python3-opencv \
     ros-${ROS_DISTRO}-rmw-cyclonedds-cpp \
+    ros-${ROS_DISTRO}-rclpy \
+    ros-${ROS_DISTRO}-sensor-msgs \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -37,6 +43,7 @@ COPY *.py ./
 COPY adapters/ ./adapters/
 COPY game/ ./game/
 COPY static/ ./static/
+COPY doc/ ./doc/
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

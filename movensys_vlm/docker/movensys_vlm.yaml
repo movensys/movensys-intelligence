@@ -34,6 +34,16 @@ x-common-env: &common-env
   MEMORY_VECTOR_SIZE: ${MEMORY_VECTOR_SIZE}
   MEMORY_TOP_K: ${MEMORY_TOP_K}
   MEMORY_TIMEOUT: ${MEMORY_TIMEOUT}
+  # Phoenix tracing. Off by default; set PHOENIX_TRACING=1 in .env or
+  # the shell to enable. The orchestrator exports OpenAI-client spans
+  # to a standalone Phoenix server — run it separately, e.g.
+  #   docker run -d --rm -p 6006:6006 -p 4317:4317 arizephoenix/phoenix:latest
+  # and point PHOENIX_COLLECTOR_ENDPOINT at it. With network_mode=host
+  # the default http://localhost:6006 works out of the box. UI lives at
+  # http://<phoenix-host>:6006. See doc/running.md for usage.
+  PHOENIX_TRACING: ${PHOENIX_TRACING:-}
+  PHOENIX_COLLECTOR_ENDPOINT: ${PHOENIX_COLLECTOR_ENDPOINT:-}
+  PHOENIX_PROJECT_NAME: ${PHOENIX_PROJECT_NAME:-}
 
 services:
   movensys_vlm-nvidia:
