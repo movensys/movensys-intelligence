@@ -366,6 +366,63 @@ def set_scales(body: ScalesRequest):
 
 
 # ---------------------------------------------------------------------------
+# Isaac Sim — object teleport sync
+# ---------------------------------------------------------------------------
+
+class IsaacSpawnTargetRequest(BaseModel):
+    # "dice", "red_cube", or "green_cube" — maps to /{dice,red,green}_pose_sub.
+    target: str
+    # Optional explicit pose. When omitted, the orchestrator falls back to
+    # the latest EEF pose with the apriltag axis swap
+    # (x_iso = -y_base, y_iso = x_base) so the Isaac frame matches the
+    # manipulator base frame.
+    pose: Optional[dict] = None
+    # Override z when the pose is derived from EEF. EEF z is the gripper
+    # height (well above the table during a pick), so a fixed table-relative
+    # z gives a more useful spawn point. Mirrors `z_target_pose_spawn` in
+    # apriltag_pick_and_place.cpp (yaml default 0.07).
+    z: Optional[float] = None
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {"target": "dice", "z": 0.07}
+        }
+    }
+
+
+@router.post("/api/isaac/spawn_target")
+def isaac_spawn_target(body: IsaacSpawnTargetRequest):
+    """Publish a Pose to /{dice,red,green}_pose_sub so Isaac Sim teleports
+    the matching object. Called by movensys_robopoly's `pick_and_place.py`
+    immediately before the gripper closes on a pickup, so the simulated
+    counterpart of the dice / cube ends up under the simulated gripper —
+    same pattern as `apriltag_pick_and_place.cpp`'s target_spawn block.
+    """
+    if rn.ros_node is None:
+        raise HTTPException(503, detail="ROS node not running")
+    if body.pose is not None:
+        pose = body.pose
+    else:
+        eef = rn.ros_node.latest_eef_pose
+        if eef is None:
+            raise HTTPException(503, detail="No EEF pose received yet")
+        ep, eo = eef["position"], eef["orientation"]
+        pose = {
+            "position": {
+                "x": -float(ep["y"]),
+                "y":  float(ep["x"]),
+                "z":  float(body.z) if body.z is not None else float(ep["z"]),
+            },
+            "orientation": dict(eo),
+        }
+    try:
+        topic = rn.ros_node.publish_isaac_target_pose(body.target, pose)
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc))
+    return {"target": body.target, "topic": topic, "pose": pose}
+
+
+# ---------------------------------------------------------------------------
 # VLM inference
 # ---------------------------------------------------------------------------
 

@@ -136,6 +136,16 @@ class ManipulatorNode(Node):
         self.create_subscription(sensor_msgs.msg.Image,            "/yolo_dice_detector/debug_image", self._cb_yolo_dice_debug, 1, callback_group=cb)
         self.create_subscription(sensor_msgs.msg.Image,            "/yolo_cube_detector/debug_image", self._cb_yolo_cube_debug, 1, callback_group=cb)
 
+        # Isaac Sim object-teleport publishers. Robopoly's pick_and_place
+        # subprocess hits /api/isaac/spawn_target during a pickup so the
+        # simulated counterpart of the dice / cube lands under the
+        # simulated gripper. Mirrors apriltag_pick_and_place.cpp's
+        # `target_spawn` block — one publisher per object.
+        self._isaac_pubs = {
+            target: self.create_publisher(geometry_msgs.msg.Pose, topic, 10)
+            for target, topic in self.ISAAC_TARGETS.items()
+        }
+
         self.cli_get_eef_pose   = self.create_client(GetEefPose,           "/wmx/moveit2/get_eef_pose",                     callback_group=cb)
         self.cli_gripper        = self.create_client(std_srvs.srv.SetBool, "/wmx/set_gripper",                              callback_group=cb)
         self.cli_abs_base_cart  = self.create_client(MovePose,             "/wmx/moveit2/absolute_base_eef_cartesian",      callback_group=cb)
@@ -236,6 +246,36 @@ class ManipulatorNode(Node):
     _TF_PARENT = "world_manipulator"
     _TF_CHILD  = "camera_top_color_optical_frame"
     _YOLO_FRAMES = {"yolo_cube_red", "yolo_cube_green", "dice"}
+
+    # Maps the pick_and_place.py target name to the Isaac Sim teleport topic.
+    ISAAC_TARGETS = {
+        "dice":       "/dice_pose_sub",
+        "red_cube":   "/red_pose_sub",
+        "green_cube": "/green_pose_sub",
+    }
+
+    def publish_isaac_target_pose(self, target: str, pose: dict) -> str:
+        """Publish a `geometry_msgs/Pose` to the per-target Isaac-Sim topic
+        so the simulated dice / cube teleports to `pose`. Returns the topic
+        name. Mirrors `apriltag_pick_and_place.cpp` (target_spawn block).
+        """
+        pub = self._isaac_pubs.get(target)
+        if pub is None:
+            raise ValueError(
+                f"unknown target {target!r}; expected one of {list(self.ISAAC_TARGETS)}"
+            )
+        msg = geometry_msgs.msg.Pose()
+        p = pose["position"]
+        o = pose["orientation"]
+        msg.position.x = float(p["x"])
+        msg.position.y = float(p["y"])
+        msg.position.z = float(p["z"])
+        msg.orientation.x = float(o["x"])
+        msg.orientation.y = float(o["y"])
+        msg.orientation.z = float(o["z"])
+        msg.orientation.w = float(o["w"])
+        pub.publish(msg)
+        return self.ISAAC_TARGETS[target]
 
     def _cb_tf_static(self, msg: tf2_msgs.msg.TFMessage):
         for t in msg.transforms:
