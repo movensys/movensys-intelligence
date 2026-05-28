@@ -17,7 +17,7 @@ from typing import Any, Literal
 import httpx
 import yaml
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 ws_log = logging.getLogger("monopoly.ws")
@@ -218,7 +218,6 @@ async def game_rules() -> "PlainTextResponse":
     """Return the authoritative game spec as raw markdown. Used by the
     VLM-player agent loop to seed the system prompt with the rules at
     boot (see doc/vlm_as_player.md §3)."""
-    from fastapi.responses import PlainTextResponse
     if not _RULES_PATH.exists():
         raise HTTPException(
             status_code=404,
@@ -935,21 +934,21 @@ async def stream_game(ws: WebSocket) -> None:
 @api_router.websocket("/stream/board")
 async def stream_board(ws: WebSocket) -> None:
     await _stream_events(ws, "board", {"move_applied", "lap_completed", "fsm_transition",
-                                        "game_started", "game_won"})
+                                       "game_started", "game_won"})
 
 
 @api_router.websocket("/stream/money")
 async def stream_money(ws: WebSocket) -> None:
     await _stream_events(ws, "money", {"effect_applied", "property_bought",
-                                        "property_built", "tier_sold",
-                                        "tile_rent_paid", "tile_tax_paid",
-                                        "tile_rent_bankruptcy", "tile_tax_bankruptcy"})
+                                       "property_built", "tier_sold",
+                                       "tile_rent_paid", "tile_tax_paid",
+                                       "tile_rent_bankruptcy", "tile_tax_bankruptcy"})
 
 
 @api_router.websocket("/stream/properties")
 async def stream_properties(ws: WebSocket) -> None:
     await _stream_events(ws, "properties", {"property_bought", "property_built",
-                                             "tier_sold"})
+                                            "tier_sold"})
 
 
 # ---- YOLO debug image streams ---------------------------------------------
@@ -1001,8 +1000,8 @@ async def stream_image_hand_rgb(ws: WebSocket) -> None:
 def _http_kwargs(exc: RuleError) -> dict[str, Any]:
     """FastAPI's HTTPException flow cooperates with our error envelope middleware."""
     status = 409 if exc.code in ("TILE_MISMATCH", "INVALID_STATE", "PROPERTY_OWNED",
-                                  "NOT_OWNER", "INSUFFICIENT_FUNDS",
-                                  "JAIL_EXIT_UNAVAILABLE") else 400
+                                 "NOT_OWNER", "INSUFFICIENT_FUNDS",
+                                 "JAIL_EXIT_UNAVAILABLE") else 400
     if exc.code == "NOT_FOUND":
         status = 404
     return {"status_code": status, "detail": {"code": exc.code, "message": str(exc), "details": exc.details}}

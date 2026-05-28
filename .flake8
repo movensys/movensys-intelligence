@@ -14,3 +14,5 @@ exclude =
     movensys_vlm/models,
     movensys_sample/movensys_vlm,
     movensys_sample/.venv
+per-file-ignores =
+    movensys_sample/movensys_robopoly/tests/game/test_rules_m2.py:F821,F841

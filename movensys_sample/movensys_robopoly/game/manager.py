@@ -14,10 +14,9 @@ from typing import Any
 from game import rules
 from game.boards import load_board
 from game.decks import Deck, load_chance, load_community_chest
-from game.effects import EffectError, apply_effect
+from game.effects import apply_effect
 from game.events import EventBus
 from game.properties import all_cards as _all_cards
-from game.properties import property_id as _property_id
 from game.state import FSM, GameState, Player, RuntimeConfig
 
 log = logging.getLogger("monopoly.game")
@@ -291,4 +290,3 @@ class GameManager:
             "fsm_transition",
             {"from": prev.value, "to": nxt.value, "trigger": trigger},
         )
-
