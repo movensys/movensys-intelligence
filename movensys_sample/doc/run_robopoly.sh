@@ -21,6 +21,87 @@ case "$MODE" in
 esac
 
 # ============================================================================
+# BUILD MODE: 3-phase sequence mirrors movensys_vlm/doc/running.md
+#   Phase A — DOWN everything first
+#       Step 1: down movensys_vlm + vectordb + whisper
+#       Step 2: down vllm
+#       (+ manipulator + robopoly — local additions outside running.md)
+#   Phase B — DROP CACHES (Step 3)
+#   Phase C — BUILD + UP sequentially
+#       Step 4: vllm   (4a nvidia/Thor/B60, 4b Intel Panther Lake)
+#       Step 5: vectordb + phoenix + movensys_vlm
+#       Step 6: whisper (en, --force-recreate)
+#       (+ manipulator + robopoly)
+# ============================================================================
+if [[ "$MODE" == "build_nvidia" || "$MODE" == "build_intel" ]]; then
+  # ----- Phase A: DOWN everything ------------------------------------------
+  echo "==> [Phase A] down all containers"
+
+  echo "all of docker down"
+  cd "${MOVENSYS_MANIPULATOR_PACKAGES}/docker"
+  docker compose -f "${MOVENSYS_ROS_VERSION}.yaml" \
+                 -f "movensys_manipulator.${CPU_ARCH}.yaml" down
+
+  cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
+  COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml down
+  COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml down
+  COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml down
+  COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml down
+
+  cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker
+  docker compose down
+  
+  # ----- Phase B: DROP CACHES ----------------------------------------------
+  echo "==> [Phase B] release memory caches"
+  sync && sudo sysctl vm.drop_caches=3
+
+  # ----- Phase C: BUILD + UP sequentially ----------------------------------
+  echo "==> [Phase C] build + up sequentially"
+
+  cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
+  if [[ "$MODE" == "build_nvidia" ]]; then
+    echo "  -- Step 4a: vllm build + up (Nvidia/Thor/B60)"
+    COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml build
+    COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml up -d
+  else
+    echo "  -- Step 4b: vllm build + run (Intel Panther Lake)"
+    ./vllm-intel-build.sh
+    ./vllm-intel-run.sh
+  fi
+
+  echo "  -- Step 5: vectordb build + up"
+  COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml build
+  COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml up -d
+
+  echo "  -- Step 6: phoenix + movensys_vlm build + up"
+  docker rm -f phoenix 2>/dev/null || true
+  docker run -d --rm --name phoenix -p 6006:6006 -p 4317:4317 arizephoenix/phoenix:latest
+  export PHOENIX_TRACING=1
+  COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml build
+  COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml up -d --force-recreate
+
+  echo "  -- Step 7: whisper build + up (en, --force-recreate)"
+  COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml build
+  WHISPER_DEFAULT_LANGUAGE=en COMPOSE_PROFILES=$XPU_CORE \
+    docker compose -f whisper.yaml up -d --force-recreate
+
+  echo "  -- Step 8: movensys-manipulator build + up"
+  cd "${MOVENSYS_MANIPULATOR_PACKAGES}/docker"
+  docker compose -f "${MOVENSYS_ROS_VERSION}.yaml" \
+                 -f "movensys_manipulator.${CPU_ARCH}.yaml" build
+  docker compose -f "${MOVENSYS_ROS_VERSION}.yaml" \
+                 -f "movensys_manipulator.${CPU_ARCH}.yaml" up -d
+
+  echo "  -- Step 9: robopoly build + up"
+  cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker
+  docker compose build
+  docker compose up -d
+
+  echo "==> [build] done"
+  exit 0
+fi
+
+# ============================================================================
 # WMX-ROS2 MODE: foreground manipulator driver, owns its own terminal + sudo
 # ============================================================================
 if [[ "$MODE" == "wmx-ros2" ]]; then
@@ -41,84 +122,9 @@ if [[ "$MODE" == "wmx-ros2" ]]; then
 fi
 
 # ============================================================================
-# BUILD MODE: rebuild docker images; also bring up the persistent containers
-# ============================================================================
-if [[ "$MODE" == "build_nvidia" ]]; then
-  echo "==> [build & run] manipulator container"
-  cd "${MOVENSYS_MANIPULATOR_PACKAGES}/docker"
-  docker compose -f "${MOVENSYS_ROS_VERSION}.yaml" -f "movensys_manipulator.${CPU_ARCH}.yaml" down
-  docker compose -f "${MOVENSYS_ROS_VERSION}.yaml" -f "movensys_manipulator.${CPU_ARCH}.yaml" build
-  docker compose -f "${MOVENSYS_ROS_VERSION}.yaml" -f "movensys_manipulator.${CPU_ARCH}.yaml" up -d
-
-  echo "==> [build & run] vllm"
-  cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
-  sync && sudo sysctl vm.drop_caches=3
-  COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml down
-  COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml build
-  COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml up -d
-
-  echo "==> [build] vectordb"
-  COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml down
-  COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml build
-
-  echo "==> [build] phoenix + movensys_vlm"
-  docker rm -f phoenix 2>/dev/null || true
-  docker run -d --rm --name phoenix -p 6006:6006 -p 4317:4317 arizephoenix/phoenix:latest
-  COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml down
-  COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml build
-
-  echo "==> [build] whisper"
-  COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml down
-  COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml build
-
-  echo "==> [build] robopoly"
-  cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker
-  docker compose down
-  docker compose build
-
-  echo "==> [build] done"
-  exit 0
-fi
-
-if [[ "$MODE" == "build_intel" ]]; then
-  echo "==> [build & run] manipulator container"
-  cd "${MOVENSYS_MANIPULATOR_PACKAGES}/docker"
-  docker compose -f "${MOVENSYS_ROS_VERSION}.yaml" -f "movensys_manipulator.${CPU_ARCH}.yaml" down
-  docker compose -f "${MOVENSYS_ROS_VERSION}.yaml" -f "movensys_manipulator.${CPU_ARCH}.yaml" build
-  docker compose -f "${MOVENSYS_ROS_VERSION}.yaml" -f "movensys_manipulator.${CPU_ARCH}.yaml" up -d
-
-  echo "==> [build & run] vllm"
-  cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
-  sync && sudo sysctl vm.drop_caches=3
-  ./vllm-intel-build.sh
-  ./vllm-intel-run.sh
-
-  echo "==> [build] vectordb"
-  COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml down
-  COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml build
-
-  echo "==> [build] phoenix + movensys_vlm"
-  docker rm -f phoenix 2>/dev/null || true
-  docker run -d --rm --name phoenix -p 6006:6006 -p 4317:4317 arizephoenix/phoenix:latest
-  COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml down
-  COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml build
-
-  echo "==> [build] whisper"
-  COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml down
-  COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml build
-
-  echo "==> [build] robopoly"
-  cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker
-  docker compose down
-  docker compose build
-
-  echo "==> [build] done"
-  exit 0
-fi
-
-# ============================================================================
 # RUN MODE: bring runtime containers up + launch ROS nodes in a tmux session.
 # ============================================================================
+
 SESSION=robopoly
 
 # Wipe any prior session so re-runs start clean
@@ -131,25 +137,7 @@ mros ros2 launch movensys_manipulator_moveit_config moveit.launch.py use_sim_tim
 " Enter
 sleep 3
 
-# --- Window 2: VLM / vectordb / whisper / robopoly stacks ------------
-tmux new-window -t "$SESSION" -n containers
-tmux send-keys -t "$SESSION:containers" "\
-cd ~/workspaces/movensys-intelligence/movensys_vlm/docker \
-&& COMPOSE_PROFILES=\$XPU_CORE docker compose -f vllm.yaml     up -d \
-&& COMPOSE_PROFILES=\$CPU_ARCH docker compose -f vectordb.yaml up -d \
-&& PHOENIX_TRACING=1 COMPOSE_PROFILES=\$XPU_CORE docker compose -f movensys_vlm.yaml up -d \
-&& cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker \
-&& MOVENSYS_PNP_DRY_RUN=0 docker compose up -d
-" Enter
-sleep 3
-
-tmux send-keys -t "$SESSION:containers" "\
-cd ~/workspaces/movensys-intelligence/movensys_vlm/docker \
-&& WHISPER_DEFAULT_LANGUAGE=en COMPOSE_PROFILES=\$XPU_CORE docker compose -f whisper.yaml up -d\
-" Enter
-sleep 3
-
-# --- Window 3: YOLO cube detection -------------------------------------------
+# --- Window 2: YOLO cube detection -------------------------------------------
 tmux new-window -t "$SESSION" -n yolo
 tmux send-keys -t "$SESSION:yolo" "\
 mros ros2 launch movensys_manipulator_perception yolo_dice_and_cube_detector.launch.py \
