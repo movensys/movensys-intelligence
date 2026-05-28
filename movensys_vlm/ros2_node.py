@@ -15,7 +15,7 @@ import std_msgs.msg
 import std_srvs.srv
 import tf2_msgs.msg
 from rcl_interfaces.srv import SetParameters, GetParameters
-from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
+from rcl_interfaces.msg import Parameter, ParameterType
 from movensys_manipulator_moveit_config.srv import GetEefPose, MovePose, MoveJoints
 from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy
 
@@ -112,29 +112,29 @@ class ManipulatorNode(Node):
             reliability=QoSReliabilityPolicy.RELIABLE,
         )
 
-        self.create_subscription(geometry_msgs.msg.PoseStamped,   "/wmx/moveit2/eef_pose", self._cb_eef_pose,      10, callback_group=cb)
-        self.create_subscription(geometry_msgs.msg.Vector3Stamped, "/wmx/moveit2/eef_rpy",  self._cb_eef_rpy,       10, callback_group=cb)
-        self.create_subscription(sensor_msgs.msg.JointState,       "/joint_states",          self._cb_joint_states,  10, callback_group=cb)
-        self.create_subscription(sensor_msgs.msg.CameraInfo,       "/image_top/camera_info",  self._cb_camera_info,       10, callback_group=cb)
-        self.create_subscription(sensor_msgs.msg.Image,            "/image_top/depth",        self._cb_depth,              1, callback_group=cb)
-        self.create_subscription(sensor_msgs.msg.Image,            "/image_top/rgb",          self._cb_rgb,                1, callback_group=cb)
-        self.create_subscription(sensor_msgs.msg.CameraInfo,       "/image_hand/camera_info", self._cb_hand_camera_info,  10, callback_group=cb)
-        self.create_subscription(sensor_msgs.msg.Image,            "/image_hand/depth",       self._cb_hand_depth,         1, callback_group=cb)
-        self.create_subscription(sensor_msgs.msg.Image,            "/image_hand/rgb",         self._cb_hand_rgb,           1, callback_group=cb)
-        self.create_subscription(tf2_msgs.msg.TFMessage,           "/tf_static",              self._cb_tf_static,          _transient_local, callback_group=cb)
-        self.create_subscription(tf2_msgs.msg.TFMessage,           "/tf",                     self._cb_tf,                10, callback_group=cb)
-        self.create_subscription(geometry_msgs.msg.Pose,           "/board",                  self._cb_board_pose,        10, callback_group=cb)
-        self.create_subscription(geometry_msgs.msg.Pose,           "/piece_1",                self._cb_piece_1_pose,      10, callback_group=cb)
-        self.create_subscription(geometry_msgs.msg.Pose,           "/piece_2",                self._cb_piece_2_pose,      10, callback_group=cb)
-        self.create_subscription(geometry_msgs.msg.Pose,           "/dice",                self._cb_dice_pose,      10, callback_group=cb)
-        self.create_subscription(std_msgs.msg.Int32,               "/yolo_dice_detector/dice_number", self._cb_dice_number, 10, callback_group=cb)
+        self.create_subscription(geometry_msgs.msg.PoseStamped, "/wmx/moveit2/eef_pose", self._cb_eef_pose, 10, callback_group=cb)
+        self.create_subscription(geometry_msgs.msg.Vector3Stamped, "/wmx/moveit2/eef_rpy", self._cb_eef_rpy, 10, callback_group=cb)
+        self.create_subscription(sensor_msgs.msg.JointState, "/joint_states", self._cb_joint_states, 10, callback_group=cb)
+        self.create_subscription(sensor_msgs.msg.CameraInfo, "/image_top/camera_info", self._cb_camera_info, 10, callback_group=cb)
+        self.create_subscription(sensor_msgs.msg.Image, "/image_top/depth", self._cb_depth, 1, callback_group=cb)
+        self.create_subscription(sensor_msgs.msg.Image, "/image_top/rgb", self._cb_rgb, 1, callback_group=cb)
+        self.create_subscription(sensor_msgs.msg.CameraInfo, "/image_hand/camera_info", self._cb_hand_camera_info, 10, callback_group=cb)
+        self.create_subscription(sensor_msgs.msg.Image, "/image_hand/depth", self._cb_hand_depth, 1, callback_group=cb)
+        self.create_subscription(sensor_msgs.msg.Image, "/image_hand/rgb", self._cb_hand_rgb, 1, callback_group=cb)
+        self.create_subscription(tf2_msgs.msg.TFMessage, "/tf_static", self._cb_tf_static, _transient_local, callback_group=cb)
+        self.create_subscription(tf2_msgs.msg.TFMessage, "/tf", self._cb_tf, 10, callback_group=cb)
+        self.create_subscription(geometry_msgs.msg.Pose, "/board", self._cb_board_pose, 10, callback_group=cb)
+        self.create_subscription(geometry_msgs.msg.Pose, "/piece_1", self._cb_piece_1_pose, 10, callback_group=cb)
+        self.create_subscription(geometry_msgs.msg.Pose, "/piece_2", self._cb_piece_2_pose, 10, callback_group=cb)
+        self.create_subscription(geometry_msgs.msg.Pose, "/dice", self._cb_dice_pose, 10, callback_group=cb)
+        self.create_subscription(std_msgs.msg.Int32, "/yolo_dice_detector/dice_number", self._cb_dice_number, 10, callback_group=cb)
         # YOLO debug overlays — robopoly's board pane swaps to these
         # frames while pick_and_place runs (dice scan / cube tracking).
         # The subscription lives here next to the other image topics so
         # robopoly stays a thin HTTP/WS consumer of :8000 and doesn't
         # need its own rclpy stack.
-        self.create_subscription(sensor_msgs.msg.Image,            "/yolo_dice_detector/debug_image", self._cb_yolo_dice_debug, 1, callback_group=cb)
-        self.create_subscription(sensor_msgs.msg.Image,            "/yolo_cube_detector/debug_image", self._cb_yolo_cube_debug, 1, callback_group=cb)
+        self.create_subscription(sensor_msgs.msg.Image, "/yolo_dice_detector/debug_image", self._cb_yolo_dice_debug, 1, callback_group=cb)
+        self.create_subscription(sensor_msgs.msg.Image, "/yolo_cube_detector/debug_image", self._cb_yolo_cube_debug, 1, callback_group=cb)
 
         # Isaac Sim object-teleport publishers. Robopoly's pick_and_place
         # subprocess hits /api/isaac/spawn_target during a pickup so the
@@ -146,21 +146,21 @@ class ManipulatorNode(Node):
             for target, topic in self.ISAAC_TARGETS.items()
         }
 
-        self.cli_get_eef_pose   = self.create_client(GetEefPose,           "/wmx/moveit2/get_eef_pose",                     callback_group=cb)
-        self.cli_gripper        = self.create_client(std_srvs.srv.SetBool, "/wmx/set_gripper",                              callback_group=cb)
-        self.cli_abs_base_cart  = self.create_client(MovePose,             "/wmx/moveit2/absolute_base_eef_cartesian",      callback_group=cb)
-        self.cli_rel_base_cart  = self.create_client(MovePose,             "/wmx/moveit2/relative_base_eef_cartesian",      callback_group=cb)
-        self.cli_rel_tool_cart  = self.create_client(MovePose,             "/wmx/moveit2/relative_tool_eef_cartesian",      callback_group=cb)
-        self.cli_abs_base_joint = self.create_client(MovePose,             "/wmx/moveit2/absolute_base_eef_joint_movement", callback_group=cb)
-        self.cli_joint_abs      = self.create_client(MoveJoints,           "/wmx/moveit2/joint_movement",                   callback_group=cb)
-        self.cli_joint_rel      = self.create_client(MoveJoints,           "/wmx/moveit2/relative_joint_movement",          callback_group=cb)
-        self.cli_set_params     = self.create_client(SetParameters,        "/trajectory_api/set_parameters",              callback_group=cb)
-        self.cli_get_params     = self.create_client(GetParameters,        "/trajectory_api/get_parameters",              callback_group=cb)
+        self.cli_get_eef_pose = self.create_client(GetEefPose, "/wmx/moveit2/get_eef_pose", callback_group=cb)
+        self.cli_gripper = self.create_client(std_srvs.srv.SetBool, "/wmx/set_gripper", callback_group=cb)
+        self.cli_abs_base_cart = self.create_client(MovePose, "/wmx/moveit2/absolute_base_eef_cartesian", callback_group=cb)
+        self.cli_rel_base_cart = self.create_client(MovePose, "/wmx/moveit2/relative_base_eef_cartesian", callback_group=cb)
+        self.cli_rel_tool_cart = self.create_client(MovePose, "/wmx/moveit2/relative_tool_eef_cartesian", callback_group=cb)
+        self.cli_abs_base_joint = self.create_client(MovePose, "/wmx/moveit2/absolute_base_eef_joint_movement", callback_group=cb)
+        self.cli_joint_abs = self.create_client(MoveJoints, "/wmx/moveit2/joint_movement", callback_group=cb)
+        self.cli_joint_rel = self.create_client(MoveJoints, "/wmx/moveit2/relative_joint_movement", callback_group=cb)
+        self.cli_set_params = self.create_client(SetParameters, "/trajectory_api/set_parameters", callback_group=cb)
+        self.cli_get_params = self.create_client(GetParameters, "/trajectory_api/get_parameters", callback_group=cb)
 
     def _cb_eef_pose(self, msg: geometry_msgs.msg.PoseStamped):
         p, o = msg.pose.position, msg.pose.orientation
         self.latest_eef_pose = {
-            "position":    {"x": p.x, "y": p.y, "z": p.z},
+            "position": {"x": p.x, "y": p.y, "z": p.z},
             "orientation": {"x": o.x, "y": o.y, "z": o.z, "w": o.w},
         }
 
@@ -170,23 +170,23 @@ class ManipulatorNode(Node):
 
     def _cb_joint_states(self, msg: sensor_msgs.msg.JointState):
         self.latest_joint_states = {
-            "name":     list(msg.name),
+            "name": list(msg.name),
             "position": list(msg.position),
             "velocity": list(msg.velocity),
-            "effort":   list(msg.effort),
+            "effort": list(msg.effort),
         }
 
     def _cb_camera_info(self, msg: sensor_msgs.msg.CameraInfo):
         self.latest_top_camera_info = {
-            "width":             msg.width,
-            "height":            msg.height,
-            "distortion_model":  msg.distortion_model,
-            "k":                 list(msg.k),
-            "d":                 list(msg.d),
-            "r":                 list(msg.r),
-            "p":                 list(msg.p),
-            "binning_x":         msg.binning_x,
-            "binning_y":         msg.binning_y,
+            "width": msg.width,
+            "height": msg.height,
+            "distortion_model": msg.distortion_model,
+            "k": list(msg.k),
+            "d": list(msg.d),
+            "r": list(msg.r),
+            "p": list(msg.p),
+            "binning_x": msg.binning_x,
+            "binning_y": msg.binning_y,
         }
 
     def _cb_depth(self, msg: sensor_msgs.msg.Image):
@@ -197,15 +197,15 @@ class ManipulatorNode(Node):
 
     def _cb_hand_camera_info(self, msg: sensor_msgs.msg.CameraInfo):
         self.latest_hand_camera_info = {
-            "width":             msg.width,
-            "height":            msg.height,
-            "distortion_model":  msg.distortion_model,
-            "k":                 list(msg.k),
-            "d":                 list(msg.d),
-            "r":                 list(msg.r),
-            "p":                 list(msg.p),
-            "binning_x":         msg.binning_x,
-            "binning_y":         msg.binning_y,
+            "width": msg.width,
+            "height": msg.height,
+            "distortion_model": msg.distortion_model,
+            "k": list(msg.k),
+            "d": list(msg.d),
+            "r": list(msg.r),
+            "p": list(msg.p),
+            "binning_x": msg.binning_x,
+            "binning_y": msg.binning_y,
         }
 
     def _cb_hand_depth(self, msg: sensor_msgs.msg.Image):
@@ -218,7 +218,7 @@ class ManipulatorNode(Node):
     def _pose_to_dict(msg: geometry_msgs.msg.Pose) -> dict:
         p, o = msg.position, msg.orientation
         return {
-            "position":    {"x": p.x, "y": p.y, "z": p.z},
+            "position": {"x": p.x, "y": p.y, "z": p.z},
             "orientation": {"x": o.x, "y": o.y, "z": o.z, "w": o.w},
         }
 
@@ -244,13 +244,13 @@ class ManipulatorNode(Node):
         self.latest_yolo_cube_debug_image = _encode_color_image(msg)
 
     _TF_PARENT = "world_manipulator"
-    _TF_CHILD  = "camera_top_color_optical_frame"
+    _TF_CHILD = "camera_top_color_optical_frame"
     _YOLO_FRAMES = {"yolo_cube_red", "yolo_cube_green", "dice"}
 
     # Maps the pick_and_place.py target name to the Isaac Sim teleport topic.
     ISAAC_TARGETS = {
-        "dice":       "/dice_pose_sub",
-        "red_cube":   "/red_pose_sub",
+        "dice": "/dice_pose_sub",
+        "red_cube": "/red_pose_sub",
         "green_cube": "/green_pose_sub",
     }
 
@@ -285,9 +285,9 @@ class ManipulatorNode(Node):
             ro = t.transform.rotation
             self.latest_tf_static = {
                 "parent_frame": t.header.frame_id,
-                "child_frame":  t.child_frame_id,
-                "translation":  {"x": tr.x, "y": tr.y, "z": tr.z},
-                "rotation":     {"x": ro.x, "y": ro.y, "z": ro.z, "w": ro.w},
+                "child_frame": t.child_frame_id,
+                "translation": {"x": tr.x, "y": tr.y, "z": tr.z},
+                "rotation": {"x": ro.x, "y": ro.y, "z": ro.z, "w": ro.w},
             }
             break
 
@@ -302,10 +302,10 @@ class ManipulatorNode(Node):
             # "received at" is for time-checking at client.
             self.latest_yolo_tf[t.child_frame_id] = {
                 "parent_frame": t.header.frame_id,
-                "child_frame":  t.child_frame_id,
-                "received_at":  time.time(),
-                "translation":  {"x": tr.x, "y": tr.y, "z": tr.z},
-                "rotation":     {"x": ro.x, "y": ro.y, "z": ro.z, "w": ro.w},
+                "child_frame": t.child_frame_id,
+                "received_at": time.time(),
+                "translation": {"x": tr.x, "y": tr.y, "z": tr.z},
+                "rotation": {"x": ro.x, "y": ro.y, "z": ro.z, "w": ro.w},
             }
 
 

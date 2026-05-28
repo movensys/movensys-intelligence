@@ -4,7 +4,9 @@ extend-ignore =
     E203,
     E501,
     W503,
-    E402
+    E402,
+    # B008: false positive on FastAPI's Depends()/File()/Query()/Form() defaults
+    B008
 exclude =
     .git,
     __pycache__,
