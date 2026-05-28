@@ -1,0 +1,16 @@
+[flake8]
+max-line-length = 100
+extend-ignore =
+    E203,
+    E501,
+    W503,
+    E402
+exclude =
+    .git,
+    __pycache__,
+    .venv,
+    build,
+    dist,
+    movensys_vlm/models,
+    movensys_sample/movensys_vlm,
+    movensys_sample/.venv
