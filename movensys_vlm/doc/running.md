@@ -90,7 +90,8 @@ COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml up -d
 ```
 cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
 COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml down
-WHISPER_DEFAULT_LANGUAGE=en COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml up -d --force-recreate
+WHISPER_DEFAULT_LANGUAGE=en COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml build
+WHISPER_DEFAULT_LANGUAGE=en COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml up -d
 ```
 
 

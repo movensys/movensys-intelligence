@@ -312,6 +312,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   object-fit: contain;
   border-radius: 4px;
   background: #000;
+  transform: rotate(180deg);
 }
 .board-coords {
   font-family: "JetBrains Mono", ui-monospace, monospace;
