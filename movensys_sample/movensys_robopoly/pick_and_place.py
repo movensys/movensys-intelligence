@@ -25,7 +25,7 @@ board_positions = {
         "red_cube": {
             "pos": [-0.38640, -0.09043, 0.3],
             "ori": [3.14, 0.0, -1.57],
-            "sim_pos": [-0.38615, -0.09402,0.3]
+            "sim_pos": [-0.38615, -0.09402, 0.3]
         },
         "green_cube": {
             "pos": [-0.32625, -0.09051, 0.3],
@@ -244,34 +244,81 @@ _GRIPPER_SETTLE_S = 0.6
 def move_base():
     absolute_joint_pose([0.0, 0.0, 0.5], [3.141, 0.0, -3.141])
 
+
 # 6 motion movements
 def absolute_cartesian_base(pos, ori):
     return _post("/api/move/absolute_cartesian_base", {"pos": pos, "ori": ori})
 
+
 def relative_cartesian_base(pos, ori):
     return _post("/api/move/relative_cartesian_base", {"pos": pos, "ori": ori})
+
 
 def relative_cartesian_tool(pos, ori):
     return _post("/api/move/relative_cartesian_tool", {"pos": pos, "ori": ori})
 
+
 def absolute_joint_pose(pos, ori):
     return _post("/api/move/absolute_joint_pose", {"pos": pos, "ori": ori})
+
 
 def joint_absolute(names, values):
     return _post("/api/move/joint_absolute", {"joint_names": names, "joint_values": values})
 
+
 def joint_relative(names, values):
     return _post("/api/move/joint_relative", {"joint_names": names, "joint_values": values})
+
 
 # 3 assistance functions
 def gripper(close: bool):
     return _post("/api/services/gripper", {"data": close})
 
+
 def get_eef_pose():
     return _get("/api/services/get_eef_pose")
 
+
 def set_scales(vel, acc):
     return _post("/api/config/scales", {"vel_scale": vel, "acc_scale": acc})
+
+
+# Isaac-Sim spawn z. Mirrors `z_target_pose_spawn` in
+# apriltag_pick_and_place.cpp's yaml (0.07 = table-relative). EEF z would
+# be at gripper height — too high for the object's actual rest pose.
+_ISAAC_SPAWN_Z = 0.07
+
+
+def _publish_isaac_target_pose(target_object: str, z: float = _ISAAC_SPAWN_Z) -> None:
+    """Teleport the Isaac-Sim counterpart of `target_object` to where the
+    real arm is, so the simulated object stays in lockstep through the
+    pickup. Matches apriltag_pick_and_place.cpp's target_spawn block —
+    one POST per pickup, fired just before the gripper closes. No-op in
+    DRY_RUN; logs and continues on HTTP errors so a misconfigured Isaac
+    never breaks a real-world pick."""
+    if DRY_RUN:
+        return
+    try:
+        resp = requests.post(
+            f"{URL}/api/isaac/spawn_target",
+            json={"target": target_object, "z": z},
+            timeout=5.0,
+        )
+        if resp.ok:
+            body = resp.json()
+            logger.info(
+                "[isaac] spawn_target %s -> %s @ %s",
+                target_object, body.get("topic"),
+                body.get("pose", {}).get("position"),
+            )
+        else:
+            logger.warning(
+                "[isaac] spawn_target %s failed: %s %s",
+                target_object, resp.status_code, resp.text[:200],
+            )
+    except Exception as exc:
+        logger.warning("[isaac] spawn_target %s error: %s", target_object, exc)
+
 
 class PnP:
     _BIN_CENTERS = (0.0, -math.pi / 2, -math.pi, math.pi / 2)
@@ -292,13 +339,12 @@ class PnP:
             self.TARGET_STR = ("yolo_cube_red", "yolo_cube_green", "dice")
         else:
             self.TARGET_STR = ("piece_2", "piece_1", "dice")
-        
+
         # This offset is dependent for cube size.
         self.YOLO_dice_offset_x: float = 0.015  # [m]
         self.YOLO_dice_offset_y: float = -0.075  # [m]
         self.YOLO_piece_offset_x: float = 0.011  # [m]
-        self.YOLO_piece_offset_y: float = -0.08 # [m]
-        
+        self.YOLO_piece_offset_y: float = -0.08  # [m]
 
         self.pos: Optional[dict] = None
         self.ori: Optional[dict] = None
@@ -326,7 +372,11 @@ class PnP:
             absolute_cartesian_base([-0.18, 0.035, 0.52], [3.141, 0.0, -3.141])
 
     @_timed_method("toward_target")
-    def _toward_target(self, target_object: str = "dice", target_pos: list = [0.0, 0.0, 0.0], target_ori: list = [0.0, 0.0, 0.0]):
+    def _toward_target(self, target_object: str = "dice", target_pos: list = None, target_ori: list = None):
+        if target_pos is None:
+            target_pos = [0.0, 0.0, 0.0]
+        if target_ori is None:
+            target_ori = [0.0, 0.0, 0.0]
         if target_object == "dice":
             if self.is_YOLO:
                 relative_cartesian_tool(target_pos, target_ori)
@@ -334,7 +384,7 @@ class PnP:
                 absolute_cartesian_base(target_pos, target_ori)
 
             # Go down
-            relative_cartesian_tool([0.0,0.0,0.01], [0.0,0.0,0.0])
+            relative_cartesian_tool([0.0, 0.0, 0.01], [0.0, 0.0, 0.0])
         else:
             # Go upside of the piece
             if self.is_YOLO:
@@ -344,13 +394,13 @@ class PnP:
                 absolute_cartesian_base(target_pos, target_ori)
 
             # Go down
-            relative_cartesian_tool([0.0,0.0,0.025], [0.0,0.0,0.0])
+            relative_cartesian_tool([0.0, 0.0, 0.025], [0.0, 0.0, 0.0])
 
     @_timed_method("dest_move")
     def _dest_move(self, target_object: str = "dice", board_pos: str = "GO"):
         if target_object == "dice":
             # Go up
-            relative_cartesian_tool([0.0,0.0,-0.1], [0.0,0.0,0.0])
+            relative_cartesian_tool([0.0, 0.0, -0.1], [0.0, 0.0, 0.0])
 
             # place — release the dice and stamp the drop instant so main()
             # can wait for a post-roll YOLO detection.
@@ -366,7 +416,7 @@ class PnP:
             self._init_move("dice")
         else:
             # Go up
-            relative_cartesian_tool([0.0,0.0,-0.050], [0.0,0.0,0.0])
+            relative_cartesian_tool([0.0, 0.0, -0.050], [0.0, 0.0, 0.0])
 
             # Go upper side of target pos.
             if self.is_YOLO:
@@ -377,14 +427,14 @@ class PnP:
             absolute_cartesian_base(target_pos, board_positions[board_pos][target_object]["ori"])
 
             # Go down
-            relative_cartesian_tool([0.0,0.0,0.055], [0.0,0.0,0.0])
+            relative_cartesian_tool([0.0, 0.0, 0.055], [0.0, 0.0, 0.0])
 
             # place
             gripper(close=False)
             _sleep(_GRIPPER_SETTLE_S)
 
             # Go up and prepare to go init pos
-            relative_cartesian_tool([0.0,0.0,-0.06], [0.0,0.0,0.0])
+            relative_cartesian_tool([0.0, 0.0, -0.06], [0.0, 0.0, 0.0])
 
     @_timed_method("get_piece_info")
     def get_piece_info(self, min_received_at: Optional[float] = None) -> bool:
@@ -439,7 +489,7 @@ class PnP:
 
         self.yaw = round(self._quaternion_to_yaw(self.ori["w"], self.ori["x"], self.ori["y"], self.ori["z"]), 5)
         return True
-    
+
     @staticmethod
     def _checking_yaw(yaw: float) -> int:
         if -math.pi / 4 <= yaw < math.pi / 4:
@@ -458,10 +508,10 @@ class PnP:
         self.yaw = (self.yaw + delta + math.pi) % (2 * math.pi) - math.pi
 
     _SEARCH_OFFSETS = (
-        ("front", ( 0.05,  0.0)),
+        ("front", (0.05,  0.0)),
         ("back",  (-0.05,  0.0)),
-        ("right", ( 0.0,  -0.05)),
-        ("left",  ( 0.0,   0.05)),
+        ("right", (0.0,  -0.05)),
+        ("left",  (0.0,   0.05)),
     )
     _SEARCH_SETTLE_S = 2.5
 
@@ -501,7 +551,7 @@ class PnP:
         gripper(close=False)
         _sleep(_GRIPPER_SETTLE_S)
         # move to initial position
-        
+
         # For YOLO, we need to set offset
         if self.is_YOLO:
             if self.target_object == "dice":
@@ -547,8 +597,14 @@ class PnP:
                 target_pos = [self.pos['y'], -self.pos['x'], 0.3]
             target_ori = [-3.14, 0.0, self.yaw]
             logger.info(f"{self.target_object}: x={self.pos['y']}, y={-self.pos['x']}, z={self.pos['z']}, yaw={self.yaw}")
-        
+
         self._toward_target(self.target_object, target_pos, target_ori)
+
+        # Sync Isaac Sim: teleport the simulated counterpart of this object
+        # to the current EEF pose (axis-swapped on the orchestrator side) so
+        # a simulated arm grabs it in lockstep with the real one. Mirrors
+        # apriltag_pick_and_place.cpp's `target_spawn` step.
+        _publish_isaac_target_pose(self.target_object)
 
         # grasp
         gripper(close=True)
@@ -556,9 +612,6 @@ class PnP:
 
         # move to destination
         self._dest_move(self.target_object, board_pos)
-
-
-
 
 
 # After the dice is released we wait this long for it to physically stop
@@ -833,6 +886,7 @@ def main():
             print("YOLO_DETECTED", flush=True)
             print(f"DICE_NUMBER={value}", flush=True)
             logger.info("Sampled dice number: %s", value)
+
 
 if __name__ == "__main__":
     main()

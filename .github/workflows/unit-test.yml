@@ -1,0 +1,101 @@
+name: Unit Tests
+
+on:
+  pull_request:
+    branches: [main, devel]
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  robopoly:
+    name: pytest movensys_robopoly (${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            python-version: '3.10'
+          - os: ubuntu-24.04
+            python-version: '3.12'
+
+    # Stub-mode invariant: external service URLs unset so adapters use stubs.
+    env:
+      STT_SERVICE_URL: ''
+      LLM_SERVICE_URL: ''
+      ROBOT_SERVICE_URL: ''
+
+    defaults:
+      run:
+        working-directory: movensys_sample/movensys_robopoly
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            python -m pip install -r requirements.txt
+          fi
+          python -m pip install pytest pytest-asyncio httpx
+
+      - name: Python syntax check
+        run: |
+          find . -type f -name '*.py' \
+            -not -path './.venv/*' \
+            -not -path './build/*' \
+            -not -path './__pycache__/*' \
+            -print0 | xargs -0 -n1 python -m py_compile
+
+      - name: pytest
+        run: |
+          # Exit code 5 = "no tests collected" is acceptable (all tests may be
+          # marked stale and skipped at module level).
+          rc=0
+          python -m pytest -v tests/ --maxfail=10 || rc=$?
+          if [ "$rc" != "0" ] && [ "$rc" != "5" ]; then
+            exit "$rc"
+          fi
+
+  vlm-syntax:
+    name: Python syntax check movensys_vlm (${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            python-version: '3.10'
+          - os: ubuntu-24.04
+            python-version: '3.12'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install fastapi 'uvicorn[standard]' pydantic 'openai>=1.30.0' Pillow
+
+      - name: py_compile movensys_vlm Python files
+        run: |
+          for f in main.py router.py ros2_node.py memory_client.py vlm_client.py whisper_client.py whisper_server.py; do
+            if [ -f "movensys_vlm/$f" ]; then
+              echo "=== $f ==="
+              python -m py_compile "movensys_vlm/$f"
+              echo "  OK"
+            fi
+          done

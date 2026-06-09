@@ -61,6 +61,7 @@ class SafeStaticFiles(StaticFiles):
             return
         await super().__call__(scope, receive, send)
 
+
 app = FastAPI(
     title="Movensys Manipulator API",
     version="2.0.0",

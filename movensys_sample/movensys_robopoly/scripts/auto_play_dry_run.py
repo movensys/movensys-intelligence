@@ -662,7 +662,7 @@ def main() -> int:
         run_start = time.perf_counter()
         outcome: dict[str, Any] = {"run": run_i, "seed": per_run_seed}
         try:
-            for turn_i in range(args.max_turns):
+            for _turn_i in range(args.max_turns):
                 cont = play_one_turn(client, rng, vlm_base=vlm_base)
                 if not cont:
                     state = client.get("/api/game/state")

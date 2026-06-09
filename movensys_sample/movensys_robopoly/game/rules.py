@@ -76,9 +76,13 @@ class RuleError(ValueError):
     """Raised when a request violates game rules. Mapped to 409 by the API."""
 
     def __init__(self, code: str, message: str, details: dict | None = None) -> None:
-        super().__init__(message)
+        super().__init__(code, message, details)
         self.code = code
+        self.message = message
         self.details = details or {}
+
+    def __str__(self) -> str:
+        return self.message
 
 
 # ---- helpers ---------------------------------------------------------------

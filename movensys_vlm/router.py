@@ -37,6 +37,7 @@ class MovePoseRequest(BaseModel):
         }
     }
 
+
 class MoveJointsRequest(BaseModel):
     joint_names: List[str]
     joint_values: List[float]
@@ -50,6 +51,7 @@ class MoveJointsRequest(BaseModel):
         }
     }
 
+
 class GripperRequest(BaseModel):
     data: bool
 
@@ -58,6 +60,7 @@ class GripperRequest(BaseModel):
             "example": {"data": True}
         }
     }
+
 
 class ScalesRequest(BaseModel):
     vel_scale: float
@@ -68,6 +71,7 @@ class ScalesRequest(BaseModel):
             "example": {"vel_scale": 0.5, "acc_scale": 0.5}
         }
     }
+
 
 class VlmInferRequest(BaseModel):
     camera: str = "top"   # "top", "hand", or "none"
@@ -113,41 +117,51 @@ async def _ws_stream(websocket: WebSocket, attr: str, interval: float = 0.1):
     except WebSocketDisconnect:
         pass
 
+
 @router.websocket("/api/stream/eef_pose")
 async def ws_eef_pose(websocket: WebSocket):
     await _ws_stream(websocket, "latest_eef_pose")
+
 
 @router.websocket("/api/stream/eef_rpy")
 async def ws_eef_rpy(websocket: WebSocket):
     await _ws_stream(websocket, "latest_eef_rpy")
 
+
 @router.websocket("/api/stream/joint_states")
 async def ws_joint_states(websocket: WebSocket):
     await _ws_stream(websocket, "latest_joint_states")
+
 
 @router.websocket("/api/stream/tf_static")
 async def ws_tf_static(websocket: WebSocket):
     await _ws_stream(websocket, "latest_tf_static", interval=1.0)
 
+
 @router.websocket("/api/stream/image_top/camera_info")
 async def ws_camera_info(websocket: WebSocket):
     await _ws_stream(websocket, "latest_top_camera_info")
+
 
 @router.websocket("/api/stream/image_top/depth")
 async def ws_depth(websocket: WebSocket):
     await _ws_stream(websocket, "latest_top_depth_image", interval=0.1)
 
+
 @router.websocket("/api/stream/image_top/rgb")
 async def ws_rgb(websocket: WebSocket):
     await _ws_stream(websocket, "latest_top_rgb_image", interval=0.1)
+
 
 @router.websocket("/api/stream/image_hand/camera_info")
 async def ws_hand_camera_info(websocket: WebSocket):
     await _ws_stream(websocket, "latest_hand_camera_info")
 
+
 @router.websocket("/api/stream/image_hand/depth")
 async def ws_hand_depth(websocket: WebSocket):
     await _ws_stream(websocket, "latest_hand_depth_image", interval=0.1)
+
 
 @router.websocket("/api/stream/image_hand/rgb")
 async def ws_hand_rgb(websocket: WebSocket):
@@ -156,9 +170,12 @@ async def ws_hand_rgb(websocket: WebSocket):
 # YOLO debug overlays — consumed by the robopoly board pane while
 # pick_and_place runs. Robopoly is served on :7999 but cross-origins
 # to :8000 for ROS-fed streams (same as joint_states / eef_pose).
+
+
 @router.websocket("/api/stream/yolo_dice_detector/debug_image")
 async def ws_yolo_dice_debug(websocket: WebSocket):
     await _ws_stream(websocket, "latest_yolo_dice_debug_image", interval=0.1)
+
 
 @router.websocket("/api/stream/yolo_cube_detector/debug_image")
 async def ws_yolo_cube_debug(websocket: WebSocket):
@@ -178,8 +195,10 @@ def get_tf_static():
         raise HTTPException(503, detail="No tf_static received yet")
     return data
 
-# Yolo result is published at /tf side. 
+# Yolo result is published at /tf side.
 # User can check the result using `ros2 topic echo /tf`
+
+
 @router.get("/api/topics/yolo_tf")
 def get_yolo_tf():
     # node가 없을 때.
@@ -191,7 +210,9 @@ def get_yolo_tf():
         raise HTTPException(503, detail="No yolo /tf frames received yet")
     return data
 
-# Subscribing green-cube position from IsaacSim 
+# Subscribing green-cube position from IsaacSim
+
+
 @router.get("/api/topics/piece_1")
 def get_piece_1_pose():
     if rn.ros_node is None:
@@ -201,7 +222,9 @@ def get_piece_1_pose():
         raise HTTPException(503, detail="No /piece_1 pose received yet")
     return data
 
-# Subscribing red-cube position from IsaacSim 
+# Subscribing red-cube position from IsaacSim
+
+
 @router.get("/api/topics/piece_2")
 def get_piece_2_pose():
     if rn.ros_node is None:
@@ -212,8 +235,10 @@ def get_piece_2_pose():
     return data
 
 # Subscribing dice position from IsaacSim
+
+
 @router.get("/api/topics/dice")
-def get_piece_2_pose():
+def get_dice_pose():
     if rn.ros_node is None:
         raise HTTPException(503, detail="ROS node not running")
     data = rn.ros_node.latest_dice_pose
@@ -222,6 +247,8 @@ def get_piece_2_pose():
     return data
 
 # YOLO-detected dice face value, published on /yolo_dice_detector/dice_number
+
+
 @router.get("/api/topics/dice_number")
 def get_dice_number():
     if rn.ros_node is None:
@@ -230,6 +257,7 @@ def get_dice_number():
     if data is None:
         raise HTTPException(503, detail="No dice number received yet")
     return data
+
 
 @router.get("/api/topics/image_top/camera_info")
 def get_camera_info():
@@ -240,6 +268,7 @@ def get_camera_info():
         raise HTTPException(503, detail="No camera_info received yet")
     return data
 
+
 @router.get("/api/topics/image_top/depth")
 def get_depth_image():
     if rn.ros_node is None:
@@ -248,6 +277,7 @@ def get_depth_image():
     if data is None:
         raise HTTPException(503, detail="No depth image received yet")
     return data
+
 
 @router.get("/api/topics/image_top/rgb")
 def get_rgb_image():
@@ -258,6 +288,7 @@ def get_rgb_image():
         raise HTTPException(503, detail="No RGB image received yet")
     return data
 
+
 @router.get("/api/topics/image_hand/camera_info")
 def get_hand_camera_info():
     if rn.ros_node is None:
@@ -267,6 +298,7 @@ def get_hand_camera_info():
         raise HTTPException(503, detail="No hand camera_info received yet")
     return data
 
+
 @router.get("/api/topics/image_hand/depth")
 def get_hand_depth_image():
     if rn.ros_node is None:
@@ -275,6 +307,7 @@ def get_hand_depth_image():
     if data is None:
         raise HTTPException(503, detail="No hand depth image received yet")
     return data
+
 
 @router.get("/api/topics/image_hand/rgb")
 def get_hand_rgb_image():
@@ -295,6 +328,7 @@ def svc_get_eef_pose():
     resp = rn.call_service(rn.ros_node.cli_get_eef_pose, GetEefPose.Request())
     return {"success": resp.success, "message": resp.message, "pos": list(resp.pos), "rpy": list(resp.rpy)}
 
+
 @router.post("/api/services/gripper")
 def svc_gripper(body: GripperRequest):
     resp = rn.call_service(rn.ros_node.cli_gripper, std_srvs.srv.SetBool.Request(data=body.data))
@@ -314,6 +348,7 @@ def _move_pose(client, body: MovePoseRequest, timeout: int = 60) -> dict:
     resp = rn.call_service(client, req, timeout=timeout)
     return {"success": resp.success, "message": resp.message}
 
+
 def _move_joints(client, body: MoveJointsRequest, timeout: int = 60) -> dict:
     if len(body.joint_names) != len(body.joint_values):
         raise HTTPException(400, detail="joint_names and joint_values must have the same length")
@@ -323,25 +358,31 @@ def _move_joints(client, body: MoveJointsRequest, timeout: int = 60) -> dict:
     resp = rn.call_service(client, req, timeout=timeout)
     return {"success": resp.success, "message": resp.message}
 
+
 @router.post("/api/move/absolute_cartesian_base")
 def absolute_cartesian_base(body: MovePoseRequest):
     return _move_pose(rn.ros_node.cli_abs_base_cart, body)
+
 
 @router.post("/api/move/relative_cartesian_base")
 def relative_cartesian_base(body: MovePoseRequest):
     return _move_pose(rn.ros_node.cli_rel_base_cart, body)
 
+
 @router.post("/api/move/relative_cartesian_tool")
 def relative_cartesian_tool(body: MovePoseRequest):
     return _move_pose(rn.ros_node.cli_rel_tool_cart, body)
+
 
 @router.post("/api/move/absolute_joint_pose")
 def absolute_joint_pose(body: MovePoseRequest):
     return _move_pose(rn.ros_node.cli_abs_base_joint, body)
 
+
 @router.post("/api/move/joint_absolute")
 def joint_absolute(body: MoveJointsRequest):
     return _move_joints(rn.ros_node.cli_joint_abs, body)
+
 
 @router.post("/api/move/joint_relative")
 def joint_relative(body: MoveJointsRequest):
@@ -356,6 +397,7 @@ def joint_relative(body: MoveJointsRequest):
 def get_scales():
     return rn.get_scales()
 
+
 @router.post("/api/config/scales")
 def set_scales(body: ScalesRequest):
     if not (0.0 < body.vel_scale <= 1.0):
@@ -363,6 +405,63 @@ def set_scales(body: ScalesRequest):
     if not (0.0 < body.acc_scale <= 1.0):
         raise HTTPException(400, detail="acc_scale must be in (0, 1]")
     return rn.set_scales(body.vel_scale, body.acc_scale)
+
+
+# ---------------------------------------------------------------------------
+# Isaac Sim — object teleport sync
+# ---------------------------------------------------------------------------
+
+class IsaacSpawnTargetRequest(BaseModel):
+    # "dice", "red_cube", or "green_cube" — maps to /{dice,red,green}_pose_sub.
+    target: str
+    # Optional explicit pose. When omitted, the orchestrator falls back to
+    # the latest EEF pose with the apriltag axis swap
+    # (x_iso = -y_base, y_iso = x_base) so the Isaac frame matches the
+    # manipulator base frame.
+    pose: Optional[dict] = None
+    # Override z when the pose is derived from EEF. EEF z is the gripper
+    # height (well above the table during a pick), so a fixed table-relative
+    # z gives a more useful spawn point. Mirrors `z_target_pose_spawn` in
+    # apriltag_pick_and_place.cpp (yaml default 0.07).
+    z: Optional[float] = None
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {"target": "dice", "z": 0.07}
+        }
+    }
+
+
+@router.post("/api/isaac/spawn_target")
+def isaac_spawn_target(body: IsaacSpawnTargetRequest):
+    """Publish a Pose to /{dice,red,green}_pose_sub so Isaac Sim teleports
+    the matching object. Called by movensys_robopoly's `pick_and_place.py`
+    immediately before the gripper closes on a pickup, so the simulated
+    counterpart of the dice / cube ends up under the simulated gripper —
+    same pattern as `apriltag_pick_and_place.cpp`'s target_spawn block.
+    """
+    if rn.ros_node is None:
+        raise HTTPException(503, detail="ROS node not running")
+    if body.pose is not None:
+        pose = body.pose
+    else:
+        eef = rn.ros_node.latest_eef_pose
+        if eef is None:
+            raise HTTPException(503, detail="No EEF pose received yet")
+        ep, eo = eef["position"], eef["orientation"]
+        pose = {
+            "position": {
+                "x": -float(ep["y"]),
+                "y": float(ep["x"]),
+                "z": float(body.z) if body.z is not None else float(ep["z"]),
+            },
+            "orientation": dict(eo),
+        }
+    try:
+        topic = rn.ros_node.publish_isaac_target_pose(body.target, pose)
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc))
+    return {"target": body.target, "topic": topic, "pose": pose}
 
 
 # ---------------------------------------------------------------------------

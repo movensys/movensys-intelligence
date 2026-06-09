@@ -17,8 +17,12 @@ from game.state import GameState, Player
 
 class EffectError(ValueError):
     def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
+        super().__init__(code, message)
         self.code = code
+        self.message = message
+
+    def __str__(self) -> str:
+        return self.message
 
 
 # ---- individual effects ----------------------------------------------------
@@ -193,7 +197,7 @@ def apply_effect(
             )
         if etype == "move_relative":
             return move_relative(state, board, player,
-                                  delta=int(_require(effect, "delta")))
+                                 delta=int(_require(effect, "delta")))
         if etype == "move_to_nearest":
             return move_to_nearest(
                 state, board, player,
