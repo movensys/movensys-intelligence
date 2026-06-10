@@ -3,19 +3,21 @@ set -e
 
 MODE=${1:-}
 case "$MODE" in
-  wmx-ros2|build_nvidia|build_intel|run) ;;
+  wmx-ros2|build_nvidia|build_intel_vllm|build_intel|run) ;;
   *)
-    echo "Usage: $0 {wmx-ros2|build_nvidia|build_intel|run}" >&2
+    echo "Usage: $0 {wmx-ros2|build_nvidia|build_intel_vllm|build_intel|run}" >&2
     echo "  wmx-ros2                       Launch the wmx-ros2 manipulator driver (foreground, prompts for sudo)" >&2
     echo "  build_nvidia                   Rebuild docker images and start persistent containers (NVIDIA GPU)" >&2
-    echo "  build_intel                    Rebuild docker images and start persistent containers (Intel GPU)" >&2
+    echo "  build_intel_vllm               Down all + drop caches + build/run vllm only (Intel GPU)" >&2
+    echo "  build_intel                    Build remaining services: vectordb, vlm, whisper, manipulator, robopoly (Intel GPU)" >&2
     echo "  run                            Start runtime containers + ROS launches in a tmux session" >&2
     echo "" >&2
     echo "Recommended order (each in its own terminal):" >&2
     echo "  Terminal 1:  $0 wmx-ros2" >&2
-    echo "  Terminal 2:  $0 build_nvidia  (NVIDIA GPU, only when code/images change)" >&2
-    echo "  Terminal 2:  $0 build_intel   (Intel GPU,  only when code/images change)" >&2
-    echo "  Terminal 2:  $0 run" >&2
+    echo "  Terminal 2:  $0 build_nvidia       (NVIDIA GPU, only when code/images change)" >&2
+    echo "  Terminal 2:  $0 build_intel_vllm   (Intel GPU,  only when code/images change)" >&2
+    echo "  Terminal 2:  $0 build_intel        (Intel GPU,  after build_intel_vllm)" >&2
+    echo "  Terminal 3:  $0 run" >&2
     exit 1
     ;;
 esac
@@ -32,9 +34,15 @@ esac
 #       Step 5: vectordb + phoenix + movensys_vlm
 #       Step 6: whisper (en, --force-recreate)
 #       (+ manipulator + robopoly)
+#
+# Modes:
+#   build_nvidia        Phase A + B + C (Step 4a vllm, then Steps 5-9)
+#   build_intel_vllm    Phase A + B + C (Step 4b vllm only)
+#   build_intel         Steps 5-9 only (run after build_intel_vllm)
 # ============================================================================
-if [[ "$MODE" == "build_nvidia" || "$MODE" == "build_intel" ]]; then
-  # ----- Phase A: DOWN everything ------------------------------------------
+
+# ----- Phase A: DOWN everything --------------------------------------------
+_build_down() {
   echo "==> [Phase A] down all containers"
 
   echo "all of docker down"
@@ -50,24 +58,17 @@ if [[ "$MODE" == "build_nvidia" || "$MODE" == "build_intel" ]]; then
 
   cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker
   docker compose down
-  
-  # ----- Phase B: DROP CACHES ----------------------------------------------
+}
+
+# ----- Phase B: DROP CACHES ------------------------------------------------
+_build_drop_caches() {
   echo "==> [Phase B] release memory caches"
   sync && sudo sysctl vm.drop_caches=3
+}
 
-  # ----- Phase C: BUILD + UP sequentially ----------------------------------
-  echo "==> [Phase C] build + up sequentially"
-
+# ----- Phase C, Steps 5-9: remaining services build + up -------------------
+_build_services() {
   cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
-  if [[ "$MODE" == "build_nvidia" ]]; then
-    echo "  -- Step 4a: vllm build + up (Nvidia/Thor/B60)"
-    COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml build
-    COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml up -d
-  else
-    echo "  -- Step 4b: vllm build + run (Intel Panther Lake)"
-    ./vllm-intel-build.sh
-    ./vllm-intel-run.sh
-  fi
 
   echo "  -- Step 5: vectordb build + up"
   COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml build
@@ -93,9 +94,45 @@ if [[ "$MODE" == "build_nvidia" || "$MODE" == "build_intel" ]]; then
                  -f "movensys_manipulator.${CPU_ARCH}.yaml" up -d
 
   echo "  -- Step 9: robopoly build + up"
+  export MOVENSYS_PNP_DRY_RUN=0
   cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker
   docker compose build
   docker compose up -d
+}
+
+if [[ "$MODE" == "build_nvidia" ]]; then
+  _build_down
+  _build_drop_caches
+
+  # ----- Phase C: BUILD + UP sequentially ----------------------------------
+  echo "==> [Phase C] build + up sequentially"
+  cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
+  echo "  -- Step 4a: vllm build + up (Nvidia/Thor/B60)"
+  COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml build
+  COMPOSE_PROFILES=$XPU_CORE docker compose -f vllm.yaml up -d
+
+  _build_services
+
+  echo "==> [build] done"
+  exit 0
+fi
+
+if [[ "$MODE" == "build_intel_vllm" ]]; then
+  _build_down
+  _build_drop_caches
+
+  # ----- Phase C: vllm only ------------------------------------------------
+  echo "==> [Phase C] vllm build + up"
+  cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
+  echo "  -- Step 4b: vllm build + run (Intel Panther Lake)"
+  ./vllm-intel-build.sh
+  ./vllm-intel-run.sh
+fi
+
+if [[ "$MODE" == "build_intel" ]]; then
+  # Steps 5-9 only — run after build_intel_vllm has brought vllm up.
+  echo "==> [build_intel] build + up remaining services"
+  _build_services
 
   echo "==> [build] done"
   exit 0
