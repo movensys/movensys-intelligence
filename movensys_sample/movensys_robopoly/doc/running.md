@@ -91,10 +91,16 @@ The flag is **off by default** — the compose file exposes it as a pass-through
 so just `export` it in the same shell that runs `docker compose`:
 
 ```bash
-export MOVENSYS_PNP_DRY_RUN=1
+export MOVENSYS_PNP_DRY_RUN=0
 cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker
 docker compose down
-docker compose up
+docker compose build
+docker compose up -d
+```
+
+```bash
+amixer -c 1 cset numid=4 40
+alsamixer # hardare/driver layer
 ```
 
 Or as a one-off, inline:
