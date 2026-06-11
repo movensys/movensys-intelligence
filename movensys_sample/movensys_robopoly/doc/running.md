@@ -91,7 +91,7 @@ The flag is **off by default** — the compose file exposes it as a pass-through
 so just `export` it in the same shell that runs `docker compose`:
 
 ```bash
-export MOVENSYS_PNP_DRY_RUN=0
+export MOVENSYS_PNP_DRY_RUN=1
 cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker
 docker compose down
 docker compose build
