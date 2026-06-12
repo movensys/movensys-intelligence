@@ -2,7 +2,7 @@
 ## 1. Execution Procedure
 
 ### Step 1: Launch wmx-ros2 (Terminal 1)
-```
+```bash
 cd ~/workspaces/movensys-intelligence/movensys_sample/doc
 ./run_robopoly.sh wmx-ros2
 ```
@@ -11,21 +11,29 @@ cd ~/workspaces/movensys-intelligence/movensys_sample/doc
 
 
 ### Step 2a: Build containers on Nvidia env (Terminal 2)
-```
+```bash
 ./run_robopoly.sh build_nvidia
 ```
 
-### Step 2b: Build containers on Intel env (Terminal 2)
+### Step 2b-1: Build vllm containers on Intel env (Terminal 2)
+```bash
+./run_robopoly.sh build_intel_vllm
 ```
+
+### Step 2b-2: Build other containers (Terminal 3)
+```bash
 ./run_robopoly.sh build_intel
 ```
 
 
-
-
-
 ### Step 3. Run moveit, containers, yolo (Terminal 3)
+- Make sure whether the build process is done.
+```bash
+docker logs -f movensys_manipulator_container
 ```
+
+- Run the demo
+```bash
 ./run_robopoly.sh run
 ```
 
