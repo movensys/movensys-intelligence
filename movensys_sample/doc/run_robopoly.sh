@@ -70,30 +70,24 @@ _build_drop_caches() {
 _build_services() {
   cd ~/workspaces/movensys-intelligence/movensys_vlm/docker
 
-  echo "  -- Step 5: vectordb build + up"
-  COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml build
-  COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml up -d
-
-  echo "  -- Step 6: phoenix + movensys_vlm build + up"
-  docker rm -f phoenix 2>/dev/null || true
-  docker run -d --rm --name phoenix -p 6006:6006 -p 4317:4317 arizephoenix/phoenix:latest
-  export PHOENIX_TRACING=1
+  echo "  -- Step 5: movensys_vlm build + up"
+  export PHOENIX_TRACING=0
   COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml build
   COMPOSE_PROFILES=$XPU_CORE docker compose -f movensys_vlm.yaml up -d --force-recreate
 
-  echo "  -- Step 7: whisper build + up (en, --force-recreate)"
+  echo "  -- Step 6: whisper build + up (en, --force-recreate)"
   COMPOSE_PROFILES=$XPU_CORE docker compose -f whisper.yaml build
   WHISPER_DEFAULT_LANGUAGE=en COMPOSE_PROFILES=$XPU_CORE \
     docker compose -f whisper.yaml up -d --force-recreate
 
-  echo "  -- Step 8: movensys-manipulator build + up"
+  echo "  -- Step 7: movensys-manipulator build + up"
   cd "${MOVENSYS_MANIPULATOR_PACKAGES}/docker"
   docker compose -f "${MOVENSYS_ROS_VERSION}.yaml" \
                  -f "movensys_manipulator.${CPU_ARCH}.yaml" build
   docker compose -f "${MOVENSYS_ROS_VERSION}.yaml" \
                  -f "movensys_manipulator.${CPU_ARCH}.yaml" up -d
 
-  echo "  -- Step 9: robopoly build + up"
+  echo "  -- Step 8: robopoly build + up"
   export MOVENSYS_PNP_DRY_RUN=0
   cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker
   docker compose build
