@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Movensys Manipulator Control</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    min-height: 100vh;
+  }
+
+  header {
+    background: #1e293b;
+    border-bottom: 1px solid #334155;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  header h1 { font-size: 1.2rem; font-weight: 600; color: #f8fafc; }
+  header .badge {
+    font-size: 0.72rem;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #0f172a;
+    color: #94a3b8;
+    border: 1px solid #334155;
+  }
+  #health-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #334155;
+    transition: background 0.3s;
+    margin-left: auto;
+  }
+  #health-dot.ok   { background: #22c55e; }
+  #health-dot.err  { background: #ef4444; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    grid-template-rows: auto 1fr;
+    gap: 0;
+    height: calc(100vh - 53px);
+  }
+
+  /* ---- Left panel: live telemetry ---- */
+  .telemetry {
+    grid-row: 1 / 3;
+    border-right: 1px solid #1e293b;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+  }
+  .card-header {
+    padding: 10px 14px;
+    background: #162032;
+    border-bottom: 1px solid #334155;
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .card-header .stream-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #475569;
+    transition: background 0.3s;
+  }
+  .card-header .stream-dot.live { background: #22c55e; animation: pulse 1.5s infinite; }
+  @keyframes pulse {
+    0%,100% { opacity: 1; } 50% { opacity: 0.4; }
+  }
+  .card-body { padding: 12px 14px; font-size: 0.82rem; }
+
+  .kv-row { display: flex; justify-content: space-between; padding: 3px 0; }
+  .kv-row .k { color: #64748b; }
+  .kv-row .v { font-family: 'Courier New', monospace; color: #7dd3fc; }
+
+  /* ---- Right panel: controls ---- */
+  .controls {
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+  .tab-btn {
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid #334155;
+    background: #1e293b;
+    color: #94a3b8;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: all 0.15s;
+  }
+  .tab-btn:hover { background: #273449; color: #e2e8f0; }
+  .tab-btn.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .form-group { margin-bottom: 12px; }
+  label { display: block; font-size: 0.78rem; color: #94a3b8; margin-bottom: 5px; }
+  input[type=number], input[type=text] {
+    width: 100%;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 7px 10px;
+    color: #e2e8f0;
+    font-size: 0.85rem;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  input:focus { border-color: #3b82f6; }
+
+  .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  .btn {
+    padding: 9px 20px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+  .btn-primary { background: #2563eb; color: #fff; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-primary:disabled { background: #1e3a6e; color: #6b7280; cursor: not-allowed; }
+  .btn-danger  { background: #dc2626; color: #fff; }
+  .btn-danger:hover { background: #b91c1c; }
+  .btn-success { background: #16a34a; color: #fff; }
+  .btn-success:hover { background: #15803d; }
+  .btn-outline { background: transparent; color: #94a3b8; border: 1px solid #334155; }
+  .btn-outline:hover { background: #1e293b; color: #e2e8f0; }
+
+  /* ---- Log ---- */
+  .log-panel {
+    background: #0a111e;
+    border-top: 1px solid #1e293b;
+    padding: 12px 16px;
+    max-height: 200px;
+    overflow-y: auto;
+    font-size: 0.78rem;
+    font-family: 'Courier New', monospace;
+  }
+  .log-entry { padding: 3px 0; border-bottom: 1px solid #111827; line-height: 1.4; }
+  .log-entry.ok   .ts { color: #22c55e; }
+  .log-entry.err  .ts { color: #ef4444; }
+  .log-entry .ts  { color: #475569; margin-right: 8px; }
+  .log-entry .msg { color: #94a3b8; }
+  .log-entry .detail { color: #475569; margin-left: 8px; font-size: 0.72rem; }
+
+  .section-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #475569;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+
+  .gripper-row { display: flex; gap: 8px; align-items: center; }
+  .gripper-status {
+    font-size: 0.8rem;
+    color: #64748b;
+  }
+
+  .joint-row { display: grid; grid-template-columns: 120px 1fr; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .joint-name-input, .joint-val-input {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: #e2e8f0;
+    font-size: 0.82rem;
+    width: 100%;
+    outline: none;
+  }
+  .joint-name-input:focus, .joint-val-input:focus { border-color: #3b82f6; }
+
+  #add-joint-btn {
+    font-size: 0.78rem;
+    padding: 5px 12px;
+    margin-bottom: 10px;
+  }
+
+  /* ---- Scale sliders ---- */
+  .scale-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 0;
+  }
+  .scale-row label {
+    width: 80px;
+    flex-shrink: 0;
+    margin-bottom: 0;
+    color: #94a3b8;
+    font-size: 0.78rem;
+  }
+  .scale-row input[type=range] {
+    flex: 1;
+    accent-color: #3b82f6;
+    cursor: pointer;
+  }
+  .scale-val {
+    width: 38px;
+    text-align: right;
+    font-family: 'Courier New', monospace;
+    font-size: 0.82rem;
+    color: #7dd3fc;
+    flex-shrink: 0;
+  }
+
+  /* ---- Camera feed ---- */
+  .cam-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .cam-cell { display: flex; flex-direction: column; gap: 6px; }
+  .cam-label {
+    font-size: 0.72rem;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+  }
+  .cam-img {
+    width: 100%;
+    max-height: 200px;
+    object-fit: contain;
+    border-radius: 4px;
+    border: 1px solid #334155;
+    background: #0a111e;
+    min-height: 80px;
+    display: block;
+  }
+  .cam-status {
+    font-size: 0.72rem;
+    color: #475569;
+    font-family: 'Courier New', monospace;
+  }
+
+  /* ---- Camera info K-matrix grid ---- */
+  .kmat-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 3px;
+    margin-top: 6px;
+  }
+  .kmat-cell {
+    background: #0f172a;
+    border: 1px solid #1e3a5f;
+    border-radius: 3px;
+    padding: 4px 6px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.75rem;
+    color: #7dd3fc;
+    text-align: center;
+  }
+  .kmat-label {
+    font-size: 0.7rem;
+    color: #475569;
+    text-align: center;
+    margin-top: 2px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Movensys Manipulator Control</h1>
+  <span class="badge">FastAPI Bridge</span>
+  <div id="health-dot" title="Backend health"></div>
+  <a href="/cameras" style="font-size:0.78rem;color:#64748b;text-decoration:none;margin-left:12px;padding:4px 10px;border:1px solid #334155;border-radius:6px;">Cameras →</a>
+  <a href="/vlm" style="font-size:0.78rem;color:#64748b;text-decoration:none;margin-left:8px;padding:4px 10px;border:1px solid #334155;border-radius:6px;">VLM →</a>
+</header>
+
+<div class="layout">
+
+  <!-- ============================================================ TELEMETRY -->
+  <aside class="telemetry">
+
+    <div class="card" id="card-eef-pose">
+      <div class="card-header">
+        EEF Pose (base frame)
+        <span class="stream-dot" id="dot-eef-pose"></span>
+      </div>
+      <div class="card-body" id="body-eef-pose">
+        <div class="kv-row"><span class="k">x</span><span class="v" id="ep-x">—</span></div>
+        <div class="kv-row"><span class="k">y</span><span class="v" id="ep-y">—</span></div>
+        <div class="kv-row"><span class="k">z</span><span class="v" id="ep-z">—</span></div>
+        <div class="kv-row"><span class="k">qx</span><span class="v" id="ep-qx">—</span></div>
+        <div class="kv-row"><span class="k">qy</span><span class="v" id="ep-qy">—</span></div>
+        <div class="kv-row"><span class="k">qz</span><span class="v" id="ep-qz">—</span></div>
+        <div class="kv-row"><span class="k">qw</span><span class="v" id="ep-qw">—</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        EEF Orientation (roll/pitch/yaw)
+        <span class="stream-dot" id="dot-eef-rpy"></span>
+      </div>
+      <div class="card-body">
+        <div class="kv-row"><span class="k">roll</span><span class="v" id="rpy-r">—</span></div>
+        <div class="kv-row"><span class="k">pitch</span><span class="v" id="rpy-p">—</span></div>
+        <div class="kv-row"><span class="k">yaw</span><span class="v" id="rpy-y">—</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        Joint States
+        <span class="stream-dot" id="dot-joints"></span>
+      </div>
+      <div class="card-body" id="joint-state-body">
+        <div style="color:#475569;font-size:0.78rem">Waiting for data…</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Get EEF Pose (service)</div>
+      <div class="card-body">
+        <button class="btn btn-outline" onclick="callGetEefPose()" style="width:100%;margin-bottom:10px">
+          Call /wmx/moveit2/get_eef_pose
+        </button>
+        <div id="svc-eef-result" style="font-size:0.78rem;color:#64748b">—</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Motion Scaling</div>
+      <div class="card-body">
+        <div class="scale-row">
+          <label>Vel scale</label>
+          <input type="range" id="vel-scale-slider" min="0.01" max="1.0" step="0.01" value="0.30"
+                 oninput="document.getElementById('vel-scale-val').textContent=parseFloat(this.value).toFixed(2)" />
+          <span class="scale-val" id="vel-scale-val">0.30</span>
+        </div>
+        <div class="scale-row">
+          <label>Acc scale</label>
+          <input type="range" id="acc-scale-slider" min="0.01" max="1.0" step="0.01" value="0.30"
+                 oninput="document.getElementById('acc-scale-val').textContent=parseFloat(this.value).toFixed(2)" />
+          <span class="scale-val" id="acc-scale-val">0.30</span>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn btn-outline" onclick="fetchScales()" style="flex:1;font-size:0.78rem">Refresh</button>
+          <button class="btn btn-primary" onclick="applyScales()" style="flex:1;font-size:0.78rem">Apply</button>
+        </div>
+        <div id="scales-status" style="font-size:0.75rem;color:#64748b;margin-top:6px"></div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ============================================================ CONTROLS -->
+  <main class="controls">
+
+    <div>
+      <div class="section-title">Quick Actions</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-outline" onclick="goToInitialPose()" id="btn-initial-pose">Go to Initial Pose</button>
+        <span style="font-size:0.75rem;color:#475569;font-family:'Courier New',monospace" id="initial-pose-status"></span>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-title">Gripper</div>
+      <div class="gripper-row">
+        <button class="btn btn-success" onclick="setGripper(false)">Open</button>
+        <button class="btn btn-danger"  onclick="setGripper(true)">Close</button>
+        <span class="gripper-status" id="gripper-status"></span>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-title">Movement Commands</div>
+      <div class="tabs" id="move-tabs">
+        <button class="tab-btn active" data-tab="abs-cart-base">Abs Cartesian (base)</button>
+        <button class="tab-btn" data-tab="rel-cart-base">Rel Cartesian (base)</button>
+        <button class="tab-btn" data-tab="rel-cart-tool">Rel Cartesian (tool)</button>
+        <button class="tab-btn" data-tab="abs-joint-pose">Abs Joint Pose</button>
+        <button class="tab-btn" data-tab="joint-abs">Joint Abs</button>
+        <button class="tab-btn" data-tab="joint-rel">Joint Rel</button>
+        <button class="tab-btn" data-tab="camera">Camera Feed</button>
+      </div>
+    </div>
+
+    <!-- Absolute Cartesian (base) -->
+    <div class="tab-panel active card" id="tab-abs-cart-base">
+      <div class="card-header">Absolute Cartesian Move — Base Frame</div>
+      <div class="card-body">
+        <div class="form-group">
+          <label>Position [x, y, z] (m)</label>
+          <div class="row3">
+            <input type="number" id="acb-px" step="0.001" placeholder="x" value="-0.158" />
+            <input type="number" id="acb-py" step="0.001" placeholder="y" value="-0.071" />
+            <input type="number" id="acb-pz" step="0.001" placeholder="z" value="0.346" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Orientation [roll, pitch, yaw] (rad)</label>
+          <div class="row3">
+            <input type="number" id="acb-or" step="0.001" placeholder="roll" value="3.14" />
+            <input type="number" id="acb-op" step="0.001" placeholder="pitch" value="0.0" />
+            <input type="number" id="acb-oy" step="0.001" placeholder="yaw" value="-3.14" />
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="moveCartesian('absolute_cartesian_base','acb')">Send</button>
+      </div>
+    </div>
+
+    <!-- Relative Cartesian (base) -->
+    <div class="tab-panel card" id="tab-rel-cart-base">
+      <div class="card-header">Relative Cartesian Move — Base Frame</div>
+      <div class="card-body">
+        <div class="form-group">
+          <label>Delta Position [dx, dy, dz] (m)</label>
+          <div class="row3">
+            <input type="number" id="rcb-px" step="0.001" placeholder="dx" value="0.1" />
+            <input type="number" id="rcb-py" step="0.001" placeholder="dy" value="0.0" />
+            <input type="number" id="rcb-pz" step="0.001" placeholder="dz" value="0.0" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Delta Orientation [droll, dpitch, dyaw] (rad)</label>
+          <div class="row3">
+            <input type="number" id="rcb-or" step="0.001" placeholder="droll" value="0.0" />
+            <input type="number" id="rcb-op" step="0.001" placeholder="dpitch" value="0.0" />
+            <input type="number" id="rcb-oy" step="0.001" placeholder="dyaw" value="0.0" />
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="moveCartesian('relative_cartesian_base','rcb')">Send</button>
+      </div>
+    </div>
+
+    <!-- Relative Cartesian (tool) -->
+    <div class="tab-panel card" id="tab-rel-cart-tool">
+      <div class="card-header">Relative Cartesian Move — Tool Frame</div>
+      <div class="card-body">
+        <div class="form-group">
+          <label>Delta Position [dx, dy, dz] (m)</label>
+          <div class="row3">
+            <input type="number" id="rct-px" step="0.001" placeholder="dx" value="0.1" />
+            <input type="number" id="rct-py" step="0.001" placeholder="dy" value="0.0" />
+            <input type="number" id="rct-pz" step="0.001" placeholder="dz" value="0.0" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Delta Orientation [droll, dpitch, dyaw] (rad)</label>
+          <div class="row3">
+            <input type="number" id="rct-or" step="0.001" placeholder="droll" value="0.0" />
+            <input type="number" id="rct-op" step="0.001" placeholder="dpitch" value="0.0" />
+            <input type="number" id="rct-oy" step="0.001" placeholder="dyaw" value="0.0" />
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="moveCartesian('relative_cartesian_tool','rct')">Send</button>
+      </div>
+    </div>
+
+    <!-- Absolute Joint-Space Move (pose target) -->
+    <div class="tab-panel card" id="tab-abs-joint-pose">
+      <div class="card-header">Absolute Joint-Space Move — Pose Target (base frame)</div>
+      <div class="card-body">
+        <div class="form-group">
+          <label>Position [x, y, z] (m)</label>
+          <div class="row3">
+            <input type="number" id="ajp-px" step="0.001" placeholder="x" value="-0.005" />
+            <input type="number" id="ajp-py" step="0.001" placeholder="y" value="-0.071" />
+            <input type="number" id="ajp-pz" step="0.001" placeholder="z" value="0.346" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Orientation [roll, pitch, yaw] (rad)</label>
+          <div class="row3">
+            <input type="number" id="ajp-or" step="0.001" placeholder="roll" value="3.14" />
+            <input type="number" id="ajp-op" step="0.001" placeholder="pitch" value="0.0" />
+            <input type="number" id="ajp-oy" step="0.001" placeholder="yaw" value="-3.14" />
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="moveCartesian('absolute_joint_pose','ajp')">Send</button>
+      </div>
+    </div>
+
+    <!-- Joint Absolute -->
+    <div class="tab-panel card" id="tab-joint-abs">
+      <div class="card-header">Joint Movement — Absolute</div>
+      <div class="card-body">
+        <div id="joints-abs-rows">
+          <!-- rows injected by JS -->
+        </div>
+        <button class="btn btn-outline" id="add-joint-btn" onclick="addJointRow('abs')">+ Add joint</button>
+        <button class="btn btn-primary" onclick="moveJoints('joint_absolute','abs')">Send</button>
+      </div>
+    </div>
+
+    <!-- Joint Relative -->
+    <div class="tab-panel card" id="tab-joint-rel">
+      <div class="card-header">Joint Movement — Relative (increment)</div>
+      <div class="card-body">
+        <div id="joints-rel-rows">
+          <!-- rows injected by JS -->
+        </div>
+        <button class="btn btn-outline" id="add-joint-rel-btn" onclick="addJointRow('rel')">+ Add joint</button>
+        <button class="btn btn-primary" onclick="moveJoints('joint_relative','rel')">Send</button>
+      </div>
+    </div>
+
+    <!-- Camera Feed -->
+    <div class="tab-panel card" id="tab-camera">
+      <div class="card-header">Camera Feed</div>
+      <div class="card-body">
+
+        <!-- Top camera -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div class="section-title" style="margin-bottom:0">/image_top</div>
+          <span class="stream-dot" id="dot-camera-feed"></span>
+        </div>
+        <div class="cam-grid">
+          <div class="cam-cell">
+            <div class="cam-label">RGB</div>
+            <img id="top-rgb-feed" class="cam-img" alt="Top RGB feed" />
+            <div class="cam-status" id="top-rgb-status">Waiting for stream…</div>
+          </div>
+          <div class="cam-cell">
+            <div class="cam-label">Depth (turbo, 0.1–5 m)</div>
+            <img id="top-depth-feed" class="cam-img" alt="Top Depth feed" />
+            <div class="cam-status" id="top-depth-status">Waiting for stream…</div>
+          </div>
+        </div>
+        <div style="margin-top:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div class="section-title" style="margin-bottom:0">Camera Info (/image_top/camera_info)</div>
+            <span class="stream-dot" id="dot-top-camera-info"></span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px">
+            <div class="kv-row"><span class="k">resolution</span><span class="v" id="top-ci-res">—</span></div>
+            <div class="kv-row"><span class="k">distortion</span><span class="v" id="top-ci-dist">—</span></div>
+            <div class="kv-row"><span class="k">fx</span><span class="v" id="top-ci-fx">—</span></div>
+            <div class="kv-row"><span class="k">fy</span><span class="v" id="top-ci-fy">—</span></div>
+            <div class="kv-row"><span class="k">cx</span><span class="v" id="top-ci-cx">—</span></div>
+            <div class="kv-row"><span class="k">cy</span><span class="v" id="top-ci-cy">—</span></div>
+          </div>
+          <div style="margin-top:8px">
+            <div class="section-title" style="margin-bottom:4px">K matrix (3×3)</div>
+            <div class="kmat-grid">
+              <div class="kmat-cell" id="top-k00">—</div><div class="kmat-cell" id="top-k01">—</div><div class="kmat-cell" id="top-k02">—</div>
+              <div class="kmat-cell" id="top-k10">—</div><div class="kmat-cell" id="top-k11">—</div><div class="kmat-cell" id="top-k12">—</div>
+              <div class="kmat-cell" id="top-k20">—</div><div class="kmat-cell" id="top-k21">—</div><div class="kmat-cell" id="top-k22">—</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hand camera -->
+        <div style="margin-top:20px;border-top:1px solid #334155;padding-top:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div class="section-title" style="margin-bottom:0">/image_hand</div>
+            <span class="stream-dot" id="dot-hand-camera-feed"></span>
+          </div>
+          <div class="cam-grid">
+            <div class="cam-cell">
+              <div class="cam-label">RGB</div>
+              <img id="hand-rgb-feed" class="cam-img" alt="Hand RGB feed" />
+              <div class="cam-status" id="hand-rgb-status">Waiting for stream…</div>
+            </div>
+            <div class="cam-cell">
+              <div class="cam-label">Depth (turbo, 0.1–5 m)</div>
+              <img id="hand-depth-feed" class="cam-img" alt="Hand Depth feed" />
+              <div class="cam-status" id="hand-depth-status">Waiting for stream…</div>
+            </div>
+          </div>
+          <div style="margin-top:12px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div class="section-title" style="margin-bottom:0">Camera Info (/image_hand/camera_info)</div>
+              <span class="stream-dot" id="dot-hand-camera-info"></span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px">
+              <div class="kv-row"><span class="k">resolution</span><span class="v" id="hand-ci-res">—</span></div>
+              <div class="kv-row"><span class="k">distortion</span><span class="v" id="hand-ci-dist">—</span></div>
+              <div class="kv-row"><span class="k">fx</span><span class="v" id="hand-ci-fx">—</span></div>
+              <div class="kv-row"><span class="k">fy</span><span class="v" id="hand-ci-fy">—</span></div>
+              <div class="kv-row"><span class="k">cx</span><span class="v" id="hand-ci-cx">—</span></div>
+              <div class="kv-row"><span class="k">cy</span><span class="v" id="hand-ci-cy">—</span></div>
+            </div>
+            <div style="margin-top:8px">
+              <div class="section-title" style="margin-bottom:4px">K matrix (3×3)</div>
+              <div class="kmat-grid">
+                <div class="kmat-cell" id="hand-k00">—</div><div class="kmat-cell" id="hand-k01">—</div><div class="kmat-cell" id="hand-k02">—</div>
+                <div class="kmat-cell" id="hand-k10">—</div><div class="kmat-cell" id="hand-k11">—</div><div class="kmat-cell" id="hand-k12">—</div>
+                <div class="kmat-cell" id="hand-k20">—</div><div class="kmat-cell" id="hand-k21">—</div><div class="kmat-cell" id="hand-k22">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TF Static -->
+        <div style="margin-top:20px;border-top:1px solid #334155;padding-top:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div class="section-title" style="margin-bottom:0">TF Static — world_manipulator → camera_top</div>
+            <span class="stream-dot" id="dot-tf-static"></span>
+          </div>
+          <div style="font-size:0.7rem;color:#475569;margin-bottom:8px">camera_top_color_optical_frame</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px">
+            <div class="kv-row"><span class="k">tx</span><span class="v" id="tf-tx">—</span></div>
+            <div class="kv-row"><span class="k">qx</span><span class="v" id="tf-qx">—</span></div>
+            <div class="kv-row"><span class="k">ty</span><span class="v" id="tf-ty">—</span></div>
+            <div class="kv-row"><span class="k">qy</span><span class="v" id="tf-qy">—</span></div>
+            <div class="kv-row"><span class="k">tz</span><span class="v" id="tf-tz">—</span></div>
+            <div class="kv-row"><span class="k">qz</span><span class="v" id="tf-qz">—</span></div>
+            <div></div>
+            <div class="kv-row"><span class="k">qw</span><span class="v" id="tf-qw">—</span></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ============================================================ LOG -->
+  <div class="log-panel" id="log-panel" style="grid-column:2;border-top:1px solid #1e293b">
+    <div style="color:#334155;font-size:0.72rem;margin-bottom:6px">RESPONSE LOG</div>
+  </div>
+
+</div>
+
+<script>
+const API = '';  // same origin
+
+// ---- Health check ----
+async function checkHealth() {
+  try {
+    const r = await fetch(`${API}/api/health`);
+    const ok = r.ok;
+    document.getElementById('health-dot').className = ok ? 'ok' : 'err';
+  } catch {
+    document.getElementById('health-dot').className = 'err';
+  }
+}
+checkHealth();
+setInterval(checkHealth, 10000);
+
+// ---- Log ----
+function log(msg, detail='', isErr=false) {
+  const panel = document.getElementById('log-panel');
+  const ts = new Date().toLocaleTimeString();
+  const entry = document.createElement('div');
+  entry.className = `log-entry ${isErr ? 'err' : 'ok'}`;
+  entry.innerHTML = `<span class="ts">${ts}</span><span class="msg">${msg}</span><span class="detail">${detail}</span>`;
+  panel.appendChild(entry);
+  panel.scrollTop = panel.scrollHeight;
+}
+
+// ---- Tab switching ----
+document.getElementById('move-tabs').addEventListener('click', (e) => {
+  if (!e.target.matches('.tab-btn')) return;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  e.target.classList.add('active');
+  document.getElementById(`tab-${e.target.dataset.tab}`).classList.add('active');
+});
+
+// ---- WebSocket streams ----
+function startStream(path, dotId, onData) {
+  const dot = dotId ? document.getElementById(dotId) : null;
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${proto}//${location.host}${path}`);
+  ws.onmessage = (evt) => {
+    const payload = JSON.parse(evt.data);
+    if (dot) dot.classList.toggle('live', !payload.error);
+    if (!payload.error) onData(payload.data);
+  };
+  ws.onerror = () => { if (dot) dot.classList.remove('live'); };
+  ws.onclose = () => {
+    if (dot) dot.classList.remove('live');
+    setTimeout(() => startStream(path, dotId, onData), 3000);
+  };
+}
+
+function fmt(v) {
+  if (v === undefined || v === null) return '—';
+  return typeof v === 'number' ? v.toFixed(5) : String(v);
+}
+
+// EEF Pose stream
+startStream('/api/stream/eef_pose', 'dot-eef-pose', (data) => {
+  const pose = data?.pose || data;
+  const pos = pose?.position || {};
+  const ori = pose?.orientation || {};
+  document.getElementById('ep-x').textContent  = fmt(pos.x ?? data?.x);
+  document.getElementById('ep-y').textContent  = fmt(pos.y ?? data?.y);
+  document.getElementById('ep-z').textContent  = fmt(pos.z ?? data?.z);
+  document.getElementById('ep-qx').textContent = fmt(ori.x ?? data?.qx);
+  document.getElementById('ep-qy').textContent = fmt(ori.y ?? data?.qy);
+  document.getElementById('ep-qz').textContent = fmt(ori.z ?? data?.qz);
+  document.getElementById('ep-qw').textContent = fmt(ori.w ?? data?.qw);
+});
+
+// EEF RPY stream
+startStream('/api/stream/eef_rpy', 'dot-eef-rpy', (data) => {
+  document.getElementById('rpy-r').textContent = fmt(data?.x ?? data?.roll);
+  document.getElementById('rpy-p').textContent = fmt(data?.y ?? data?.pitch);
+  document.getElementById('rpy-y').textContent = fmt(data?.z ?? data?.yaw);
+});
+
+// Joint States stream
+startStream('/api/stream/joint_states', 'dot-joints', (data) => {
+  const body = document.getElementById('joint-state-body');
+  const names = data?.name || [];
+  const pos   = data?.position || [];
+  body.innerHTML = names.map((n, i) =>
+    `<div class="kv-row"><span class="k">${n}</span><span class="v">${fmt(pos[i])}</span></div>`
+  ).join('') || '<div style="color:#475569">No data</div>';
+});
+
+// Camera info helper
+function applyCameraInfo(prefix, data) {
+  if (!data) return;
+  document.getElementById(`${prefix}-ci-res`).textContent  = `${data.width}×${data.height}`;
+  document.getElementById(`${prefix}-ci-fx`).textContent   = data.k?.[0]?.toFixed(3) ?? '—';
+  document.getElementById(`${prefix}-ci-fy`).textContent   = data.k?.[4]?.toFixed(3) ?? '—';
+  document.getElementById(`${prefix}-ci-cx`).textContent   = data.k?.[2]?.toFixed(3) ?? '—';
+  document.getElementById(`${prefix}-ci-cy`).textContent   = data.k?.[5]?.toFixed(3) ?? '—';
+  document.getElementById(`${prefix}-ci-dist`).textContent = data.distortion_model ?? '—';
+  if (data.k?.length === 9) {
+    ['k00','k01','k02','k10','k11','k12','k20','k21','k22'].forEach((id, i) => {
+      document.getElementById(`${prefix}-${id}`).textContent = data.k[i].toFixed(1);
+    });
+  }
+}
+
+// Top camera info stream
+startStream('/api/stream/image_top/camera_info', 'dot-top-camera-info', (data) => applyCameraInfo('top', data));
+
+// Hand camera info stream
+startStream('/api/stream/image_hand/camera_info', 'dot-hand-camera-info', (data) => applyCameraInfo('hand', data));
+
+// TF Static stream
+startStream('/api/stream/tf_static', 'dot-tf-static', (data) => {
+  if (!data) return;
+  const tr = data.translation;
+  const ro = data.rotation;
+  document.getElementById('tf-tx').textContent = tr.x.toFixed(5);
+  document.getElementById('tf-ty').textContent = tr.y.toFixed(5);
+  document.getElementById('tf-tz').textContent = tr.z.toFixed(5);
+  document.getElementById('tf-qx').textContent = ro.x.toFixed(6);
+  document.getElementById('tf-qy').textContent = ro.y.toFixed(6);
+  document.getElementById('tf-qz').textContent = ro.z.toFixed(6);
+  document.getElementById('tf-qw').textContent = ro.w.toFixed(6);
+});
+
+// Top RGB stream
+startStream('/api/stream/image_top/rgb', 'dot-camera-feed', (data) => {
+  if (!data?.data) return;
+  document.getElementById('top-rgb-feed').src = `data:image/jpeg;base64,${data.data}`;
+  document.getElementById('top-rgb-status').textContent = `${data.width}×${data.height} · jpeg`;
+});
+
+// Top Depth stream
+startStream('/api/stream/image_top/depth', null, (data) => {
+  if (!data?.data) return;
+  document.getElementById('top-depth-feed').src = `data:image/jpeg;base64,${data.data}`;
+  document.getElementById('top-depth-status').textContent = `${data.width}×${data.height} · ${data.encoding}`;
+});
+
+// Hand RGB stream
+startStream('/api/stream/image_hand/rgb', 'dot-hand-camera-feed', (data) => {
+  if (!data?.data) return;
+  document.getElementById('hand-rgb-feed').src = `data:image/jpeg;base64,${data.data}`;
+  document.getElementById('hand-rgb-status').textContent = `${data.width}×${data.height} · jpeg`;
+});
+
+// Hand Depth stream
+startStream('/api/stream/image_hand/depth', null, (data) => {
+  if (!data?.data) return;
+  document.getElementById('hand-depth-feed').src = `data:image/jpeg;base64,${data.data}`;
+  document.getElementById('hand-depth-status').textContent = `${data.width}×${data.height} · ${data.encoding}`;
+});
+
+// ---- Get EEF Pose service ----
+async function callGetEefPose() {
+  const el = document.getElementById('svc-eef-result');
+  el.textContent = 'Calling…';
+  try {
+    const r = await fetch(`${API}/api/services/get_eef_pose`);
+    const data = await r.json();
+    if (r.ok) {
+      const lines = [];
+      if (data.pos) lines.push(`pos: [${data.pos.map(v=>v.toFixed(4)).join(', ')}]`);
+      if (data.rpy) lines.push(`rpy: [${data.rpy.map(v=>v.toFixed(4)).join(', ')}]`);
+      lines.push(`success: ${data.success}`);
+      el.textContent = lines.join('\n');
+      log('get_eef_pose OK', JSON.stringify(data));
+    } else {
+      el.textContent = JSON.stringify(data);
+      log('get_eef_pose failed', JSON.stringify(data), true);
+    }
+  } catch (e) {
+    el.textContent = String(e);
+    log('get_eef_pose error', String(e), true);
+  }
+}
+
+// ---- Gripper ----
+async function setGripper(open) {
+  const el = document.getElementById('gripper-status');
+  el.textContent = 'Calling…';
+  try {
+    const r = await fetch(`${API}/api/services/gripper`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({data: open}),
+    });
+    const data = await r.json();
+    el.textContent = `${open ? 'Open' : 'Close'}: ${data.success ? 'OK' : (data.message || 'failed')}`;
+    log(`Gripper ${open ? 'open' : 'close'}`, JSON.stringify(data), !data.success);
+  } catch(e) {
+    el.textContent = String(e);
+    log('Gripper error', String(e), true);
+  }
+}
+
+// ---- Cartesian move helpers ----
+function getFloat(id) { return parseFloat(document.getElementById(id).value) || 0; }
+
+async function moveCartesian(endpoint, prefix) {
+  const body = {
+    pos: [getFloat(`${prefix}-px`), getFloat(`${prefix}-py`), getFloat(`${prefix}-pz`)],
+    ori: [getFloat(`${prefix}-or`), getFloat(`${prefix}-op`), getFloat(`${prefix}-oy`)],
+  };
+  await sendMove(`/api/move/${endpoint}`, body, endpoint);
+}
+
+async function sendMove(url, body, label) {
+  try {
+    log(`→ ${label}`, JSON.stringify(body));
+    const r = await fetch(`${API}${url}`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    log(`← ${label}`, JSON.stringify(data), !data.success);
+  } catch(e) {
+    log(`${label} error`, String(e), true);
+  }
+}
+
+// ---- Joint rows ----
+const defaultJoints = [
+  {name:'joint1', v:'0.0'},
+  {name:'joint2', v:'0.0'},
+  {name:'joint3', v:'-1.57'},
+  {name:'joint4', v:'0.0'},
+  {name:'joint5', v:'1.57'},
+  {name:'joint6', v:'0.0'},
+];
+
+function buildJointRows(containerId, prefix, joints) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  joints.forEach((j, i) => {
+    const row = document.createElement('div');
+    row.className = 'joint-row';
+    row.innerHTML = `
+      <input class="joint-name-input" id="${prefix}-jn-${i}" type="text" placeholder="joint name" value="${j.name}" />
+      <input class="joint-val-input"  id="${prefix}-jv-${i}" type="number" step="0.001" placeholder="value (rad)" value="${j.v}" />
+    `;
+    container.appendChild(row);
+  });
+}
+
+buildJointRows('joints-abs-rows', 'jabs', defaultJoints);
+buildJointRows('joints-rel-rows', 'jrel', [{name:'joint1',v:'0.2'},{name:'joint2',v:'0.2'}]);
+
+let absCount = defaultJoints.length;
+let relCount = 2;
+
+function addJointRow(type) {
+  if (type === 'abs') {
+    const i = absCount++;
+    const row = document.createElement('div');
+    row.className = 'joint-row';
+    row.innerHTML = `
+      <input class="joint-name-input" id="jabs-jn-${i}" type="text" placeholder="joint name" />
+      <input class="joint-val-input"  id="jabs-jv-${i}" type="number" step="0.001" placeholder="value (rad)" value="0.0" />
+    `;
+    document.getElementById('joints-abs-rows').appendChild(row);
+  } else {
+    const i = relCount++;
+    const row = document.createElement('div');
+    row.className = 'joint-row';
+    row.innerHTML = `
+      <input class="joint-name-input" id="jrel-jn-${i}" type="text" placeholder="joint name" />
+      <input class="joint-val-input"  id="jrel-jv-${i}" type="number" step="0.001" placeholder="value (rad)" value="0.0" />
+    `;
+    document.getElementById('joints-rel-rows').appendChild(row);
+  }
+}
+
+async function moveJoints(endpoint, type) {
+  const prefix = type === 'abs' ? 'jabs' : 'jrel';
+  const count  = type === 'abs' ? absCount : relCount;
+  const names = [], values = [];
+  for (let i = 0; i < count; i++) {
+    const n = document.getElementById(`${prefix}-jn-${i}`)?.value.trim();
+    const v = parseFloat(document.getElementById(`${prefix}-jv-${i}`)?.value);
+    if (n) { names.push(n); values.push(isNaN(v) ? 0 : v); }
+  }
+  if (!names.length) { log('No joints specified', '', true); return; }
+  await sendMove(`/api/move/${endpoint}`, {joint_names: names, joint_values: values}, endpoint);
+}
+
+// ---- Initial pose ----
+const INITIAL_POSE = {
+  joint_names:  ['joint1','joint2','joint3','joint4','joint5','joint6'],
+  joint_values: [-0.0003, 0.7041, -1.9892, -0.2873, 1.57, 0.0],
+};
+
+async function goToInitialPose() {
+  const btn    = document.getElementById('btn-initial-pose');
+  const status = document.getElementById('initial-pose-status');
+  btn.disabled = true;
+  status.textContent = 'Moving…';
+  status.style.color = '#94a3b8';
+  try {
+    log('→ initial pose', JSON.stringify(INITIAL_POSE));
+    const r = await fetch(`${API}/api/move/joint_absolute`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(INITIAL_POSE),
+    });
+    const data = await r.json();
+    if (r.ok && data.success) {
+      status.textContent = 'Reached';
+      status.style.color = '#22c55e';
+    } else {
+      status.textContent = data.message || 'Failed';
+      status.style.color = '#ef4444';
+    }
+    log('← initial pose', JSON.stringify(data), !data.success);
+  } catch(e) {
+    status.textContent = String(e);
+    status.style.color = '#ef4444';
+    log('initial pose error', String(e), true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---- Motion scaling ----
+async function fetchScales() {
+  const status = document.getElementById('scales-status');
+  try {
+    const r = await fetch(`${API}/api/config/scales`);
+    const data = await r.json();
+    if (r.ok) {
+      const vel = parseFloat(data.vel_scale).toFixed(2);
+      const acc = parseFloat(data.acc_scale).toFixed(2);
+      document.getElementById('vel-scale-slider').value = vel;
+      document.getElementById('vel-scale-val').textContent = vel;
+      document.getElementById('acc-scale-slider').value = acc;
+      document.getElementById('acc-scale-val').textContent = acc;
+      status.textContent = `Loaded: vel=${vel} acc=${acc}`;
+      status.style.color = '#22c55e';
+    } else {
+      status.textContent = JSON.stringify(data);
+      status.style.color = '#ef4444';
+    }
+  } catch(e) {
+    status.textContent = String(e);
+    status.style.color = '#ef4444';
+  }
+}
+
+async function applyScales() {
+  const status = document.getElementById('scales-status');
+  const vel = parseFloat(document.getElementById('vel-scale-slider').value);
+  const acc = parseFloat(document.getElementById('acc-scale-slider').value);
+  status.textContent = 'Applying…';
+  status.style.color = '#94a3b8';
+  try {
+    const r = await fetch(`${API}/api/config/scales`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({vel_scale: vel, acc_scale: acc}),
+    });
+    const data = await r.json();
+    if (r.ok && data.success) {
+      status.textContent = `Applied: vel=${vel.toFixed(2)} acc=${acc.toFixed(2)}`;
+      status.style.color = '#22c55e';
+      log('Scales applied', `vel=${vel.toFixed(2)} acc=${acc.toFixed(2)}`);
+    } else {
+      status.textContent = JSON.stringify(data);
+      status.style.color = '#ef4444';
+      log('Scales failed', JSON.stringify(data), true);
+    }
+  } catch(e) {
+    status.textContent = String(e);
+    status.style.color = '#ef4444';
+    log('Scales error', String(e), true);
+  }
+}
+
+fetchScales();
+</script>
+</body>
+</html>

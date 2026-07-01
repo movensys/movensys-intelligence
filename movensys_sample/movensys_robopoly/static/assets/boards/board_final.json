@@ -1,0 +1,167 @@
+{
+  "board_id": "final",
+  "tile_count": 14,
+  "seed_money": 500,
+  "start_bonus": 100,
+  "physical_image": "board.png",
+  "layout": {
+    "shape": "rectangle",
+    "columns": 5,
+    "rows": 4
+  },
+  "_note": "Movensys Board3_v2. 14 tiles, counter-clockwise from GO (bottom-left).",
+  "tiles": [
+    {
+      "index": 0,
+      "kind": "start",
+      "name": "GO"
+    },
+    {
+      "index": 1,
+      "kind": "property",
+      "name": "Boston",
+      "price_buy": 60,
+      "price_building": 50,
+      "rent_table": [
+        4,
+        20,
+        60,
+        180,
+        320,
+        450
+      ]
+    },
+    {
+      "index": 2,
+      "kind": "property",
+      "name": "Seoul",
+      "price_buy": 150,
+      "price_building": 50,
+      "rent_table": [
+        8,
+        40,
+        100,
+        300,
+        450,
+        600
+      ]
+    },
+    {
+      "index": 3,
+      "kind": "jail_visit",
+      "name": "In the Desert Island"
+    },
+    {
+      "index": 4,
+      "kind": "utility",
+      "name": "Electric Company",
+      "price_buy": 150
+    },
+    {
+      "index": 5,
+      "kind": "property",
+      "name": "Taipei",
+      "price_buy": 200,
+      "price_building": 100,
+      "rent_table": [
+        12,
+        60,
+        180,
+        500,
+        700,
+        900
+      ]
+    },
+    {
+      "index": 6,
+      "kind": "property",
+      "name": "Shanghai",
+      "price_buy": 220,
+      "price_building": 100,
+      "rent_table": [
+        14,
+        70,
+        200,
+        550,
+        750,
+        950
+      ]
+    },
+    {
+      "index": 7,
+      "kind": "tax",
+      "name": "Non-Free Parking",
+      "amount": 100
+    },
+    {
+      "index": 8,
+      "kind": "property",
+      "name": "Tokyo",
+      "price_buy": 300,
+      "price_building": 150,
+      "rent_table": [
+        22,
+        110,
+        330,
+        800,
+        975,
+        1150
+      ]
+    },
+    {
+      "index": 9,
+      "kind": "property",
+      "name": "Busan",
+      "price_buy": 280,
+      "price_building": 150,
+      "rent_table": [
+        20,
+        100,
+        300,
+        750,
+        925,
+        1100
+      ]
+    },
+    {
+      "index": 10,
+      "kind": "go_to_jail",
+      "name": "Go to Desert Island"
+    },
+    {
+      "index": 11,
+      "kind": "property",
+      "name": "New York",
+      "price_buy": 400,
+      "price_building": 200,
+      "rent_table": [
+        50,
+        200,
+        600,
+        1400,
+        1700,
+        2000
+      ]
+    },
+    {
+      "index": 12,
+      "kind": "chance",
+      "name": "Chance"
+    },
+    {
+      "index": 13,
+      "kind": "property",
+      "name": "London",
+      "price_buy": 80,
+      "price_building": 50,
+      "rent_table": [
+        6,
+        30,
+        90,
+        270,
+        400,
+        550
+      ]
+    }
+  ]
+}

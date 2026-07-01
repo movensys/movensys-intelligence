@@ -1,0 +1,66 @@
+# Explicit project name — without it compose derives the project from
+# the parent directory ("docker"), which collides with the sibling
+# movensys_vlm and movensys_manipulator compose files that also live
+# under their own docker/ subdir. With shared project names,
+# --remove-orphans from one stack wipes the other stacks' containers.
+name: movensys-monopoly
+
+services:
+  monopoly:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        - ROS_DISTRO=${ROS_DISTRO:-jazzy}
+    image: movensys_monopoly_image:latest
+    container_name: movensys_monopoly_container
+    environment:
+      # ROS 2
+      - ROS_DISTRO=${ROS_DISTRO:-jazzy}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+      - RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+      # FastAPI
+      - MONOPOLY_PORT=${MONOPOLY_PORT:-7999}
+      - MONOPOLY_LOG_LEVEL=${MONOPOLY_LOG_LEVEL:-INFO}
+      - MONOPOLY_DEBUG_ROUTES=${MONOPOLY_DEBUG_ROUTES:-true}
+      # External FastAPI adapters all route through the movensys_vlm
+      # orchestrator (PRD 8.x). Empty -> stub mode for STT/LLM/Robot.
+      # Defaults to http://localhost:8000 since network_mode: host is in
+      # effect and the orchestrator typically runs on the same host;
+      # override with `MOVENSYS_VLM_URL=` (empty) to force stub mode.
+      - MOVENSYS_VLM_URL=${MOVENSYS_VLM_URL-http://localhost:8000}
+      # Isaac Sim card-spawn publisher (PRD 11.5)
+      - MONOPOLY_ISAAC_TOPIC_CARD_SPAWN=${MONOPOLY_ISAAC_TOPIC_CARD_SPAWN:-/isaac/card_spawn}
+      # Dry-run mode for pick_and_place.py: when truthy, all manipulator
+      # HTTP calls are stubbed (no arm motion, no gripper). Used for
+      # testing the monopoly server without a robot attached. Off by
+      # default — set MOVENSYS_PNP_DRY_RUN=1 in the shell to enable.
+      - MOVENSYS_PNP_DRY_RUN=${MOVENSYS_PNP_DRY_RUN:-}
+      # Optional persistence (PRD 11.3)
+      - MONOPOLY_PERSISTENCE_PATH=${MONOPOLY_PERSISTENCE_PATH:-}
+    # Bind-mount the live source tree over the image's baked /app so the
+    # container always runs the current working-copy code without a rebuild.
+    # uvicorn (entrypoint.sh) execs in /app, so editing main.py/router.py/
+    # adapters/game/static/doc on the host is picked up on container restart
+    # (or on uvicorn reload, if you switch entrypoint to --reload). Rebuild
+    # is only needed when requirements.txt or the Dockerfile itself changes.
+    volumes:
+      - ../main.py:/app/main.py
+      - ../router.py:/app/router.py
+      - ../pick_and_place.py:/app/pick_and_place.py
+      - ../adapters:/app/adapters
+      - ../game:/app/game
+      - ../static:/app/static
+      - ../doc:/app/doc
+      - ../saved_status.yaml:/app/saved_status.yaml
+    restart: unless-stopped
+    network_mode: host
+    # Docker-native readiness probe — surfaces in `docker ps` as
+    # "healthy"/"starting"/"unhealthy". Wrapper scripts (docker/run.sh)
+    # wait on this before declaring the container up.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${MONOPOLY_PORT:-7999}/api/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      start_period: 10s
+      retries: 6

@@ -1,0 +1,8 @@
+{
+  "deck": "chance",
+  "_note": "Spec §4.4: chance is a random ±$200 coin flip handled inline in rules.py:_resolve_once. This file is kept so the deck loader still finds a valid file, but its cards are no longer drawn during play.",
+  "cards": [
+    { "id": "windfall",       "text": "Bank pays you $200.",     "effect": { "type": "collect", "amount": 200 } },
+    { "id": "unexpected_tax", "text": "Pay $200 to the bank.",   "effect": { "type": "pay",     "amount": 200, "to": "bank" } }
+  ]
+}

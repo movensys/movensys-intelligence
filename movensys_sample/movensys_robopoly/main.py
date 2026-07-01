@@ -1,0 +1,78 @@
+"""FastAPI entry point for movensys-monopoly."""
+# app.state, app.mount, app.include_router(api_router)
+# For app.mount("/static", StaticFiles(directory=<Path class>), name="static") 이걸 외워두면 좋다.
+
+
+from __future__ import annotations
+
+import logging
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+from adapters import RobotAdapter, RosImageSubscriber, STTAdapter, VLMAdapter
+from game.events import EventBus
+from game.manager import GameManager
+from router import api_router
+
+log = logging.getLogger("monopoly")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    app.state.stt_adapter = STTAdapter.from_env()
+    app.state.vlm_adapter = VLMAdapter.from_env()
+    app.state.robot_adapter = RobotAdapter.from_env()
+    app.state.event_bus = EventBus()
+    app.state.game = GameManager(bus=app.state.event_bus)
+    # Background subscriber for /yolo_{dice,cube}_detector/debug_image —
+    # powers the board-pane overlay while pick_and_place runs. Safe no-op
+    # on hosts where rclpy isn't installed (e.g. unit-test environments).
+    app.state.ros_image = RosImageSubscriber()
+    app.state.ros_image.start()
+    log.info(
+        "startup",
+        extra={
+            "stt_mode": app.state.stt_adapter.mode,
+            "vlm_mode": app.state.vlm_adapter.mode,
+            "robot_mode": app.state.robot_adapter.mode,
+        },
+    )
+    yield
+    try:
+        app.state.ros_image.stop()
+    except Exception:
+        log.exception("ros_image stop failed")
+    log.info("shutdown")
+
+
+app = FastAPI(title="movensys-monopoly", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def no_cache_static(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.startswith("/static") or path.startswith("/assets"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
+
+
+app.include_router(api_router)
+
+_static_dir = Path(__file__).parent / "static"
+if _static_dir.exists():
+    # directory mount하기
+    app.mount("/assets", StaticFiles(directory=_static_dir / "assets"), name="assets")
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
+
+    @app.get("/")
+    async def index() -> FileResponse:
+        return FileResponse(_static_dir / "index.html")

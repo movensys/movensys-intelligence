@@ -1,0 +1,65 @@
+x-common: &common
+  build:
+    context: ..
+    dockerfile: docker/movensys_vlm.Dockerfile
+    args:
+      - ROS_DISTRO=${ROS_DISTRO}
+  image: movensys_vlm_image:latest
+  container_name: movensys_vlm_container
+  volumes:
+    - ${MOVENSYS_MANIPULATOR_PACKAGES}:/app/movensys_ws/src/movensys-manipulator:ro
+    - movensys_ws_build:/app/movensys_ws/build
+    - movensys_ws_install:/app/movensys_ws/install
+  restart: unless-stopped
+  network_mode: host
+
+# Shared env. HF_WHISPER_REPO is profile-specific because NVIDIA and Intel
+# Whisper backends advertise different model names (stock HF vs OV-IR); the
+# value here is forwarded to whisper_client.py as the OpenAI `model` field.
+x-common-env: &common-env
+  ROS_DISTRO: ${ROS_DISTRO}
+  ROS_DOMAIN_ID: ${ROS_DOMAIN_ID}
+  RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION}
+  MOVENSYS_MANIPULATOR_PACKAGES: ${MOVENSYS_MANIPULATOR_PACKAGES}
+  VLM_BASE_URL: ${VLM_BASE_URL}
+  VLM_MODEL_NAME: ${VLM_MODEL_NAME}
+  VLM_TIMEOUT: ${VLM_TIMEOUT}
+  WHISPER_BASE_URL: ${WHISPER_BASE_URL}
+  WHISPER_TIMEOUT: ${WHISPER_TIMEOUT}
+  HF_TOKEN: ${HF_TOKEN}
+  MEMORY_ENABLED: ${MEMORY_ENABLED}
+  MEMORY_QDRANT_URL: ${MEMORY_QDRANT_URL}
+  MEMORY_EMBED_BASE_URL: ${MEMORY_EMBED_BASE_URL}
+  MEMORY_COLLECTION: ${MEMORY_COLLECTION}
+  MEMORY_VECTOR_SIZE: ${MEMORY_VECTOR_SIZE}
+  MEMORY_TOP_K: ${MEMORY_TOP_K}
+  MEMORY_TIMEOUT: ${MEMORY_TIMEOUT}
+  # Phoenix tracing. Off by default; set PHOENIX_TRACING=1 in .env or
+  # the shell to enable. The orchestrator exports OpenAI-client spans
+  # to a standalone Phoenix server — run it separately, e.g.
+  #   docker run -d --rm -p 6006:6006 -p 4317:4317 arizephoenix/phoenix:latest
+  # and point PHOENIX_COLLECTOR_ENDPOINT at it. With network_mode=host
+  # the default http://localhost:6006 works out of the box. UI lives at
+  # http://<phoenix-host>:6006. See doc/running.md for usage.
+  PHOENIX_TRACING: ${PHOENIX_TRACING:-}
+  PHOENIX_COLLECTOR_ENDPOINT: ${PHOENIX_COLLECTOR_ENDPOINT:-}
+  PHOENIX_PROJECT_NAME: ${PHOENIX_PROJECT_NAME:-}
+
+services:
+  movensys_vlm-nvidia:
+    <<: *common
+    profiles: [nvidia-gpu]
+    environment:
+      <<: *common-env
+      HF_WHISPER_REPO: ${HF_WHISPER_REPO_NVIDIA}
+
+  movensys_vlm-intel:
+    <<: *common
+    profiles: [intel-xpu]
+    environment:
+      <<: *common-env
+      HF_WHISPER_REPO: ${HF_WHISPER_REPO_INTEL}
+
+volumes:
+  movensys_ws_build:
+  movensys_ws_install:

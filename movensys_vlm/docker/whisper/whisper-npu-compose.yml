@@ -1,0 +1,30 @@
+services:
+  whisper-npu:
+    image: whisper-npu:openvino
+    build:
+      context: .
+      dockerfile: Dockerfile.whisper-npu
+    container_name: whisper-npu
+    restart: unless-stopped
+    ports:
+      - "9010:9010"
+    devices:
+      # Intel NPU userspace talks to the kernel via /dev/accel/accel0 on
+      # 6.x kernels. Mount the parent dir so accelN renames don't break us.
+      - /dev/accel:/dev/accel
+    group_add:
+      # /dev/accel/accel0 is owned by the `render` group on Ubuntu 24.04.
+      # Resolve the host's render GID with `getent group render | cut -d: -f3`
+      # and override via .env if it isn't 992.
+      - "${RENDER_GID:-992}"
+    volumes:
+      - ~/models:/models
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      - ~/.cache/ze_intel_npu_cache:/root/.cache/ze_intel_npu_cache
+    environment:
+      - WHISPER_MODEL_REPO=${WHISPER_MODEL_REPO:-movensys/whisper-large-v3-turbo-fp16-ov-npu}
+      - WHISPER_MODEL_DIR=${WHISPER_MODEL_DIR:-/models/whisper-large-v3-turbo-fp16-ov-npu}
+      - WHISPER_DEVICE=${WHISPER_DEVICE:-NPU}
+      - WHISPER_DEFAULT_LANGUAGE=${WHISPER_DEFAULT_LANGUAGE:-}
+      - WHISPER_TASK=${WHISPER_TASK:-transcribe}
+      - HF_TOKEN=${HF_TOKEN:-}

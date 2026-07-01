@@ -1,0 +1,74 @@
+# Vector DB stack for VLM long-term memory.
+#
+# Services:
+#   * qdrant — vector store (single-binary, multi-arch image; runs on both
+#     Jetson AGX Thor / arm64 and Panther Lake / amd64).
+#   * embed  — HuggingFace text-embeddings-inference, CPU image. The embedding
+#     model is small (~120 MB for multilingual-e5-small) so CPU is fine on edge
+#     and leaves the GPU free for vllm. TEI does not publish a multi-arch CPU
+#     tag, so the image is profile-selected by CPU_ARCH (amd64 / arm64),
+#     mirroring the XPU_CORE convention in vllm.yaml / whisper.yaml.
+#
+# Bring-up (from this directory):
+#   docker compose -f vectordb.yaml down
+#   COMPOSE_PROFILES=$CPU_ARCH docker compose -f vectordb.yaml up -d
+
+x-common: &common
+  restart: unless-stopped
+  network_mode: host
+
+x-embed: &embed
+  <<: *common
+  container_name: embed_container
+  # Override host networking from x-common. TEI binds a Prometheus metrics
+  # listener on :9000 (not configurable in the cpu CLI), which collides with
+  # vllm on the host. Bridge networking keeps that listener inside the
+  # container's namespace; only the API port is published. TEI does not need
+  # to reach qdrant, so it loses nothing by leaving the host network.
+  network_mode: bridge
+  ports:
+    - "9020:9020"
+  volumes:
+    - ../models/embeddings:/data
+  command:
+    - --model-id=${EMBED_MODEL_ID}
+    - --port=9020
+    - --hostname=0.0.0.0
+    - --huggingface-hub-cache=/data
+    # Silently clip inputs to the model's max sequence length (~512 tokens
+    # for multilingual-e5-small) instead of returning 413 Payload Too Large.
+    # Memory.store sends Q+A pairs which can easily exceed that.
+    - --auto-truncate
+
+services:
+  qdrant:
+    <<: *common
+    container_name: qdrant_container
+    image: qdrant/qdrant:v1.13.0
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: "6333"
+      QDRANT__SERVICE__GRPC_PORT: "6334"
+
+  # ── Panther Lake / amd64 ────────────────────────────────────────────────────
+  # cpu-1.5 ships hf-hub 0.3.2 which mishandles an empty HF_TOKEN env var and
+  # crashes with "relative URL without a base" before download even starts.
+  # cpu-1.6+ has the fix. Token vars are intentionally NOT passed: the default
+  # embedding model is public and an empty token re-triggers the bug.
+  embed-amd64:
+    <<: *embed
+    profiles: [amd64]
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
+
+  # ── Jetson AGX Thor / arm64 ─────────────────────────────────────────────────
+  # HuggingFace publishes arm64 CPU builds under a separate tag stream with no
+  # semver tags — only `cpu-arm64-latest` and `cpu-arm64-sha-<commit>` exist.
+  # Swap to a SHA-pinned tag if reproducibility matters more than freshness.
+  embed-arm64:
+    <<: *embed
+    profiles: [arm64]
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-latest
+
+volumes:
+  qdrant_storage:
