@@ -888,6 +888,39 @@ let currentState = null;
 // while the Buy modal is open waiting for a choice).
 let turnInFlight = false;
 
+// Auto-mode = robot-vs-robot. When ON, the user's turns are driven by the
+// same deterministic robot logic as the robot's turns: the dice endpoint
+// switches to /api/dice/roll_robot (physical pick-and-place of the die
+// instead of only reading the human-thrown face), and AWAIT_DECISION is
+// resolved by pickRobotDecision() instead of popping the Buy modal. The
+// game then plays itself, turn after turn, until someone wins.
+// Toggled by the "A" hotkey (works in both debug and game mode); ?auto=1
+// enables it on load.
+let autoMode = new URLSearchParams(location.search).get("auto") === "1";
+
+function setAutoMode(on) {
+  autoMode = !!on;
+  const msg = autoMode
+    ? "Auto-mode ON — robot vs robot"
+    : "Auto-mode OFF — user vs robot";
+  appendChat({ role: "sys", text: msg });
+  if (document.body.classList.contains("game-mode")) flashGameOverlay(msg);
+  // Keep the URL in sync so a reload preserves the mode.
+  const url = new URL(location.href);
+  if (autoMode) url.searchParams.set("auto", "1");
+  else url.searchParams.delete("auto");
+  history.replaceState(null, "", url.toString());
+  // Turning it on mid-turn: clear the idempotency key so the auto-driver
+  // can re-fire for the current step (e.g. the user is sitting idle on
+  // their own TURN_START), then kick it.
+  if (autoMode) {
+    vlmPlayerLastTurnKey = null;
+    maybeAutoTriggerRobotTurn();
+  }
+}
+
+function toggleAutoMode() { setAutoMode(!autoMode); }
+
 function renderState(state) {
   if (state.config && typeof state.config.is_YOLO === "boolean") {
     isYOLO = state.config.is_YOLO;
@@ -966,9 +999,11 @@ function openStream() {
         current_tier: env.payload.current_tier ?? 0,
         max_tier: env.payload.max_tier,
       };
-      // Robot decides via the VLM agent loop; keep the JS state but skip
-      // the modal so the operator only ever sees buy choices for the user.
-      if (currentState?.turn === "robot") pendingDecision = decision;
+      // Robot decides deterministically; keep the JS state but skip the
+      // modal so the operator only ever sees buy choices for the user.
+      // In auto-mode the user is robot-driven too, so suppress the modal
+      // for both players and let maybeAutoTriggerRobotTurn() decide.
+      if (currentState?.turn === "robot" || autoMode) pendingDecision = decision;
       else showDecision(decision);
     }
     // Close the modal when *any* client (script, second tab, agent loop)
@@ -1127,7 +1162,9 @@ document.getElementById("btn-roll-dice").addEventListener("click", async () => {
     //      has a clear view. No pickup, no drop.
     //    - Robot turn → /api/dice/roll_robot. The arm physically picks
     //      up, lifts, drops the die, then reads the rolled face.
-    const diceEndpoint = (currentState && currentState.turn === "user")
+    //    - Auto-mode  → roll_robot for BOTH players: the user's turn is now
+    //      played by the robot, so it physically rolls the die too.
+    const diceEndpoint = (currentState && currentState.turn === "user" && !autoMode)
       ? "/api/dice/read_robot"
       : "/api/dice/roll_robot";
     console.log("[roll-chain] dice step:",
@@ -1950,9 +1987,9 @@ function parseVoiceDecision(text) {
 // is the fallback when cash is tight. Hotels never fire from unowned
 // (the two-step buy + build server txn risks a partial failure at the
 // $200 boundary); they only happen on revisit.
-function pickRobotDecision(state, pending) {
-  const liquid = state.players?.robot?.balance ?? 0;
-  const lap = state.lap_count?.robot ?? 0;
+function pickRobotDecision(state, pending, player = "robot") {
+  const liquid = state.players?.[player]?.balance ?? 0;
+  const lap = state.lap_count?.[player] ?? 0;
   const currentTier = pending.current_tier ?? 0;
   const maxTier = pending.max_tier ?? 3;
   const isUtility = pending.kind === "utility" || maxTier === 1;
@@ -1960,10 +1997,11 @@ function pickRobotDecision(state, pending) {
     return (currentTier === 0 && liquid >= 200) ? "buy" : "skip";
   }
 
+  // Two-player game: whoever isn't `player` is the opponent.
   let oppHotels = 0, ownHotels = 0, ownTotal = 0;
   for (const p of Object.values(state.properties || {})) {
     if (!p.owner) continue;
-    if (p.owner === "robot") {
+    if (p.owner === player) {
       ownTotal++;
       if (p.has_hotel) ownHotels++;
     } else if (p.has_hotel) {
@@ -2103,22 +2141,39 @@ const SOLO_MODE = new URLSearchParams(location.search).get("solo") === "1";
 function maybeAutoTriggerRobotTurn() {
   if (SOLO_MODE) return;  // external driver owns the game; stand down
   if (!currentState || currentState.winner) return;
-  if (currentState.turn !== "robot") return;
+  const player = currentState.turn;
+  // The robot always auto-plays. In auto-mode (robot-vs-robot) the user's
+  // turns are driven by the same logic so the whole game plays itself.
+  const shouldDrive = player === "robot" || (autoMode && player === "user");
+  if (!shouldDrive) return;
   const pendingPid = pendingDecision ? pendingDecision.property_id : "";
-  const key = `${currentState.turn}|${currentState.fsm}|${currentState.turn_number}|${pendingPid}`;
+  const key = `${player}|${currentState.fsm}|${currentState.turn_number}|${pendingPid}`;
   if (vlmPlayerLastTurnKey === key) return;
   if (currentState.fsm === "TURN_START") {
     vlmPlayerLastTurnKey = key;
-    vlmPlayerAct("It's your turn (robot). Roll the dice and move your cube.");
+    if (player === "robot") {
+      vlmPlayerAct("It's your turn (robot). Roll the dice and move your cube.");
+    } else {
+      // Auto-mode user turn: skip the VLM round-trip (roll_and_move is
+      // deterministic) and fire the same Roll-dice chain the robot uses.
+      // The dice endpoint switches to roll_robot because autoMode is on.
+      const btn = document.getElementById("btn-roll-dice");
+      if (btn && !btn.disabled) {
+        appendChat({ role: "sys", text: "Auto-mode → user rolls" });
+        btn.click();
+      }
+    }
   } else if (currentState.fsm === "AWAIT_DECISION" && pendingDecision) {
     vlmPlayerLastTurnKey = key;
     // Deterministic strategy lives in pickRobotDecision — no VLM call.
     // The choice is legal by construction (skip is always legal), so we
     // can submitDecision directly and AWAIT_DECISION always advances.
-    const choice = pickRobotDecision(currentState, pendingDecision);
-    appendChat({ role: "sys", text: `Robot decision → ${choice}` });
+    // In auto-mode this also handles the user's buys, using the acting
+    // player's own cash / holdings.
+    const choice = pickRobotDecision(currentState, pendingDecision, player);
+    appendChat({ role: "sys", text: `Auto ${player} decision → ${choice}` });
     submitDecision(choice, choice === "build" ? 1 : 0)
-      .catch((err) => console.warn("[robot-decide]", err));
+      .catch((err) => console.warn("[auto-decide]", err));
   }
 }
 
@@ -2631,6 +2686,10 @@ function setupHotkeys() {
     if (isTypingTarget(e.target)) return;
     const k = e.key.toLowerCase();
     if (k === "escape") { closeChatOverlay(); return; }
+
+    // A: toggle auto-mode (robot vs robot). Works in both debug and game
+    // mode; when turned on it immediately starts driving the current turn.
+    if (k === "a") { e.preventDefault(); toggleAutoMode(); return; }
 
     const isGame = document.body.classList.contains("game-mode");
     // Game mode: C reveals/hides the overlay without recording. Z/X always
