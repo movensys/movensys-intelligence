@@ -1,6 +1,8 @@
 # Running Robopoly Game 
 ## Step 1: Movensys-manipulator
-check `movensys-manipulator/doc` 1_ and 2_
+Follow 1_setup.md in `movensys-manipulator/doc` and set to `export MOVENSYS_ROS_VERSION=general` in ~/.bashrc configuration
+Follow 2_docker.md in `movensys-manipulator/doc`.
+
 
 ## Step 2: Open Isaac Sim
 `~/workspaces/movensys-simulation/<MANIPULATOR_MODEL>/7a_robopoly_simulation.usd`
