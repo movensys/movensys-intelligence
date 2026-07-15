@@ -3,17 +3,17 @@ set -e
 
 MODE=${1:-}
 case "$MODE" in
-  wmx-ros2|build_nvidia|build_intel_vllm|build_intel|run) ;;
+  wmx-r2|build_nvidia|build_intel_vllm|build_intel|run) ;;
   *)
-    echo "Usage: $0 {wmx-ros2|build_nvidia|build_intel_vllm|build_intel|run}" >&2
-    echo "  wmx-ros2                       Launch the wmx-ros2 manipulator driver (foreground, prompts for sudo)" >&2
+    echo "Usage: $0 {wmx-r2|build_nvidia|build_intel_vllm|build_intel|run}" >&2
+    echo "  wmx-r2                       Launch the wmx-r2 manipulator driver (foreground, prompts for sudo)" >&2
     echo "  build_nvidia                   Rebuild docker images and start persistent containers (NVIDIA GPU)" >&2
     echo "  build_intel_vllm               Down all + drop caches + build/run vllm only (Intel GPU)" >&2
     echo "  build_intel                    Build remaining services: vectordb, vlm, whisper, manipulator, robopoly (Intel GPU)" >&2
     echo "  run                            Start runtime containers + ROS launches in a tmux session" >&2
     echo "" >&2
     echo "Recommended order (each in its own terminal):" >&2
-    echo "  Terminal 1:  $0 wmx-ros2" >&2
+    echo "  Terminal 1:  $0 wmx-r2" >&2
     echo "  Terminal 2:  $0 build_nvidia       (NVIDIA GPU, only when code/images change)" >&2
     echo "  Terminal 2:  $0 build_intel_vllm   (Intel GPU,  only when code/images change)" >&2
     echo "  Terminal 2:  $0 build_intel        (Intel GPU,  after build_intel_vllm)" >&2
@@ -133,10 +133,10 @@ if [[ "$MODE" == "build_intel" ]]; then
 fi
 
 # ============================================================================
-# WMX-ROS2 MODE: foreground manipulator driver, owns its own terminal + sudo
+# WMX R2 MODE: foreground manipulator driver, owns its own terminal + sudo
 # ============================================================================
-if [[ "$MODE" == "wmx-ros2" ]]; then
-  echo "==> [wmx-ros2] launching manipulator driver"
+if [[ "$MODE" == "wmx-r2" ]]; then
+  echo "==> [wmx-r2] launching manipulator driver"
   exec sudo --preserve-env=PATH \
             --preserve-env=AMENT_PREFIX_PATH \
             --preserve-env=COLCON_PREFIX_PATH \
@@ -149,7 +149,7 @@ if [[ "$MODE" == "wmx-ros2" ]]; then
             --preserve-env=RMW_IMPLEMENTATION \
             bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash \
                   && source ${HOME}/workspaces/movensys_ws/install/setup.bash \
-                  && ros2 launch wmx_ros2_package wmx_ros2_cr3a_manipulator.launch.py use_sim_time:=false"
+                  && ros2 launch wmx_r2_package wmx_r2_cr3a_manipulator.launch.py use_sim_time:=false"
 fi
 
 # ============================================================================

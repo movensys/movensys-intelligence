@@ -1,10 +1,10 @@
 # Running Robopoly Game
 ## 1. Execution Procedure
 
-### Step 1: Launch wmx-ros2 (Terminal 1)
+### Step 1: Launch wmx-r2 (Terminal 1)
 ```bash
 cd ~/workspaces/movensys-intelligence/movensys_sample/doc
-./run_robopoly.sh wmx-ros2
+./run_robopoly.sh wmx-r2
 ```
 
 
