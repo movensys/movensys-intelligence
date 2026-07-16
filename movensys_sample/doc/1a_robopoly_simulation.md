@@ -1,45 +1,32 @@
-# Running Robopoly Game 
+# Running Robopoly Game
 ## Step 1: Movensys-manipulator
 Follow 1_setup.md in `movensys-manipulator/doc` and set to `export MOVENSYS_ROS_VERSION=general` in ~/.bashrc configuration
-Follow 2_docker.md in `movensys-manipulator/doc`.
-
 
 ## Step 2: Open Isaac Sim
-`~/workspaces/movensys-simulation/<MANIPULATOR_MODEL>/7a_robopoly_simulation.usd`
+Open `~/workspaces/movensys-simulation/<MANIPULATOR_MODEL>/7a_robopoly_simulation.usd` and press play button.
 
-## Step 3: Run simulator bridge
+### Step 3: Build containers on NVIDIA Blackwell GPU
+```bash
+cd ~/workspaces/movensys-intelligence/movensys_sample/doc
+./run_robopoly.sh build_nvidia
+```
+
+## Step 4: Run simulator bridge
 ```
 mros ros2 launch movensys_manipulator_moveit_config sim_bridge.launch.py simulator:=isaacsim use_sim_time:=true 
 ```
 
-## Step 4a: Launch MoveIt2's OMPL + API
+## Step 5: Launch MoveIt2's OMPL + API
 ```
 mros ros2 launch movensys_manipulator_moveit_config moveit.launch.py use_sim_time:=true
 ```
 
-## Step 4b: Launch cuMotion + API
-```
-mros ros2 launch movensys_manipulator_isaac_ros_config isaac_cumotion.launch.py use_sim_time:=true
-```
-
-## Step 5: Launch Yolo detector
+## Step 6: Launch Yolo detector
 ```
 mros ros2 launch movensys_manipulator_perception yolo_dice_and_cube_detector.launch.py use_sim_time:=true
 ```
 
-## Step 6: Run VLM package
-Run `movensys_vlm/doc/running.md`
-
-## Step 7: Running movensys_robopoly
-```
-export MOVENSYS_PNP_DRY_RUN=0
-cd ~/workspaces/movensys-intelligence/movensys_sample/movensys_robopoly/docker
-docker compose down
-docker compose build
-docker compose up -d
-```
-
-## Step 8: Enjoy the robopoly game
+## Step 7: Enjoy the robopoly game
 1. Click `Toggle is_YOLO` and check `is_YOLO` is set to ON.
 2. Click Reset game and play the game.
 

@@ -12,16 +12,19 @@ cd ~/workspaces/movensys-intelligence/movensys_sample/doc
 
 ### Step 2a: Build containers on Nvidia env (Terminal 2)
 ```bash
+cd ~/workspaces/movensys-intelligence/movensys_sample/doc
 ./run_robopoly.sh build_nvidia
 ```
 
 ### Step 2b-1: Build vllm containers on Intel env (Terminal 2)
 ```bash
+cd ~/workspaces/movensys-intelligence/movensys_sample/doc
 ./run_robopoly.sh build_intel_vllm
 ```
 
 ### Step 2b-2: Build other containers (Terminal 3)
 ```bash
+cd ~/workspaces/movensys-intelligence/movensys_sample/doc
 ./run_robopoly.sh build_intel
 ```
 
