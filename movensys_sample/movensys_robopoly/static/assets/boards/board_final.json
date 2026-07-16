@@ -1,7 +1,7 @@
 {
   "board_id": "final",
   "tile_count": 14,
-  "seed_money": 500,
+  "seed_money": 999999999999,
   "start_bonus": 100,
   "physical_image": "board.png",
   "layout": {
