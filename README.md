@@ -8,7 +8,7 @@ the manipulator from natural language.
 
 ## Overview
 
-This repository sits on top of the WMX ROS 2 manipulator stack and gives it
+This repository sits on top of the WMX R2 manipulator stack and gives it
 a higher-level reasoning layer:
 
 - **VLM service** — FastAPI server wrapping a vLLM-hosted Gemma 4 model
@@ -146,8 +146,8 @@ grep '\[timing\]' baseline.log
 
 - [movensys-manipulator](https://github.com/movensys/movensys-manipulator) — ROS 2 manipulator stack driven by this layer
 - [movensys-simulation](https://github.com/movensys/movensys-simulation) — Isaac Sim scenes used by the demos
-- [wmx-ros2](https://github.com/movensys/wmx-ros2) — Core WMX motion control packages
-- [wmx-ros2-doc](https://github.com/movensys/wmx-ros2-doc) — WMX ROS 2 documentation site
+- [wmx-r2](https://github.com/movensys/wmx-r2) — Core WMX motion control packages
+- [wmx-r2-doc](https://github.com/movensys/wmx-r2-doc) — WMX R2 documentation site
 
 ## License
 
