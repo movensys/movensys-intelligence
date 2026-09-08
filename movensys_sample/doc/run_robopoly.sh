@@ -23,6 +23,38 @@ case "$MODE" in
 esac
 
 # ============================================================================
+# ENVIRONMENT
+# ----------------------------------------------------------------------------
+# movensys-manipulator moved its compose paths into docker/.env, so its
+# 1_setup.md no longer exports MOVENSYS_MANIPULATOR_PACKAGES. Default it here
+# rather than cd-ing to "/docker".
+#
+# These are exported, not just set: the compose files read MANIPULATOR_MODEL,
+# ROS_DISTRO, ROS_DOMAIN_ID and RMW_IMPLEMENTATION from the environment (they
+# are not in docker/.env), so a default that is not exported would leave
+# compose with an empty value.
+# ============================================================================
+export MOVENSYS_MANIPULATOR_PACKAGES="${MOVENSYS_MANIPULATOR_PACKAGES:-${HOME}/workspaces/movensys_ws/src/movensys-manipulator}"
+export MOVENSYS_ROS_VERSION="${MOVENSYS_ROS_VERSION:-general}"
+export CPU_ARCH="${CPU_ARCH:-amd64}"
+export XPU_CORE="${XPU_CORE:-nvidia-gpu}"
+export MANIPULATOR_MODEL="${MANIPULATOR_MODEL:-dobot_cr3a}"
+export ROS_DISTRO="${ROS_DISTRO:-jazzy}"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-73}"
+export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
+
+# wmx-r2 names its example files by the bare model: dobot_cr3a -> cr3a
+WMX_ROBOT="${MANIPULATOR_MODEL#dobot_}"
+
+if [ ! -d "${MOVENSYS_MANIPULATOR_PACKAGES}/docker" ]; then
+  echo "error: MOVENSYS_MANIPULATOR_PACKAGES does not look like a checkout of" >&2
+  echo "       movensys-manipulator: ${MOVENSYS_MANIPULATOR_PACKAGES}" >&2
+  echo "       Set it to the repository root, e.g." >&2
+  echo "       export MOVENSYS_MANIPULATOR_PACKAGES=~/workspaces/movensys_ws/src/movensys-manipulator" >&2
+  exit 1
+fi
+
+# ============================================================================
 # BUILD MODE: 3-phase sequence mirrors movensys_vlm/doc/running.md
 #   Phase A — DOWN everything first
 #       Step 1: down movensys_vlm + vectordb + whisper
@@ -149,7 +181,11 @@ if [[ "$MODE" == "wmx-r2" ]]; then
             --preserve-env=RMW_IMPLEMENTATION \
             bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash \
                   && source ${HOME}/workspaces/movensys_ws/install/setup.bash \
-                  && ros2 launch wmx_r2_package wmx_r2_cr3a_manipulator.launch.py use_sim_time:=false"
+                  && ros2 launch wmx_r2_package wmx_r2_manipulator.launch.py \
+                       use_sim_time:=false \
+                       config_file:=\$(ros2 pkg prefix --share wmx_r2_package)/example/${WMX_ROBOT}_manipulator_config.yaml \
+                       wmx_param_file:=\$(ros2 pkg prefix --share wmx_r2_package)/example/${WMX_ROBOT}_wmx_parameters.xml \
+                       use_gripper:=true"
 fi
 
 # ============================================================================
