@@ -7,7 +7,9 @@ x-common: &common
   image: movensys_vlm_image:latest
   container_name: movensys_vlm_container
   volumes:
-    - ${MOVENSYS_MANIPULATOR_PACKAGES}:/app/movensys_ws/src/movensys-manipulator:ro
+    # Resolved against this compose file's directory:
+    # <workspaces>/movensys_ws/src/movensys-manipulator
+    - ../../../movensys_ws/src/movensys-manipulator:/app/movensys_ws/src/movensys-manipulator:ro
     - movensys_ws_build:/app/movensys_ws/build
     - movensys_ws_install:/app/movensys_ws/install
   restart: unless-stopped
@@ -20,7 +22,7 @@ x-common-env: &common-env
   ROS_DISTRO: ${ROS_DISTRO}
   ROS_DOMAIN_ID: ${ROS_DOMAIN_ID}
   RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION}
-  MOVENSYS_MANIPULATOR_PACKAGES: ${MOVENSYS_MANIPULATOR_PACKAGES}
+  MOVENSYS_MANIPULATOR_PACKAGES: /app/movensys_ws/src/movensys-manipulator
   VLM_BASE_URL: ${VLM_BASE_URL}
   VLM_MODEL_NAME: ${VLM_MODEL_NAME}
   VLM_TIMEOUT: ${VLM_TIMEOUT}
