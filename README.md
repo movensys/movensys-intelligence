@@ -55,6 +55,7 @@ NVIDIA desktop GPUs, Jetson Thor, and Intel B60 / Panther Lake XPU.
 | `vllm`                  | 9000        | vLLM OpenAI-compatible inference server |
 | `whisper`               | 9010        | Speech-to-text server                    |
 | `vectordb` (Qdrant)     | 6333        | Long-term vector memory                  |
+| `embed` (TEI)           | 9020        | Text embeddings for the vector memory    |
 | `movensys_robopoly`     | 7999        | Robopoly demo UI/API                     |
 | `phoenix` (optional)    | 6006        | OpenTelemetry/LLM traces UI              |
 
@@ -122,7 +123,7 @@ Full bring-up, teardown, and Phoenix-tracing options are documented in
 
 The Robopoly board-game demo drives the manipulator via the VLM stack. With
 the `movensys-manipulator` YOLO simulation example running (see
-[`movensys-manipulator/doc/6a_yolo_simulation.md`](https://github.com/movensys/movensys-manipulator/blob/main/doc/6a_yolo_simulation.md)):
+[`movensys-manipulator/doc/8a_yolo_simulation.md`](https://github.com/movensys/movensys-manipulator/blob/main/doc/8a_yolo_simulation.md)):
 
 ```
 export MOVENSYS_PNP_DRY_RUN=0     # set to 1 to skip arm motion
@@ -132,7 +133,20 @@ docker compose up -d --build
 
 Open the UI on `http://localhost:7999/`, toggle `is_YOLO` on, and start a
 game. Dry-run mode and the auto-play test script are described in
-[`movensys_sample/doc/1a_robopoly_simulation.md`](movensys_sample/doc/1a_robopoly_simulation.md).
+[`movensys_sample/doc/1a_robopoly_simulation.md`](movensys_sample/doc/1a_robopoly_simulation.md),
+and the real-robot run in
+[`movensys_sample/doc/1c_robopoly_real.md`](movensys_sample/doc/1c_robopoly_real.md).
+
+Robopoly's own reference docs live in
+[`movensys_sample/movensys_robopoly/doc/`](movensys_sample/movensys_robopoly/doc/):
+
+| Doc | Covers |
+|-----|--------|
+| [`running.md`](movensys_sample/movensys_robopoly/doc/running.md) | Bring-up, environment variables, dry-run mode |
+| [`API.md`](movensys_sample/movensys_robopoly/doc/API.md) | REST/WebSocket endpoints |
+| [`game_logic.md`](movensys_sample/movensys_robopoly/doc/game_logic.md) | Board rules, decks, turn handling |
+| [`vlm_as_player.md`](movensys_sample/movensys_robopoly/doc/vlm_as_player.md) | How the VLM takes a turn |
+| [`PRD.md`](movensys_sample/movensys_robopoly/doc/PRD.md) | Product requirements for the demo |
 
 ### Pick-and-place from the command line
 
@@ -151,4 +165,4 @@ grep '\[timing\]' baseline.log
 
 ## License
 
-Released under the MIT License.
+Released under the MIT License. See [`LICENSE.txt`](LICENSE.txt) for details.
