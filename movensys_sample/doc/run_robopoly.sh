@@ -36,7 +36,7 @@ esac
 # ============================================================================
 export MOVENSYS_MANIPULATOR_PACKAGES="${MOVENSYS_MANIPULATOR_PACKAGES:-${HOME}/workspaces/movensys_ws/src/movensys-manipulator}"
 export MOVENSYS_ROS_VERSION="${MOVENSYS_ROS_VERSION:-general}"
-export CPU_ARCH="${CPU_ARCH:-amd64}"
+export CPU_ARCH="${CPU_ARCH:-x86-64}"
 export XPU_CORE="${XPU_CORE:-nvidia-gpu}"
 export MANIPULATOR_MODEL="${MANIPULATOR_MODEL:-dobot_cr3a}"
 export ROS_DISTRO="${ROS_DISTRO:-jazzy}"
