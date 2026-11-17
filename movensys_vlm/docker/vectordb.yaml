@@ -6,7 +6,7 @@
 #   * embed  — HuggingFace text-embeddings-inference, CPU image. The embedding
 #     model is small (~120 MB for multilingual-e5-small) so CPU is fine on edge
 #     and leaves the GPU free for vllm. TEI does not publish a multi-arch CPU
-#     tag, so the image is profile-selected by CPU_ARCH (amd64 / arm64),
+#     tag, so the image is profile-selected by CPU_ARCH (x86-64 / arm64),
 #     mirroring the XPU_CORE convention in vllm.yaml / whisper.yaml.
 #
 # Bring-up (from this directory):
@@ -58,7 +58,7 @@ services:
   # embedding model is public and an empty token re-triggers the bug.
   embed-amd64:
     <<: *embed
-    profiles: [amd64]
+    profiles: [x86-64, amd64]
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
 
   # ── Jetson AGX Thor / arm64 ─────────────────────────────────────────────────
