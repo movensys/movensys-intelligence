@@ -40,7 +40,7 @@ export CPU_ARCH="${CPU_ARCH:-x86-64}"
 export XPU_CORE="${XPU_CORE:-nvidia-gpu}"
 export MANIPULATOR_MODEL="${MANIPULATOR_MODEL:-dobot_cr3a}"
 export ROS_DISTRO="${ROS_DISTRO:-jazzy}"
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-73}"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-70}"
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
 
 # wmx-r2 names its example files by the bare model: dobot_cr3a -> cr3a
