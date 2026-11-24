@@ -1,0 +1,45 @@
+# Own compose project: movensys_vlm/docker/ is also a "docker" directory, so
+# without a name both stacks would share the project (and its volumes).
+name: movensys_push_t
+
+x-common: &common
+  build:
+    context: ..
+    dockerfile: docker/movensys_push_t.Dockerfile
+    args:
+      - ROS_DISTRO=${ROS_DISTRO}
+  image: movensys_push_t_image:latest
+  container_name: movensys_push_t_container
+  volumes:
+    # Resolved against this compose file's directory:
+    # <workspaces>/movensys_ws/src/movensys-manipulator
+    - ../../../movensys_ws/src/movensys-manipulator:/app/movensys_ws/src/movensys-manipulator:ro
+    - movensys_ws_build:/app/movensys_ws/build
+    - movensys_ws_install:/app/movensys_ws/install
+  restart: unless-stopped
+  network_mode: host
+
+x-common-env: &common-env
+  ROS_DISTRO: ${ROS_DISTRO}
+  ROS_DOMAIN_ID: ${ROS_DOMAIN_ID}
+  RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION}
+  MANIPULATOR_MODEL: ${MANIPULATOR_MODEL:-dobot_cr3a_custom_tool}
+  MOVENSYS_MANIPULATOR_PACKAGES: /app/movensys_ws/src/movensys-manipulator
+  PUSH_T_PORT: ${PUSH_T_PORT:-7000}
+
+services:
+  movensys_push_t-nvidia:
+    <<: *common
+    profiles: [nvidia-gpu]
+    environment:
+      <<: *common-env
+
+  movensys_push_t-intel:
+    <<: *common
+    profiles: [intel-xpu]
+    environment:
+      <<: *common-env
+
+volumes:
+  movensys_ws_build:
+  movensys_ws_install:

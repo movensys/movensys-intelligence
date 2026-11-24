@@ -1,5 +1,5 @@
 # Running Movensys-Manipulator
-check `doc/` number 1, 2, and 6
+check `doc/` number 1, 2, and 8
 
 # Bashrc Setup
 ```
