@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
-"""Convert movensys_push_t episodes (raw/*.npz + movensys_episodes.jsonl) to a LeRobot dataset.
+# Converter for movensys_push_t recordings (schema of movensys-imitation, MIT).
+"""Convert recorded episodes (datasets/<name>/raw/*.npz + movensys_episodes.jsonl) to LeRobot.
 
-Run in the movensys-imitation venv (LeRobot 0.6.1, numpy 2):
+Run from movensys_push_t/ with the venv active (``source env.bash``):
 
-    cd ~/movensys-imitation && source env.bash
-    python ~/workspaces/movensys-intelligence/movensys_push_t/scripts/to_lerobot.py \\
-        ~/workspaces/movensys-intelligence/movensys_push_t/datasets/pusht_cr3a_sim \\
-        --repo-id movensys/pusht_cr3a_sim --root datasets/movensys/pusht_cr3a_sim
+    pusht-to-lerobot pusht_cr3a_sim          # -> datasets/lerobot/pusht_cr3a_sim, repo movensys/pusht_cr3a_sim
 
-The features are movensys-imitation's recorder schema (convert_gym_pusht.recorder_features), so
-its training configs and lerobot-dataset-viz work unchanged. Every converted episode gets a line
-in <root>/meta/movensys_episodes.jsonl with its LeRobot ``episode_index``; episodes already
-converted (same ``raw_index`` and ``source``) are skipped, so the script can be re-run after
-each collection session. ``--only-success`` keeps successful episodes only.
+The features are movensys-imitation's recorder schema, so the policy configs and
+``lerobot-dataset-viz`` work unchanged. Every converted episode gets a line in
+<root>/meta/movensys_episodes.jsonl with its LeRobot ``episode_index``; episodes already converted
+(same ``raw_index`` and ``source``) are skipped, so re-run it after each recording session.
 """
 
 from __future__ import annotations
@@ -49,12 +46,15 @@ def read_lines(path: Path) -> list[dict]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("src", type=Path, help="movensys_push_t dataset directory (holds raw/)")
-    ap.add_argument("--repo-id", required=True)
-    ap.add_argument("--root", type=Path, required=True, help="LeRobot dataset root")
-    ap.add_argument("--only-success", action="store_true")
+    ap.add_argument("name", help="dataset name under datasets/ (as recorded on the page)")
+    ap.add_argument("--data-dir", type=Path, default=Path(__file__).resolve().parent.parent / "datasets")
+    ap.add_argument("--repo-id", default=None, help="default: movensys/<name>")
+    ap.add_argument("--root", type=Path, default=None, help="default: <data-dir>/lerobot/<name>")
     ap.add_argument("--robot-type", default="dobot_cr3a")
     args = ap.parse_args()
+    args.src = args.data_dir / args.name
+    args.repo_id = args.repo_id or f"movensys/{args.name}"
+    args.root = args.root or args.data_dir / "lerobot" / args.name
 
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
@@ -65,8 +65,7 @@ def main() -> None:
     root = args.root.expanduser()
     sidecar = root / "meta" / SIDECAR
     done = {(e.get("source"), e.get("raw_index")) for e in read_lines(sidecar)}
-    todo = [e for e in episodes if (str(src), e["raw_index"]) not in done
-            and (e.get("success") or not args.only_success)]
+    todo = [e for e in episodes if (str(src), e["raw_index"]) not in done]
     if not todo:
         print("nothing new to convert")
         return
@@ -104,7 +103,7 @@ def main() -> None:
         with sidecar.open("a") as f:
             f.write(json.dumps(line) + "\n")
         print(f"raw {e['raw_index']} -> episode {index} ({images.shape[0]} frames, "
-              f"success {e.get('success')}, feedback {e.get('feedback', 'rgb')})")
+              f"{e.get('input_device', '')}, {e.get('stop_reason', '')})")
     dataset.finalize()
 
 

@@ -4,7 +4,7 @@ No AI models: a ROS 2 node (ros2_node.py) talks to the MoveIt2 services of
 movensys_manipulator_moveit_config and subscribes to the robot state and the
 9a scene's camera_top_link (/image_top/*). router.py exposes them over
 REST/WebSocket, static/index.html is the control page with the camera (/).
-imitation_node.py / imitation_router.py add the PushT imitation-learning workflow (planar guard,
+scripts/imitation_node.py / scripts/imitation_router.py add the PushT imitation-learning workflow (planar guard,
 pixel scorer, episode recorder and manager), with its page at /imitation.html.
 
 Started by docker/movensys_push_t-entrypoint.sh:
@@ -21,7 +21,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.staticfiles import StaticFiles
 
 from ros2_node import start_ros_node
-from imitation_router import router as imitation_router
+from scripts.imitation_router import router as imitation_router
 from router import WS_STREAMS, router
 
 STATIC = Path(__file__).resolve().parent / "static"

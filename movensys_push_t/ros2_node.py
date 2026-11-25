@@ -27,7 +27,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy, qos_profile_sensor_data
 
-import imitation_core as ic
+from scripts import imitation_core as ic
 
 
 # Newest top-camera frames (RGB uint8), shared with imitation_node. The image callback only
@@ -208,7 +208,7 @@ def set_scales(vel_scale: float, acc_scale: float) -> dict:
 def start_ros_node():
     def _spin():
         global ros_node, imitation_node
-        from imitation_node import ImitationNode
+        from scripts.imitation_node import ImitationNode
 
         rclpy.init()
         ros_node = PushTNode()

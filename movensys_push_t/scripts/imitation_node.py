@@ -1,14 +1,14 @@
 """ROS 2 side of the PushT imitation features: planar guard, camera ROI, recorder, episode runner.
 
-One node, ``movensys_push_t_imitation``, in the same executor as ``ros2_node.PushTNode``. It speaks
-the topic interface of movensys-imitation, so that repository's ``policy_runner`` (venv) drives
-this scene unchanged:
+One node, ``movensys_push_t_imitation``, in the same executor as ``ros2_node.PushTNode``. The
+policy side is ``learning/policy_runner.py`` (host venv). Topics:
 
-    in   /pusht/target_raw         geometry_msgs/PoseStamped  absolute target (policy)
-    in   /pusht/waypoints          nav_msgs/Path              timed targets (replay)
+    in   /pusht/teleop_target      geometry_msgs/PoseStamped  operator target (keyboard_teleop, remapped)
+    in   /pusht/target_raw         geometry_msgs/PoseStamped  policy target (learning/policy_runner.py)
     out  /servo_node/pose_target_cmds, /pusht/target_guarded  50 Hz while the guard is enabled
-    out  /pusht/feedback_image     sensor_msgs/Image          the ROI image the recorder stores
-                                                              (bw / gray / rgb, 256 x 256), 10 Hz
+    out  /pusht/policy_image       sensor_msgs/Image          the grayscale ROI image the recorder
+                                                              stores (256 x 256, rgb8 with equal
+                                                              channels), 10 Hz; the policy's input
     out  /episode_recorder/state   std_msgs/String            idle | recording:<n>
     out  /planar_guard/state       std_msgs/String            <state>:<reason>
     out  /episode_manager/state    std_msgs/String            idle | reset:* | record:<n> | end:* | fault:*
@@ -37,7 +37,6 @@ import yaml
 from geometry_msgs.msg import PoseStamped
 from moveit_msgs.msg import ServoStatus
 from moveit_msgs.srv import ServoCommandType
-from nav_msgs.msg import Path as PathMsg
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from rclpy.node import Node
 from rclpy.parameter import Parameter
@@ -47,9 +46,9 @@ from sensor_msgs.msg import Image, JointState
 from std_msgs.msg import Bool, String
 import tf2_ros
 
-import imitation_core as ic
+from scripts import imitation_core as ic
 
-APP = Path(__file__).resolve().parent
+APP = Path(__file__).resolve().parent.parent   # movensys_push_t/
 CONFIG = Path(os.environ.get("PUSHT_IMITATION_CONFIG", APP / "config" / "imitation.yaml"))
 DATA = Path(os.environ.get("PUSHT_DATA_DIR", APP / "datasets"))
 CAMERA_FRAME = "camera_top_color_optical_frame"
@@ -91,21 +90,17 @@ class ImitationNode(Node):
         self.core = ic.GuardCore(ic.GuardConfig(
             area_center=self.task.area_center, area_size=self.task.area_size,
             step_limit=g.get("step_limit", 0.005), eef_distance_limit=g.get("eef_distance_limit", 0.03),
-            max_speed=g.get("max_speed", 0.12), deadzone=g.get("deadzone", 0.05), expo=g.get("expo", 1.5),
-            joy_stale=g.get("joy_stale", 0.2), eef_stale=g.get("eef_stale", 0.5),
-            pose_stale=g.get("pose_stale", 0.5)))
+            eef_stale=g.get("eef_stale", 0.5), pose_stale=g.get("pose_stale", 0.5)))
         self.guard_hz = float(g.get("stream_hz", 50.0))
         self.latch_mode = g.get("latch_mode", "nominal" if self.mode == "sim" else "measured")
         self.lift_height = float(g.get("lift_height", 0.08))
         c = cfg.get("camera", {})
         self.image_stale = float(c.get("image_stale", 0.5))
-        self.roi_margin = float(c.get("roi_margin", 0.03))
-        self.default_threshold = ic.HsvRange.from_dict(c["threshold"]) if c.get("threshold") else ic.HsvRange()
+        self.roi_margin = float(c.get("roi_margin", 0.0))
         r = cfg.get("recorder", {})
         self.rec_cfg = {"fps": int(r.get("fps", 10)), "image_size": int(r.get("image_size", 256)),
                         "max_image_age": float(r.get("max_image_age", 0.15)),
                         "tick_tolerance": float(r.get("tick_tolerance", 0.02))}
-        self.feedback = r.get("feedback", "bw")
         m = cfg.get("episodes", {})
         self.ep_cfg = {
             "episode_seconds": float(m.get("episode_seconds", 30.0)),
@@ -121,7 +116,15 @@ class ImitationNode(Node):
 
         # guard
         self.enabled = False
-        self.owner = "ui"              # ui | manager | policy: who may set targets
+        # Who may set targets: external (the operator's keyboard_teleop) | manager | policy.
+        # Operator input is movensys_manipulator_moveit_config keyboard_teleop in p mode with its
+        # pose target remapped to /pusht/teleop_target, so it passes through this guard (doc/running.md).
+        self.owner = "external"
+        # keyboard_teleop keeps its own target and does not see the guard's scripted moves, so
+        # after every handover its targets count only once one lands near the guarded target
+        # (pressing p in keyboard_teleop re-seeds it from the measured pose).
+        self.external_armed = False
+        self.external_arm_radius = float(g.get("external_arm_radius", 0.03))
         self.eef: Optional[tuple[float, float, float]] = None
         self.eef_q: Optional[tuple[float, float, float, float]] = None
         self.eef_rx = -math.inf
@@ -134,12 +137,8 @@ class ImitationNode(Node):
         self.latched_q: Optional[tuple[float, float, float, float]] = None
         self.lift_goal = 0.0
         self.lift_offset = 0.0
-        self.stick = (0.0, 0.0)
-        self.stick_deadman = False
-        self.stick_rx = -math.inf
         self.pose_cmd: Optional[tuple[float, float]] = None
         self.pose_rx = -math.inf
-        self.path: list[tuple[float, float, float]] = []
         self.guard_state = "disabled"
         self.last_guard_state = ""
 
@@ -170,11 +169,11 @@ class ImitationNode(Node):
         self.create_subscription(JointState, "/joint_states", self._on_joints, 10, callback_group=cb)
         self.create_subscription(ServoStatus, "/servo_node/status", self._on_servo_status, 10, callback_group=cb)
         self.create_subscription(Bool, "/moveit2_trajectory/execution_active", self._on_exec, latched, callback_group=cb)
+        self.create_subscription(PoseStamped, "/pusht/teleop_target", self._on_teleop_target, 10, callback_group=cb)
         self.create_subscription(PoseStamped, "/pusht/target_raw", self._on_target_raw, 10, callback_group=cb)
-        self.create_subscription(PathMsg, "/pusht/waypoints", self._on_waypoints, 10, callback_group=cb)
         self.servo_pub = self.create_publisher(PoseStamped, "/servo_node/pose_target_cmds", 10)
         self.guarded_pub = self.create_publisher(PoseStamped, "/pusht/target_guarded", 10)
-        self.feedback_pub = self.create_publisher(Image, "/pusht/feedback_image", 1)
+        self.policy_pub = self.create_publisher(Image, "/pusht/policy_image", 1)
         self.rec_pub = self.create_publisher(String, "/episode_recorder/state", 10)
         self.guard_pub = self.create_publisher(String, "/planar_guard/state", 10)
         self.man_pub = self.create_publisher(String, "/episode_manager/state", 10)
@@ -185,8 +184,22 @@ class ImitationNode(Node):
         self.create_timer(1.0 / self.guard_hz, self._guard_tick, callback_group=MutuallyExclusiveCallbackGroup())
         self.create_timer(1.0 / self.rec_cfg["fps"], self._tick_10hz, callback_group=MutuallyExclusiveCallbackGroup())
         self.create_timer(1.0, self._heartbeat, callback_group=MutuallyExclusiveCallbackGroup())
+        # Enable the guard by itself once the arm pose is known, so keyboard_teleop works after a
+        # restart without a click; it latches holding the tool where it is and waits for p.
+        self.auto_enable = bool(g.get("auto_enable", True))
+        self._auto_timer = self.create_timer(0.5, self._auto_enable_tick, callback_group=MutuallyExclusiveCallbackGroup())
         self.get_logger().info(f"imitation node up: mode {self.mode}, sim time {use_sim}, data {DATA}, "
                                f"ROI {'loaded' if self.cam else 'not set (auto on first frame)'}")
+
+    def _auto_enable_tick(self) -> None:
+        if not self.auto_enable:
+            self._auto_timer.cancel()
+            return
+        if self.eef is not None and time.monotonic() - self.eef_rx < 0.5 and self.switch_client.service_is_ready():
+            self._auto_timer.cancel()
+            if not self.enabled:
+                self.set_enabled(True)
+                self.get_logger().info("guard enabled at startup (guard.auto_enable)")
 
     # ------------------------------------------------------------------ time and callbacks
     def now(self) -> float:
@@ -212,18 +225,24 @@ class ImitationNode(Node):
                 self.core.reset()  # re-anchor on the measured pose once MoveIt is done
 
     def _on_target_raw(self, msg: PoseStamped) -> None:
+        """Policy targets: used only while a policy episode owns the arm."""
         with self.lock:
             if self.owner != "policy" or msg.header.frame_id not in ("", self.task.planning_frame):
                 return
-            self.path = []
             self.pose_cmd, self.pose_rx = (msg.pose.position.x, msg.pose.position.y), time.monotonic()
 
-    def _on_waypoints(self, msg: PathMsg) -> None:
+    def _on_teleop_target(self, msg: PoseStamped) -> None:
+        """keyboard_teleop targets: used whenever the operator owns the arm."""
         with self.lock:
-            if self.owner != "policy":
+            if self.owner != "external" or msg.header.frame_id not in ("", self.task.planning_frame):
                 return
-            self.path = sorted((Time.from_msg(p.header.stamp).nanoseconds * 1e-9,
-                                p.pose.position.x, p.pose.position.y) for p in msg.poses)
+            xy = (msg.pose.position.x, msg.pose.position.y)
+            if not self.external_armed:
+                ref = self.core.target or (self.eef[:2] if self.eef else None)
+                if ref is None or math.hypot(xy[0] - ref[0], xy[1] - ref[1]) > self.external_arm_radius:
+                    return
+                self.external_armed = True
+            self.pose_cmd, self.pose_rx = xy, time.monotonic()
 
     # ------------------------------------------------------------------------- guard
     def set_enabled(self, on: bool) -> str:
@@ -233,11 +252,12 @@ class ImitationNode(Node):
             if not on and self.man_thread and self.man_thread.is_alive():
                 raise ValueError("abort the episode run first")
             self.enabled = on
+            self.external_armed = False
             self.core.reset()
             self.latched_z = self.latched_q = None
             self.lift_goal = self.lift_offset = 0.0
             self.pose_mode_ok = False
-            self.pose_cmd, self.path = None, []
+            self.pose_cmd = None
         if on:
             self._switch_pose_mode()
         return "enabled" if on else "disabled"
@@ -255,12 +275,6 @@ class ImitationNode(Node):
                 self.pose_mode_ok = False
         self.switch_client.call_async(req).add_done_callback(done)
 
-    def relatch(self) -> None:
-        with self.lock:
-            if self.lift_goal > 0 or abs(self.lift_offset) > 1e-4:
-                raise ValueError("lower the tool before relatching")
-            self.latched_z = self.latched_q = None
-
     def set_lift(self, up: bool) -> None:
         with self.lock:
             self.lift_goal = self.lift_height if up else 0.0
@@ -270,36 +284,19 @@ class ImitationNode(Node):
             return "moving"
         return "up" if self.lift_goal > 1e-6 else "down"
 
-    def set_stick(self, sx: float, sy: float, deadman: bool) -> None:
-        """Stick in screen axes (right, up), -1..1, rotated onto the planning frame."""
-        right, up = self.screen_axes()
-        with self.lock:
-            if self.owner != "ui":
-                return
-            self.core.set_source(ic.SOURCE_STICK)
-            self.stick = (sx * right[0] + sy * up[0], sx * right[1] + sy * up[1])
-            self.stick_deadman, self.stick_rx = bool(deadman), time.monotonic()
+    def _give_operator(self) -> None:
+        """Hand the arm to the operator input (call with the lock held)."""
+        self.owner = "external"
+        self.external_armed = False
 
-    def set_ui_target(self, x: float, y: float) -> None:
-        with self.lock:
-            if self.owner != "ui":
-                return
-            self.core.set_source(ic.SOURCE_POSE)
-            self.path = []
-            self.pose_cmd, self.pose_rx = (x, y), time.monotonic()
+    def keyboard_teleop_connected(self) -> bool:
+        """A publisher on /pusht/teleop_target (the remapped keyboard_teleop)."""
+        try:
+            return self.count_publishers("/pusht/teleop_target") > 0
+        except Exception:  # noqa: BLE001
+            return False
 
     def _pose_command(self):
-        if self.path:
-            now = self.now()
-            first, last = self.path[0], self.path[-1]
-            if now <= first[0]:
-                return (first[1], first[2]), 0.0
-            if now >= last[0]:
-                return (last[1], last[2]), now - last[0]
-            for (t0, x0, y0), (t1, x1, y1) in zip(self.path, self.path[1:]):
-                if t0 <= now <= t1:
-                    a = 0.0 if t1 == t0 else (now - t0) / (t1 - t0)
-                    return (x0 + a * (x1 - x0), y0 + a * (y1 - y0)), 0.0
         if self.pose_cmd is None:
             return None, math.inf
         if self.owner == "manager":
@@ -327,13 +324,10 @@ class ImitationNode(Node):
                 if self.lift_offset > 0.005:
                     self.lift_goal = min(self.lift_height, self.lift_offset)
             pose_cmd, pose_age = self._pose_command()
-            stick_src = self.core.source == ic.SOURCE_STICK and self.owner == "ui"
             out = self.core.update(ic.GuardInputs(
                 dt=1.0 / self.guard_hz,
                 eef_xy=None if self.eef is None else self.eef[:2], eef_age=eef_age,
                 servo_halted=self.servo_halted,
-                deadman=self.stick_deadman if stick_src else True,
-                stick=self.stick, joy_age=time.monotonic() - self.stick_rx,
                 pose_cmd=pose_cmd, pose_age=pose_age))
             self._set_guard_state(f"{out.state}:{out.reason}" if out.reason else out.state)
             if not out.publish or out.target is None or self.latched_z is None:
@@ -376,17 +370,6 @@ class ImitationNode(Node):
         k = info["k"]
         return k[0], k[4], k[2], k[5]
 
-    def screen_axes(self):
-        """Planning-frame xy directions of image right and image up."""
-        cam = self._camera_tf()
-        if cam is None:
-            return (-1.0, 0.0), (0.0, -1.0)  # 9a sim camera
-        rot = cam[0]
-        right, up = rot[:2, 0], -rot[:2, 1]
-        right = right / (np.linalg.norm(right) or 1.0)
-        up = up / (np.linalg.norm(up) or 1.0)
-        return (float(right[0]), float(right[1])), (float(up[0]), float(up[1]))
-
     def project(self, pts_xyz):
         cam, k = self._camera_tf(), self._intrinsics()
         if cam is None or k is None:
@@ -398,21 +381,6 @@ class ImitationNode(Node):
             pc = rot.T @ (np.asarray(p, float) - t)
             out.append(None if pc[2] <= 1e-6 else [float(fx * pc[0] / pc[2] + cx), float(fy * pc[1] / pc[2] + cy)])
         return out
-
-    def unproject(self, u: float, v: float, plane_z: float):
-        cam, k = self._camera_tf(), self._intrinsics()
-        if cam is None or k is None:
-            return None
-        rot, t = cam
-        fx, fy, cx, cy = k
-        d = rot @ np.array([(u - cx) / fx, (v - cy) / fy, 1.0])
-        if abs(d[2]) < 1e-9:
-            return None
-        s = (plane_z - t[2]) / d[2]
-        if s <= 0:
-            return None
-        p = t + s * d
-        return float(p[0]), float(p[1])
 
     def tip_z(self) -> float:
         return self.task.table_z + self.task.tip_clearance_nominal
@@ -431,16 +399,19 @@ class ImitationNode(Node):
         return f
 
     def auto_roi(self, image_size) -> tuple[int, int, int, int]:
-        """Square ROI around the push area (plus ``roi_margin``) from the camera model."""
+        """ROI = the push area (guarded area) on the table, plus ``roi_margin``, from the camera model.
+
+        Not forced square: the 256 x 256 policy image stretches it, the same fixed warp for
+        recording and for the policy runner.
+        """
         uv = self.project(self.area_corners(self.roi_margin))
         w, h = image_size
         if not uv or any(p is None for p in uv):
             side = min(w, h)
             return ((w - side) // 2, (h - side) // 2, side, side)
         us, vs = [p[0] for p in uv], [p[1] for p in uv]
-        side = int(math.ceil(max(max(us) - min(us), max(vs) - min(vs))))
-        cu, cv = (max(us) + min(us)) / 2, (max(vs) + min(vs)) / 2
-        return ic.CameraSetup.clamp_roi((cu - side / 2, cv - side / 2, side, side), image_size)
+        x0, y0 = math.floor(min(us)), math.floor(min(vs))
+        return ic.CameraSetup.clamp_roi((x0, y0, math.ceil(max(us)) - x0, math.ceil(max(vs)) - y0), image_size)
 
     def _ensure_camera_setup(self, frame: np.ndarray) -> Optional[ic.CameraSetup]:
         if self.cam is not None:
@@ -448,19 +419,13 @@ class ImitationNode(Node):
         size = (frame.shape[1], frame.shape[0])
         if self._camera_tf() is None:
             return None  # wait for TF so the auto ROI is right
-        self._save_camera_setup(ic.CameraSetup(size, self.auto_roi(size), self.default_threshold,
-                                               {"roi": "auto"}))
+        self._save_camera_setup(ic.CameraSetup(size, self.auto_roi(size), {"roi": "auto"}))
         return self.cam
 
     def _save_camera_setup(self, cam: ic.CameraSetup) -> None:
-        cam.meta["feedback"] = self.feedback
+        cam.meta["image"] = "gray"
         cam.save(self.cam_dir)
         self.cam = cam
-        n = self.rec_cfg["image_size"]
-        d = DATA / "calibration" / f"{self.mode}_feedback"
-        ic.CameraSetup((n, n), (0, 0, n, n), cam.threshold,
-                       {"note": "crop for /pusht/feedback_image (already the ROI at policy size)",
-                        "roi_in_camera": list(cam.crop), "feedback": self.feedback}).save(d)
         _chown_like(DATA / "calibration", DATA)
 
     def set_roi(self, roi=None) -> dict:
@@ -470,71 +435,33 @@ class ImitationNode(Node):
         if f is None:
             raise ValueError("no fresh camera frame")
         size = (f[3].shape[1], f[3].shape[0])
-        thr = self.cam.threshold if self.cam else self.default_threshold
         crop = self.auto_roi(size) if roi is None else ic.CameraSetup.clamp_roi(roi, size)
-        self._save_camera_setup(ic.CameraSetup(size, crop, thr, {"roi": "auto" if roi is None else "manual"}))
+        self._save_camera_setup(ic.CameraSetup(size, crop, {"roi": "auto" if roi is None else "manual"}))
         return self.camera_info_dict()
-
-    def set_threshold(self, thr: dict) -> dict:
-        if self.recording:
-            raise ValueError("not while recording")
-        if self.cam is None:
-            raise ValueError("no ROI yet (no camera frame)")
-        self._save_camera_setup(ic.CameraSetup(self.cam.image_size, self.cam.crop, ic.HsvRange.from_dict(thr),
-                                               dict(self.cam.meta)))
-        return self.camera_info_dict()
-
-    def pick_color(self, u: float, v: float) -> dict:
-        """Set the T colour range from a 9 x 9 patch around a full-frame pixel on the T."""
-        f = self.latest_frame()
-        if f is None or self.cam is None:
-            raise ValueError("no fresh camera frame")
-        img = f[3]
-        x, y = int(u), int(v)
-        patch = img[max(0, y - 4):y + 5, max(0, x - 4):x + 5]
-        if patch.size == 0:
-            raise ValueError("pixel outside the image")
-        hsv = cv2.cvtColor(np.ascontiguousarray(patch), cv2.COLOR_RGB2HSV).reshape(-1, 3)
-        h, s, val = (int(x) for x in np.median(hsv, axis=0))
-        if s < 40:
-            raise ValueError("that pixel has no colour (grey / white / black); click on the T")
-        lo, hi = h - 12, h + 12
-        thr = {"hue": [lo % 180, hi % 180], "sat_min": max(40, s - 70), "val": [max(10, val - 90), 255]}
-        return self.set_threshold(thr)
 
     def camera_info_dict(self) -> Optional[dict]:
         if self.cam is None:
             return None
         return {"dir": str(self.cam_dir), "roi": list(self.cam.crop), "image_size": list(self.cam.image_size),
-                "threshold": self.cam.threshold.to_dict(), "meta": self.cam.meta}
+                "meta": self.cam.meta}
 
-    def feedback_png(self, mode: Optional[str] = None) -> Optional[bytes]:
-        """The policy / dataset image of the newest frame (what the recorder stores)."""
+    def policy_png(self) -> Optional[bytes]:
+        """The grayscale policy / dataset image of the newest frame (what the recorder stores)."""
         f = self.latest_frame()
         if f is None:
             return None
         cam = self._ensure_camera_setup(f[3])
         if cam is None:
             return None
-        img = ic.feedback_image(cam.apply_crop(f[3]), mode or self.feedback, cam.threshold,
-                                self.rec_cfg["image_size"])
-        return cv2.imencode(".png", cv2.cvtColor(img, cv2.COLOR_RGB2BGR))[1].tobytes()
-
-    def set_feedback(self, mode: str) -> None:
-        if mode not in ic.FEEDBACK_MODES:
-            raise ValueError(f"feedback must be one of {ic.FEEDBACK_MODES}")
-        if self.recording:
-            raise ValueError("not while recording")
-        self.feedback = mode
-        if self.cam is not None:
-            self._save_camera_setup(self.cam)
+        img = ic.gray_image(cam.apply_crop(f[3]), self.rec_cfg["image_size"])
+        return cv2.imencode(".png", img[..., 0])[1].tobytes()
 
     # ------------------------------------------------------------------------- recorder
     def _tick_10hz(self) -> None:
         f = self.latest_frame()
         cam = None if f is None else self._ensure_camera_setup(f[3])
-        if cam is not None and self.feedback_pub.get_subscription_count() > 0:
-            self._publish_feedback(cam, f[3])
+        if cam is not None and self.policy_pub.get_subscription_count() > 0:
+            self._publish_policy_image(cam, f[3])
         if not self.recording or self.buffer is None:
             return
         now = self.now()
@@ -551,18 +478,15 @@ class ImitationNode(Node):
             return
         self._set_rec_state(f"recording:{len(self.buffer)}")
 
-    def _publish_feedback(self, cam: ic.CameraSetup, frame: np.ndarray) -> None:
-        try:
-            img = ic.feedback_image(cam.apply_crop(frame), self.feedback, cam.threshold, self.rec_cfg["image_size"])
-        except ValueError:
-            return
+    def _publish_policy_image(self, cam: ic.CameraSetup, frame: np.ndarray) -> None:
+        img = ic.gray_image(cam.apply_crop(frame), self.rec_cfg["image_size"])
         msg = Image()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = CAMERA_FRAME
         msg.height, msg.width = img.shape[:2]
         msg.encoding, msg.step = "rgb8", img.shape[1] * 3
         msg.data = img.tobytes()
-        self.feedback_pub.publish(msg)
+        self.policy_pub.publish(msg)
 
     def _set_rec_state(self, state: str) -> None:
         if state != self.rec_state:
@@ -593,6 +517,8 @@ class ImitationNode(Node):
         if not 5.0 <= episode_seconds <= 600.0:
             raise ValueError("episode_seconds must be in [5, 600]")
         name = "".join(ch for ch in dataset if ch.isalnum() or ch in "_-.") or "pusht_cr3a_sim"
+        if name in ("calibration", "lerobot"):
+            raise ValueError(f"'{name}' is reserved; pick another dataset name")
         self.session = {"dataset": name, "operator": operator, "n_episodes": max(1, int(n_episodes)),
                         "input_device": input_device, "episode_seconds": float(episode_seconds),
                         "start_from_home": bool(start_from_home),
@@ -627,8 +553,6 @@ class ImitationNode(Node):
     def _hold_here(self) -> None:
         with self.lock:
             self.owner = "manager"
-            self.core.set_source(ic.SOURCE_POSE)
-            self.path = []
             self.pose_cmd = self.core.target or (self.eef[:2] if self.eef else None)
 
     def _lift(self, up: bool) -> None:
@@ -640,8 +564,7 @@ class ImitationNode(Node):
         home = tuple(self.task.home_candidates[0])
         with self.lock:
             self.owner = "manager"
-            self.core.set_source(ic.SOURCE_POSE)
-            self.path, self.pose_cmd = [], home
+            self.pose_cmd = home
         tol = self.ep_cfg["home_tolerance"]
         self._wait(lambda: self.eef is not None and math.hypot(self.eef[0] - home[0], self.eef[1] - home[1]) < tol,
                    self.ep_cfg["home_timeout"], "home")
@@ -662,7 +585,7 @@ class ImitationNode(Node):
             self._set_man(f"fault:{type(exc).__name__}", str(exc))
         finally:
             with self.lock:
-                self.owner = "ui"
+                self._give_operator()
                 self.pose_cmd = None
             self.episode_t0 = None
 
@@ -688,7 +611,8 @@ class ImitationNode(Node):
             time.sleep(self.ep_cfg["lower_settle"])
         if sess["wait_before_record"]:
             with self.lock:
-                self.owner = "ui"   # the operator may position the tool before recording
+                self._give_operator()   # the operator may position the tool before recording
+                self.pose_cmd = None
             self._set_man("reset:ready", f"episode {k}: arrange the T, then press Record")
             self._wait(lambda: self.man_cmd == "record", 3600, "ready")
             self.man_cmd = None
@@ -696,13 +620,14 @@ class ImitationNode(Node):
         policy = sess["input_device"] == "policy"
         duration = sess["episode_seconds"]
         max_frames = int(round(duration * self.rec_cfg["fps"]))
-        self.buffer = ic.EpisodeBuffer(self.cam, sheet_origin=self.task.area_center, feedback=self.feedback,
+        self.buffer = ic.EpisodeBuffer(self.cam, sheet_origin=self.task.area_center,
                                        **self.rec_cfg)
         with self.lock:
-            self.path, self.pose_cmd = [], None
-            self.stick, self.stick_rx = (0.0, 0.0), -math.inf
-            self.owner = "policy" if policy else "ui"
-            self.core.set_source(ic.SOURCE_POSE if policy else ic.SOURCE_STICK)
+            self.pose_cmd = None
+            if policy:
+                self.owner = "policy"
+            elif self.owner != "external":
+                self._give_operator()   # still armed if the operator already drove in reset:ready
         wall0 = time.monotonic()
         self.episode_t0 = self.now()
         self.recording = True
@@ -734,6 +659,7 @@ class ImitationNode(Node):
             "seed": -1, "home_xy": None if home is None else [round(v, 4) for v in home],
             "operator": sess["operator"], "mode": self.mode, "input_device": sess["input_device"],
             "stop_reason": reason, "episode_seconds": duration,
+            "teleop_input": None if policy else "keyboard_teleop",
             "wall_seconds": round(time.monotonic() - wall0, 2), "success": None,
         }
         self.last_episode = {"kept": keep, "frames": len(buf), **meta, "timing": buf.timing.to_dict(buf.fps)}
@@ -751,45 +677,34 @@ class ImitationNode(Node):
         self._set_man("end:done", f"episode {k} {'saved' if keep else 'discarded'}, {len(buf)} frames "
                       f"({len(buf) / buf.fps:.1f} s)")
         with self.lock:
-            self.owner = "ui"
+            self._give_operator()
             self.pose_cmd = None
 
     # ---------------------------------------------------------------------- status
     def status(self) -> dict:
         z = self.tip_z()
-        pts = self.area_corners(z=z) + [(h[0], h[1], z) for h in self.task.home_candidates]
+        nh = len(self.task.home_candidates)
+        proj = self.project(self.area_corners() + [(h[0], h[1], z) for h in self.task.home_candidates])
+        uv = None if proj is None else {"area": proj[:4], "homes": proj[4:4 + nh]}
         tgt, eef = self.core.target, self.eef
-        if tgt is not None:
-            pts.append((tgt[0], tgt[1], z))
-        if eef is not None:
-            pts.append((eef[0], eef[1], z))
-        proj = self.project(pts)
-        uv = None
-        if proj is not None:
-            nh = len(self.task.home_candidates)
-            uv = {"area": proj[:4], "homes": proj[4:4 + nh]}
-            k = 4 + nh
-            if tgt is not None:
-                uv["target"] = proj[k]
-                k += 1
-            if eef is not None:
-                uv["eef"] = proj[k]
         f = self.frames.latest()
         rec_frames = 0 if self.buffer is None else len(self.buffer)
         sess = self.session
         return {
             "mode": self.mode,
-            "guard": {"enabled": self.enabled, "state": self.guard_state, "source": self.core.source,
+            "guard": {"enabled": self.enabled, "state": self.guard_state,
                       "owner": self.owner, "pose_mode_ok": self.pose_mode_ok,
+                      "keyboard_teleop_connected": self.keyboard_teleop_connected(),
+                      "external_waiting": self.owner == "external" and not self.external_armed,
                       "servo_halted": self.servo_halted, "servo_msg": self.servo_msg,
                       "moveit_executing": self.exec_active, "lift": self.lift_state(),
                       "latched_z": self.latched_z, "push_z": self.task.push_z,
-                      "max_speed": self.core.config.max_speed, "target": tgt,
+                      "target": tgt,
                       "eef": None if eef is None else list(eef),
                       "eef_age": None if eef is None else round(time.monotonic() - self.eef_rx, 3)},
             "camera": {"age": None if f is None else round(time.monotonic() - f[1], 3),
                        "seq": None if f is None else f[0], "uv": uv, "setup": self.camera_info_dict()},
-            "feedback": self.feedback,
+            "policy_image": "gray",
             "recorder": {"state": self.rec_state, "frames": rec_frames,
                          "seconds": round(rec_frames / self.rec_cfg["fps"], 1),
                          "error": self.rec_error, "saving": self.saving},

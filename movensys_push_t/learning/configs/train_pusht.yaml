@@ -1,0 +1,22 @@
+# Task config for datasets recorded with movensys_push_t (doc/train.md). Compose after a policy
+# config, this file LAST (later files deep-merge over earlier ones):
+#   pusht-train --config_path=learning/configs/diffusion.yaml,learning/configs/train_pusht.yaml \
+#       --seed=1 --output_dir=outputs/diffusion_s1
+# Paths are relative to movensys_push_t/ (run pusht-train from there).
+dataset:
+  repo_id: movensys/pusht_cr3a_sim
+  root: datasets/lerobot/pusht_cr3a_sim
+policy:
+  # Recorded frames are 256 x 256 (grayscale in 3 channels); the policy configs expect the gym
+  # 96 x 96 frame with an 84 x 84 random crop.
+  resize_shape: [96, 96]
+  crop_ratio: 0.875
+seed: 1000            # pass --seed per run
+steps: 20000
+batch_size: 64
+num_workers: 4
+env_eval_freq: 0      # no gym evaluation: the gym env is not this scene; evaluate with policy episodes
+save_freq: 5000
+log_freq: 100
+wandb:
+  enable: false

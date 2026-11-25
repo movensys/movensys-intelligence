@@ -3,3 +3,5 @@ movensys_vlm/vllm
 .venv/
 movensys_push_t/models
 movensys_push_t/datasets/
+movensys_push_t/outputs/
+movensys_push_t/*.egg-info/

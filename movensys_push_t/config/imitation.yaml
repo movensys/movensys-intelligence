@@ -10,33 +10,28 @@ task:
   link6_to_tip_bottom: 0.22     # dobot_cr3a_custom_tool: Link6 -> tool_tcp
   tip_clearance_nominal: 0.010  # tip bottom above the table while pushing
   home_candidates: [[-0.03, 0.08], [-0.25, 0.08], [0.19, 0.08]]
-  park_rpy: [3.1416, 0.0, -3.1416]   # tool vertical, for the "Park" MoveIt move
 
 guard:
+  auto_enable: true             # enable the guard at startup once the arm pose and Servo are up
+  # Operator input: keyboard_teleop (p mode) remapped to /pusht/target_raw, see doc/running.md.
+  external_arm_radius: 0.03     # m; keyboard_teleop targets count once one is this close to the guarded target
   latch_mode: nominal           # nominal: push height = table + tip + clearance (sim);
                                 # measured: latch where the tool is (real: park at push height first)
   stream_hz: 50.0
   step_limit: 0.005             # m per cycle (0.25 m/s at 50 Hz)
   eef_distance_limit: 0.030     # m the target may lead the measured Link6
-  max_speed: 0.12               # m/s at full stick (keyboard / gamepad); UI slider
-  deadzone: 0.05
-  expo: 1.5
   lift_height: 0.08             # m above the push plane while homing and scoring
-  joy_stale: 0.2                # s without browser input -> hold
   eef_stale: 0.5
-  pose_stale: 0.5               # s without a new target (drag, policy) -> hold
+  pose_stale: 0.5               # s without a new target (keyboard_teleop, policy) -> hold
 
 camera:
   image_stale: 0.5              # s; older frames are not recorded (frames come from a ring buffer)
-  roi_margin: 0.03              # m around the push area for the automatic ROI
-  # T colour for the black-and-white image (OpenCV HSV: H 0..179). Default: the green T of the
-  # 9a scene. Set it in the UI by clicking on the T, or with the sliders.
-  threshold: {hue: [40, 90], sat_min: 80, val: [20, 255]}
+  roi_margin: 0.0               # m added around the push area (guarded area) for Auto ROI
 
 recorder:
   fps: 10
   image_size: 256
-  feedback: bw                  # ROI image stored and fed to the policy: bw (T white on black) | gray | rgb
+  # The ROI image stored and fed to the policy is grayscale (gray value in all three channels).
   max_image_age: 0.15           # s (wall clock) between frame arrival and the tick
   tick_tolerance: 0.02
 

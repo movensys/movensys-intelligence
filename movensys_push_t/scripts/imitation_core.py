@@ -1,20 +1,18 @@
-"""PushT imitation-learning logic without ROS: guard, camera ROI, feedback image, episode buffer.
+"""PushT imitation-learning logic without ROS: guard, camera ROI, grayscale ROI image, episode buffer.
 
-Ported from movensys-imitation (origin/devel, 2026-11-22) so data collected here trains with that
-repository unchanged:
+Parts are ported from movensys-imitation (origin/devel, 2026-11-22, MIT); everything now lives in
+movensys-intelligence (training and the policy runner are in ``learning/``):
 
-* :class:`GuardCore` is ``movensys_imitation_ros/guard_core.py`` (planar target, area clamp, step
-  limit, EEF-distance limit, stick or absolute-pose source).
-* :class:`EpisodeBuffer` builds frames of the recorder schema
-  (``movensys_imitation.data.convert_gym_pusht.recorder_features``): ``observation.state`` and
-  ``action`` in the sheet frame (planning frame minus the push-area centre), the ROI image at
-  256 x 256 and the joints. ``block_pose``, ``coverage`` and ``iou`` are NaN: this setup records
-  demonstrations like video clips and does not score them.
-* :class:`CameraSetup` is saved as ``calibration.yaml`` with the ``image_size`` / ``crop`` keys
-  that movensys-imitation's ``policy_runner`` reads.
+* :class:`GuardCore`: planar target with area clamp, step limit and EEF-distance limit, for
+  absolute targets from keyboard_teleop or a policy.
+* :class:`EpisodeBuffer`: frames of the recorder schema (``learning/to_lerobot.py``):
+  ``observation.state`` and ``action`` in the sheet frame (planning frame minus the push-area
+  centre), the ROI image at 256 x 256 and the joints. ``block_pose``, ``coverage`` and ``iou``
+  are NaN: demonstrations are recorded like video clips and not scored.
+* :class:`CameraSetup`: the ROI, saved as ``calibration.yaml``.
 
-The ROI image ("feedback") is black and white by default: the T, found by an HSV range, white on
-black. ``gray`` and ``rgb`` are kept as options.
+The ROI image is grayscale (stored with the gray value in all three channels, so the schema
+keeps its (256, 256, 3) shape).
 """
 
 from __future__ import annotations
@@ -59,8 +57,6 @@ class TaskConfig:
 
 EPS = 1e-9
 STATE_INIT, STATE_FAULT, STATE_HOLD, STATE_MOVING = "init", "fault", "hold", "moving"
-SOURCE_STICK, SOURCE_POSE = "stick", "pose"
-SOURCES = (SOURCE_STICK, SOURCE_POSE)
 
 
 @dataclass
@@ -69,10 +65,6 @@ class GuardConfig:
     area_size: tuple[float, float] = SHEET_SIZE
     step_limit: float = 0.005
     eef_distance_limit: float = 0.030
-    max_speed: float = 0.12
-    deadzone: float = 0.05
-    expo: float = 1.5
-    joy_stale: float = 0.2
     eef_stale: float = 0.5
     pose_stale: float = 0.5
 
@@ -91,9 +83,6 @@ class GuardInputs:
     eef_xy: tuple[float, float] | None
     eef_age: float = 0.0
     servo_halted: bool = False
-    deadman: bool = True
-    stick: tuple[float, float] | None = None  # already in the planning frame, -1..1
-    joy_age: float = 0.0
     pose_cmd: tuple[float, float] | None = None
     pose_age: float = 0.0
 
@@ -107,11 +96,10 @@ class GuardOutput:
 
 
 class GuardCore:
-    """Guarded planar target (movensys_imitation_ros.guard_core.GuardCore)."""
+    """Guarded planar target (after movensys-imitation's guard_core)."""
 
-    def __init__(self, config: GuardConfig | None = None, source: str = SOURCE_STICK):
+    def __init__(self, config: GuardConfig | None = None):
         self.config = config or GuardConfig()
-        self.source = source
         self.target: tuple[float, float] | None = None
         self.state = STATE_INIT
         self.reason = ""
@@ -123,14 +111,6 @@ class GuardCore:
     def inside(self, x: float, y: float, margin: float = 0.0) -> bool:
         cx, cy = self.clamp(x, y)
         return math.hypot(cx - x, cy - y) <= margin
-
-    def stick_to_velocity(self, sx: float, sy: float) -> tuple[float, float]:
-        c = self.config
-        m = math.hypot(sx, sy)
-        if m <= c.deadzone or m == 0.0:
-            return (0.0, 0.0)
-        gain = min((m - c.deadzone) / (1.0 - c.deadzone), 1.0) ** c.expo
-        return (sx / m * gain * c.max_speed, sy / m * gain * c.max_speed)
 
     def limit_step(self, current, desired) -> tuple[float, float]:
         dx, dy = desired[0] - current[0], desired[1] - current[1]
@@ -149,11 +129,6 @@ class GuardCore:
     def reset(self) -> None:
         self.target = None
         self.state = STATE_INIT
-
-    def set_source(self, source: str) -> None:
-        if source not in SOURCES:
-            raise ValueError(f"unknown source {source!r}; expected one of {SOURCES}")
-        self.source = source
 
     def update(self, inp: GuardInputs) -> GuardOutput:
         c = self.config
@@ -178,17 +153,7 @@ class GuardCore:
         return self._out(True, STATE_MOVING if moved else STATE_HOLD, "" if moved else reason)
 
     def _desired(self, inp: GuardInputs):
-        c = self.config
-        if not inp.deadman:
-            return None, "deadman"
-        if self.source == SOURCE_STICK:
-            if inp.stick is None or inp.joy_age > c.joy_stale:
-                return None, "joy_stale"
-            vx, vy = self.stick_to_velocity(*inp.stick)
-            if vx == 0.0 and vy == 0.0:
-                return None, "stick_centred"
-            return (self.target[0] + vx * inp.dt, self.target[1] + vy * inp.dt), ""
-        if inp.pose_cmd is None or inp.pose_age > c.pose_stale:
+        if inp.pose_cmd is None or inp.pose_age > self.config.pose_stale:
             return None, "pose_stale"
         return inp.pose_cmd, "at_target"
 
@@ -200,51 +165,13 @@ class GuardCore:
 # ---------------------------------------------------------------------------- camera setup
 
 @dataclass
-class HsvRange:
-    """Inclusive HSV box, OpenCV scale (H 0..179); selects the T for the black-and-white image."""
-
-    hue: tuple[int, int] = (40, 90)
-    sat_min: int = 80
-    val: tuple[int, int] = (20, 245)
-
-    def mask(self, hsv: np.ndarray) -> np.ndarray:
-        h, s, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]
-        lo, hi = self.hue
-        in_hue = (h >= lo) & (h <= hi) if lo <= hi else (h >= lo) | (h <= hi)
-        return in_hue & (s >= self.sat_min) & (v >= self.val[0]) & (v <= self.val[1])
-
-    def to_dict(self) -> dict:
-        return {"hue": [int(x) for x in self.hue], "sat_min": int(self.sat_min), "val": [int(x) for x in self.val]}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "HsvRange":
-        return cls(tuple(int(x) for x in d["hue"]), int(d["sat_min"]), tuple(int(x) for x in d["val"]))
-
-
-def largest_component(raw: np.ndarray, open_px: int = 3) -> np.ndarray:
-    """Open ``raw`` (bool) and keep the largest 8-connected component."""
-    m = raw.astype(np.uint8)
-    if open_px > 1:
-        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (open_px, open_px))
-        m = cv2.morphologyEx(m, cv2.MORPH_OPEN, k)
-    n, labels, stats, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
-    if n <= 1:
-        return np.zeros(raw.shape, bool)
-    i = int(np.argmax(stats[1:, cv2.CC_STAT_AREA])) + 1
-    return labels == i
-
-
-@dataclass
 class CameraSetup:
-    """ROI of the top camera and the T colour range, saved as ``calibration.yaml``.
+    """ROI of the top camera, saved as ``calibration.yaml``.
 
-    ``image_size`` and ``crop`` are the keys movensys-imitation's ``load_image_crop`` reads, so
-    the policy runner can take its crop from this file.
     """
 
     image_size: tuple[int, int]
     crop: tuple[int, int, int, int]          # ROI (x0, y0, w, h) in the full frame
-    threshold: HsvRange = field(default_factory=HsvRange)
     meta: dict = field(default_factory=dict)
 
     def apply_crop(self, frame: np.ndarray) -> np.ndarray:
@@ -268,7 +195,6 @@ class CameraSetup:
         d.mkdir(parents=True, exist_ok=True)
         (d / CALIBRATION_YAML).write_text(yaml.safe_dump({
             "image_size": list(self.image_size), "crop": list(self.crop),
-            "threshold": self.threshold.to_dict(),
             "meta": {"updated": datetime.datetime.now().isoformat(timespec="seconds"), **self.meta},
         }, sort_keys=False))
 
@@ -276,7 +202,6 @@ class CameraSetup:
     def load(cls, directory: Path) -> "CameraSetup":
         doc = yaml.safe_load((Path(directory) / CALIBRATION_YAML).read_text())
         return cls(tuple(int(x) for x in doc["image_size"]), tuple(int(x) for x in doc["crop"]),
-                   HsvRange.from_dict(doc["threshold"]) if doc.get("threshold") else HsvRange(),
                    dict(doc.get("meta") or {}))
 
 
@@ -333,9 +258,8 @@ class EpisodeBuffer:
 
     def __init__(self, cal: CameraSetup, fps: int = 10, image_size: int = 256,
                  sheet_origin=(-0.03, -0.05), max_image_age: float = 0.15,
-                 tick_tolerance: float = 0.02, feedback: str = "bw"):
+                 tick_tolerance: float = 0.02):
         self.cal, self.fps, self.image_size = cal, fps, image_size
-        self.feedback = feedback
         self.sheet_origin = sheet_origin
         self.max_image_age, self.tick_tolerance = max_image_age, tick_tolerance
         self.images: list[np.ndarray] = []
@@ -364,8 +288,7 @@ class EpisodeBuffer:
         if age > self.max_image_age:
             tm.stale_frames += 1
         self.cal.check_frame(s.image)
-        crop = feedback_image(self.cal.apply_crop(s.image), self.feedback, self.cal.threshold,
-                              self.image_size)
+        crop = gray_image(self.cal.apply_crop(s.image), self.image_size)
         ox, oy = self.sheet_origin
         self.images.append(np.ascontiguousarray(crop))
         self.state.append((s.eef_xy[0] - ox, s.eef_xy[1] - oy))
@@ -381,7 +304,7 @@ class EpisodeBuffer:
             "action": np.asarray(self.action, np.float32).reshape(n, 2),
             "observation.joints": np.asarray(self.joints, np.float32).reshape(n, 6),
             "block_pose": np.full((n, 3), np.nan, np.float32),
-            # Not scored in this setup; kept (NaN) so the movensys-imitation schema is unchanged.
+            # Not scored in this setup; kept (NaN) so the dataset schema stays the same.
             "coverage": np.full((n, 1), np.nan, np.float32),
             "iou": np.full((n, 1), np.nan, np.float32),
         }
@@ -390,7 +313,7 @@ class EpisodeBuffer:
 class RawStore:
     """Episodes as ``<root>/raw/episode_NNNNNN.npz`` plus the imitation sidecar.
 
-    ``scripts/to_lerobot.py`` (movensys-imitation venv) turns them into a LeRobot dataset; the
+    ``learning/to_lerobot.py`` (``pusht-to-lerobot``) turns them into a LeRobot dataset; the
     sidecar lines get their LeRobot ``episode_index`` there.
     """
 
@@ -427,7 +350,7 @@ class RawStore:
             "recorded_at": datetime.datetime.now().isoformat(timespec="seconds"),
             "fps": buf.fps,
             "task": TASK,
-            "feedback": buf.feedback,
+            "image": "gray",
             "roi": [int(v) for v in buf.cal.crop],
             "sheet_origin_wm": [float(v) for v in buf.sheet_origin],
             **buf.timing.to_dict(buf.fps),
@@ -482,31 +405,13 @@ class FrameBuffer:
             self._buf.clear()
 
 
-FEEDBACK_MODES = ("bw", "gray", "rgb")
+def gray_image(crop_rgb: np.ndarray, size: int = 256) -> np.ndarray:
+    """Policy / dataset image of the ROI: grayscale, (size, size, 3) uint8.
 
-
-def feedback_image(crop_rgb: np.ndarray, mode: str, threshold: HsvRange | None,
-                   size: int = 256, open_px: int = 3) -> np.ndarray:  # noqa: C901
-    """Policy / dataset image of the ROI: ``bw`` = T white on black, ``gray`` or ``rgb``.
-
-    Always (size, size, 3) uint8, so the LeRobot schema of movensys-imitation is unchanged.
-    The binary mask is computed at full ROI resolution, then resized with area interpolation
-    (edges stay anti-aliased, which keeps sub-pixel position information).
+    Converted at full ROI resolution, then resized with area interpolation; the gray value is
+    repeated in three channels so the dataset schema stays (256, 256, 3).
     """
-    if mode == "bw":
-        if threshold is None:
-            raise ValueError("bw feedback needs a calibrated threshold")
-        hsv = cv2.cvtColor(np.ascontiguousarray(crop_rgb), cv2.COLOR_RGB2HSV)
-        mask = largest_component(threshold.mask(hsv), open_px)
-        img = mask.astype(np.uint8) * 255
-    elif mode == "gray":
-        img = cv2.cvtColor(np.ascontiguousarray(crop_rgb), cv2.COLOR_RGB2GRAY)
-    elif mode == "rgb":
-        img = crop_rgb
-    else:
-        raise ValueError(f"feedback mode must be one of {FEEDBACK_MODES}")
+    img = cv2.cvtColor(np.ascontiguousarray(crop_rgb), cv2.COLOR_RGB2GRAY)
     if img.shape[0] != size or img.shape[1] != size:
         img = cv2.resize(img, (size, size), interpolation=cv2.INTER_AREA)
-    if img.ndim == 2:
-        img = np.repeat(img[..., None], 3, axis=2)
-    return np.ascontiguousarray(img)
+    return np.ascontiguousarray(np.repeat(img[..., None], 3, axis=2))

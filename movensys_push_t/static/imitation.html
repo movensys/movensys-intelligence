@@ -52,9 +52,8 @@
   .kv .v { font-family: 'Courier New', monospace; color: var(--mono); text-align: right; word-break: break-all; }
 
   .cam-wrap { position: relative; width: 100%; background: #000; border-radius: 6px; overflow: hidden; }
-  #cam { width: 100%; display: block; cursor: crosshair; touch-action: none; }
+  #cam { width: 100%; display: block; }
   .toolbar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-  .toolbar .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
   .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.72rem; color: var(--muted); }
   .legend span::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; background: var(--c); }
 
@@ -104,46 +103,26 @@
       <div class="card-header"><span>Top camera — /image_top/rgb</span><span id="cam-info" style="text-transform:none;letter-spacing:0"></span></div>
       <div class="card-body">
         <div class="toolbar">
-          <span class="hint">Mouse on image:</span>
-          <button id="m-drive" class="on" onclick="setMouseMode('drive')" title="Hold the mouse button to drive the tip to the cursor">Drive tip</button>
-          <button id="m-roi" onclick="setMouseMode('roi')" title="Drag a rectangle to set the ROI">Draw ROI</button>
-          <button id="m-pick" onclick="setMouseMode('pick')" title="Click on the T to set its colour for the black-and-white image">Pick T colour</button>
-          <span class="sep"></span>
           <label class="inline"><input type="checkbox" id="ov-show" checked /> overlays</label>
         </div>
         <div class="cam-wrap"><canvas id="cam" width="1280" height="720"></canvas></div>
         <div class="legend">
           <span style="--c:#f59e0b">push area</span>
           <span style="--c:#a855f7">ROI (recorded)</span>
-          <span style="--c:#facc15">guarded target</span>
-          <span style="--c:#22d3ee">tip (measured)</span>
           <span style="--c:#64748b">home</span>
         </div>
-        <div class="hint">
-          <b>Drive:</b> hold <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or the arrow keys (screen directions; holding a key is the dead-man,
-          <kbd>Shift</kbd> = half speed), a gamepad's left stick, or hold the mouse on the image to pull the tip toward the cursor.
-          Releasing stops the arm. Input only works while the guard is enabled and you own the arm (teleop).
-        </div>
+        <div class="hint">The arm is driven only from <b>keyboard_teleop</b> through the planar guard (step 1).</div>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-header"><span>Policy input — the ROI image that is recorded</span><span id="fb-mode-t" style="text-transform:none;letter-spacing:0"></span></div>
+      <div class="card-header"><span>Policy input — the grayscale ROI image that is recorded</span></div>
       <div class="card-body">
         <div class="fb-wrap">
-          <img id="fb" alt="feedback image" />
-          <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:8px">
-            <label>Feedback image
-              <select id="fb-mode" onchange="setFeedback(this.value)">
-                <option value="bw">black &amp; white (T white on black)</option>
-                <option value="gray">grayscale</option>
-                <option value="rgb">colour</option>
-              </select>
-            </label>
-            <div class="hint">This 256 × 256 image is what the recorder stores as <code>observation.images.top</code> and what the
-              policy sees on <code>/pusht/feedback_image</code>. In black &amp; white, only the T should be white; if not,
-              use <b>Pick T colour</b> or the colour range in step 2.</div>
-          </div>
+          <img id="fb" alt="policy image" />
+          <div class="hint" style="flex:1;min-width:200px">This 256 × 256 grayscale image is what the recorder stores as
+            <code>observation.images.top</code> and what the policy sees on <code>/pusht/policy_image</code>. It is the ROI of
+            step 2, so keep the ROI fixed for a whole dataset.</div>
         </div>
       </div>
     </div>
@@ -156,20 +135,25 @@
       <div class="card-header"><span><span class="step">1</span>Arm and planar guard</span></div>
       <div class="card-body">
         <div class="hint">The guard is the only writer to MoveIt Servo: it locks the tool vertical at push height
-          (<span id="push-z">–</span> m) and keeps the tip inside the push area. Do not run <code>keyboard_teleop</code> at the same time.
-          If the guard reports <b>eef_outside_area</b>, disable it and press <b>Park</b> first.</div>
+          (<span id="push-z">–</span> m) and keeps the tip inside the push area. Drive it only with the remapped <code>keyboard_teleop</code> below (plain <code>keyboard_teleop</code> would bypass the guard).
+          If the guard reports <b>eef_outside_area</b>, disable it and move the tool over the sheet first (e.g. with the
+          MoveIt moves on the robot control page).</div>
         <div class="row">
-          <button onclick="park()" id="b-park" title="MoveIt joint-space move above the first home point (guard must be off)">Park (MoveIt)</button>
           <button class="primary" id="b-guard" onclick="toggleGuard()">Enable guard</button>
           <button id="b-lift" onclick="toggleLift()">Lift</button>
-          <button onclick="api('POST','/guard/relatch')">Relatch</button>
         </div>
-        <label><span>Teleop speed: <span id="spd-v">0.12</span> m/s</span>
-          <input type="range" id="spd" min="0.02" max="0.25" step="0.01" value="0.12" onchange="api('POST','/guard/speed',{max_speed:+this.value})" oninput="spdV.textContent=(+this.value).toFixed(2)" />
-        </label>
+        <div class="kv">
+          <span class="k">keyboard_teleop</span><span class="v" id="kb-conn">–</span>
+        </div>
+        <div class="hint">Run this in a terminal and keep it focused. Press <kbd>p</kbd> (POSE), keep the base frame (<kbd>w</kbd>),
+          then drive with the arrow keys. Its pose target goes to <code>/pusht/teleop_target</code>, so the guard's limits apply; its
+          twist, joint and mode-switch outputs are remapped to unused topics, so <kbd>t</kbd>, <kbd>j</kbd>, <kbd>e</kbd> do nothing,
+          and the warning <i>switch_command_type not available</i> is expected. The z keys are ignored (height is locked).</div>
+        <div class="note" id="kb-wait"></div>
+        <pre class="cmd" id="cmd-keyboard_teleop"><button onclick="copyCmd('keyboard_teleop')">copy</button></pre>
         <div class="kv">
           <span class="k">guard</span><span class="v" id="g-state">–</span>
-          <span class="k">source / owner</span><span class="v" id="g-src">–</span>
+          <span class="k">input owner</span><span class="v" id="g-src">–</span>
           <span class="k">lift / latched z</span><span class="v" id="g-lift">–</span>
           <span class="k">tip x, y (planning)</span><span class="v" id="g-eef">–</span>
           <span class="k">target x, y</span><span class="v" id="g-tgt">–</span>
@@ -180,10 +164,10 @@
 
     <!-- 2. camera -->
     <div class="card">
-      <div class="card-header"><span><span class="step">2</span>Camera ROI and T colour</span></div>
+      <div class="card-header"><span><span class="step">2</span>Camera ROI</span></div>
       <div class="card-body">
-        <div class="hint">The ROI is cut from the camera frame and resized to 256 × 256. <b>Auto</b> fits the push area from the camera
-          TF; or use <b>Draw ROI</b> on the image. Keep it fixed across a dataset: the policy learns this exact view.</div>
+        <div class="hint">The ROI is cut from the camera frame and resized to 256 × 256. <b>Auto ROI</b> uses exactly the push area
+          (the guarded area, orange) from the camera TF, or type the pixel values and press <b>Apply ROI</b>. Keep it fixed across a dataset: the policy learns this exact view.</div>
         <div class="grid4">
           <label>x0<input type="number" id="roi-x" /></label>
           <label>y0<input type="number" id="roi-y" /></label>
@@ -193,18 +177,8 @@
         <div class="row">
           <button onclick="setRoi(null)">Auto ROI</button>
           <button onclick="setRoi([+roiX.value,+roiY.value,+roiW.value,+roiH.value])">Apply ROI</button>
-          <label class="inline"><input type="checkbox" id="roi-square" checked /> square when drawing</label>
         </div>
-        <div class="grid2">
-          <label>Hue low <span id="h-lo-v"></span><input type="range" id="h-lo" min="0" max="179" /></label>
-          <label>Hue high <span id="h-hi-v"></span><input type="range" id="h-hi" min="0" max="179" /></label>
-          <label>Saturation min <span id="s-lo-v"></span><input type="range" id="s-lo" min="0" max="255" /></label>
-          <label>Value low <span id="v-lo-v"></span><input type="range" id="v-lo" min="0" max="255" /></label>
-        </div>
-        <div class="row">
-          <button onclick="applyThreshold()">Apply colour range</button>
-          <span class="hint" id="cam-setup-t"></span>
-        </div>
+        <div class="hint" id="cam-setup-t"></div>
       </div>
     </div>
 
@@ -217,7 +191,7 @@
           <label>Operator<input type="text" id="op" placeholder="name" /></label>
           <label>Input
             <select id="inp">
-              <option value="teleop">teleop (you drive)</option>
+              <option value="teleop">teleop (keyboard_teleop)</option>
               <option value="policy">policy (policy_runner, step 5)</option>
             </select>
           </label>
@@ -230,7 +204,8 @@
         </div>
         <div class="hint">Teleop: recording runs until <b>Stop &amp; save</b> or the episode length. Policy: always the full
           episode length (Stop is ignored; Discard or Abort end it). Move the T anywhere you like in Isaac Sim between episodes;
-          with <b>wait for Record</b> the arm holds (and you can drive it) until you press Record.</div>
+          with <b>wait for Record</b> you can drive with keyboard_teleop until you press Record (press <kbd>p</kbd> in
+          keyboard_teleop after the arm went home, see step 1).</div>
         <div class="row">
           <button class="primary" id="b-start" onclick="startSession()">Start</button>
           <button class="good" id="b-record" onclick="cmd('record')">● Record</button>
@@ -260,7 +235,7 @@
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>#</th><th>recorded</th><th>s</th><th>input</th><th>end</th><th>timing</th><th>image</th></tr></thead>
+            <thead><tr><th>#</th><th>recorded</th><th>s</th><th>input</th><th>end</th><th>timing</th><th>keys</th></tr></thead>
             <tbody id="ep-rows"></tbody>
           </table>
         </div>
@@ -277,10 +252,10 @@
 
     <!-- 5. train / run -->
     <div class="card">
-      <div class="card-header"><span><span class="step">5</span>Train and run a policy (host, movensys-imitation venv)</span></div>
+      <div class="card-header"><span><span class="step">5</span>Train and run a policy (host, movensys_push_t venv)</span></div>
       <div class="card-body">
         <div class="hint">a) convert the episodes to a LeRobot dataset, b) train, c) start the policy runner, then run step 3
-          with input <b>policy</b>. The runner reads <code>/pusht/feedback_image</code> (the image above), so the policy sees exactly
+          with input <b>policy</b>. The runner reads <code>/pusht/policy_image</code> (the image above), so the policy sees exactly
           what was recorded.</div>
         <div id="cmds"></div>
       </div>
@@ -291,10 +266,9 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const spdV = $('spd-v'), roiX = $('roi-x'), roiY = $('roi-y'), roiW = $('roi-w'), roiH = $('roi-h');
+const roiX = $('roi-x'), roiY = $('roi-y'), roiW = $('roi-w'), roiH = $('roi-h');
 const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 let S = null;                 // last status
-let mouseMode = 'drive';
 let frame = null;             // latest camera Image object
 let imgW = 1280, imgH = 720;
 
@@ -329,13 +303,12 @@ function openCamera() {
 }
 
 const cv = $('cam'), ctx = cv.getContext('2d');
-let roiDrag = null, driveHeld = false, mouseUV = null;
 
 function draw() {
   if (!frame) return;
   if (cv.width !== imgW) { cv.width = imgW; cv.height = imgH; }
   ctx.drawImage(frame, 0, 0);
-  if (!$('ov-show').checked || !S) return drawRoiDrag();
+  if (!$('ov-show').checked || !S) return;
   const uv = S.camera.uv, setup = S.camera.setup;
   ctx.lineWidth = 2;
   if (uv && uv.area && uv.area.every(p => p)) {
@@ -345,82 +318,7 @@ function draw() {
   if (setup) { const [x, y, w, h] = setup.roi; ctx.strokeStyle = '#a855f7'; ctx.lineWidth = 3; ctx.strokeRect(x, y, w, h); }
   if (uv && uv.homes) uv.homes.forEach((p, i) => { if (!p) return; ctx.fillStyle = '#64748b'; ctx.beginPath(); ctx.arc(p[0], p[1], 6, 0, 7); ctx.fill();
     ctx.fillStyle = '#cbd5e1'; ctx.font = '16px sans-serif'; ctx.fillText('H' + (i + 1), p[0] + 8, p[1] - 8); });
-  if (uv && uv.eef) { ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(uv.eef[0], uv.eef[1], 12, 0, 7); ctx.stroke(); }
-  if (uv && uv.target) { ctx.fillStyle = '#facc15'; ctx.beginPath(); ctx.arc(uv.target[0], uv.target[1], 6, 0, 7); ctx.fill(); }
-  if (driveHeld && mouseUV) { ctx.strokeStyle = '#facc15'; ctx.lineWidth = 1; ctx.beginPath();
-    ctx.moveTo(mouseUV[0] - 14, mouseUV[1]); ctx.lineTo(mouseUV[0] + 14, mouseUV[1]); ctx.moveTo(mouseUV[0], mouseUV[1] - 14); ctx.lineTo(mouseUV[0], mouseUV[1] + 14); ctx.stroke(); }
-  drawRoiDrag();
 }
-function drawRoiDrag() {
-  if (!roiDrag) return;
-  const r = roiRect(); ctx.strokeStyle = '#e879f9'; ctx.setLineDash([6, 4]); ctx.lineWidth = 2; ctx.strokeRect(r[0], r[1], r[2], r[3]); ctx.setLineDash([]);
-}
-function canvasUV(ev) {
-  const r = cv.getBoundingClientRect();
-  return [(ev.clientX - r.left) * cv.width / r.width, (ev.clientY - r.top) * cv.height / r.height];
-}
-function roiRect() {
-  let [u0, v0] = roiDrag.a, [u1, v1] = roiDrag.b;
-  let w = Math.abs(u1 - u0), h = Math.abs(v1 - v0);
-  if ($('roi-square').checked) { w = h = Math.max(w, h); }
-  return [Math.round(u1 >= u0 ? u0 : u0 - w), Math.round(v1 >= v0 ? v0 : v0 - h), Math.round(w), Math.round(h)];
-}
-function setMouseMode(m) {
-  mouseMode = m; ['drive', 'roi', 'pick'].forEach(k => $('m-' + k).classList.toggle('on', k === m));
-}
-cv.addEventListener('pointerdown', ev => {
-  const uv = canvasUV(ev); cv.setPointerCapture(ev.pointerId);
-  if (mouseMode === 'drive') { driveHeld = true; mouseUV = uv; sendDrag(); }
-  else if (mouseMode === 'roi') { roiDrag = {a: uv, b: uv}; }
-  else if (mouseMode === 'pick') { api('POST', '/camera/pick', {u: uv[0], v: uv[1]}).then(j => { if (j) { toast('T colour set from the clicked pixel'); applyCameraSetup(j); } }); }
-});
-cv.addEventListener('pointermove', ev => {
-  const uv = canvasUV(ev);
-  if (driveHeld) mouseUV = uv;
-  if (roiDrag) { roiDrag.b = uv; draw(); }
-});
-function endPointer() {
-  if (driveHeld) { driveHeld = false; mouseUV = null; }
-  if (roiDrag) { const r = roiRect(); roiDrag = null; if (r[2] > 32 && r[3] > 32) setRoi(r); else draw(); }
-}
-cv.addEventListener('pointerup', endPointer); cv.addEventListener('pointercancel', endPointer);
-
-// ------------------------------------------------------------------ teleop input
-let inWs = null;
-function openInput() {
-  inWs = new WebSocket(`${proto}//${location.host}/api/imitation/ws/input`);
-  inWs.onclose = () => setTimeout(openInput, 1000);
-}
-function send(o) { if (inWs && inWs.readyState === 1) inWs.send(JSON.stringify(o)); }
-function sendDrag() { if (driveHeld && mouseUV) send({u: mouseUV[0], v: mouseUV[1]}); }
-
-const keys = new Set();
-const typing = () => ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
-const KEYMAP = {ArrowUp: [0, 1], KeyW: [0, 1], ArrowDown: [0, -1], KeyS: [0, -1], ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0]};
-document.addEventListener('keydown', ev => { if (typing() || !KEYMAP[ev.code]) return; keys.add(ev.code); ev.preventDefault(); });
-document.addEventListener('keyup', ev => { keys.delete(ev.code); });
-window.addEventListener('blur', () => keys.clear());
-let stickWasActive = false;
-setInterval(() => {
-  let sx = 0, sy = 0;
-  keys.forEach(k => { sx += KEYMAP[k][0]; sy += KEYMAP[k][1]; });
-  let scale = (keys.size && (event_shift)) ? 0.5 : 1.0;
-  const n = Math.hypot(sx, sy); if (n > 0) { sx = sx / n * scale; sy = sy / n * scale; }
-  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-  for (const gp of pads) {
-    if (!gp) continue;
-    const gx = gp.axes[0] || 0, gy = -(gp.axes[1] || 0);
-    if (Math.hypot(gx, gy) > 0.08) { sx = gx; sy = gy; }
-  }
-  const active = Math.hypot(sx, sy) > 0;
-  if (active) send({sx, sy, deadman: true});
-  else if (stickWasActive) send({sx: 0, sy: 0, deadman: false});
-  stickWasActive = active;
-  sendDrag();
-}, 40);
-let event_shift = false;
-document.addEventListener('keydown', e => { if (e.key === 'Shift') event_shift = true; });
-document.addEventListener('keyup', e => { if (e.key === 'Shift') event_shift = false; });
 
 // ------------------------------------------------------------------ status
 function openStatus() {
@@ -441,21 +339,23 @@ function render() {
   $('push-z').textContent = fmt(g.push_z, 4);
   $('b-guard').textContent = g.enabled ? 'Disable guard' : 'Enable guard';
   $('b-guard').className = g.enabled ? 'danger' : 'primary';
-  $('b-park').disabled = g.enabled;
   $('b-lift').textContent = g.lift === 'up' ? 'Lower' : 'Lift';
   $('b-lift').disabled = !g.enabled;
   $('g-state').textContent = g.enabled ? gs : 'disabled';
-  $('g-src').textContent = `${g.source} / ${g.owner}`;
+  $('g-src').textContent = g.owner === 'external' ? 'keyboard_teleop' : g.owner;
   $('g-lift').textContent = `${g.lift} / ${fmt(g.latched_z, 4)}`;
   $('g-eef').textContent = g.eef ? `${xy(g.eef)}  (z ${fmt(g.eef[2])})` : '–';
   $('g-tgt').textContent = xy(g.target);
   $('g-servo').textContent = g.servo_halted ? 'HALTED ' + g.servo_msg : g.moveit_executing ? 'MoveIt executing (guard paused)' : g.pose_mode_ok ? 'POSE mode' : '–';
-  if (document.activeElement !== $('spd')) { $('spd').value = g.max_speed; spdV.textContent = fmt(g.max_speed, 2); }
+  $('kb-conn').textContent = g.keyboard_teleop_connected ? 'connected' : 'not running';
+  $('kb-wait').textContent = !g.enabled && g.keyboard_teleop_connected
+    ? 'Guard is disabled: keyboard_teleop is running but nothing reaches the arm. Press Enable guard, then p in keyboard_teleop.'
+    : g.enabled && g.external_waiting && g.owner === 'external'
+    ? 'Waiting for keyboard_teleop: press p in its terminal so it picks up the arm’s current position.' : '';
   // step 2
   const setup = cam.setup;
   const key = JSON.stringify(setup);
   if (setup && key !== cameraSetupShown) { cameraSetupShown = key; applyCameraSetup(setup); }
-  $('fb-mode').value = S.feedback; $('fb-mode-t').textContent = S.feedback;
   // step 3
   const st = ep.state, sess = ep.session || {};
   const running = !(st === 'idle' || st.startsWith('fault'));
@@ -483,23 +383,13 @@ let lastDone = null;
 
 function applyCameraSetup(setup) {
   const [x, y, w, h] = setup.roi; roiX.value = x; roiY.value = y; roiW.value = w; roiH.value = h;
-  const t = setup.threshold;
-  $('h-lo').value = t.hue[0]; $('h-hi').value = t.hue[1]; $('s-lo').value = t.sat_min; $('v-lo').value = t.val[0];
-  ['h-lo', 'h-hi', 's-lo', 'v-lo'].forEach(id => $(id + '-v').textContent = $(id).value);
-  $('cam-setup-t').textContent = `ROI ${w}×${h} (${setup.meta.roi || ''}) → 256×256`;
+  $('cam-setup-t').textContent = `ROI ${w}×${h} (${setup.meta.roi || ''}) → 256×256 grayscale`;
 }
-['h-lo', 'h-hi', 's-lo', 'v-lo'].forEach(id => $(id).addEventListener('input', () => $(id + '-v').textContent = $(id).value));
 
 // ------------------------------------------------------------------ actions
 async function toggleGuard() { if (S) await api('POST', '/guard', {enabled: !S.guard.enabled}); }
 async function toggleLift() { if (S) await api('POST', '/guard/lift', {up: S.guard.lift !== 'up'}); }
-async function park() { toast('Parking with MoveIt…'); const j = await api('POST', '/park'); if (j) toast(j.success ? 'Parked' : 'Park failed: ' + j.message, !j.success); }
 async function setRoi(roi) { const j = await api('POST', '/camera/roi', {roi}); if (j) { toast('ROI set'); applyCameraSetup(j); } }
-async function applyThreshold() {
-  const j = await api('POST', '/camera/threshold', {hue: [+$('h-lo').value, +$('h-hi').value], sat_min: +$('s-lo').value, val: [+$('v-lo').value, 255]});
-  if (j) toast('Colour range set');
-}
-async function setFeedback(m) { await api('POST', '/feedback', {mode: m}); }
 async function startSession() {
   const j = await api('POST', '/session/start', {dataset: $('ds').value, operator: $('op').value, n_episodes: +$('n-ep').value,
     input_device: $('inp').value, episode_seconds: +$('dur').value, start_from_home: $('from-home').checked, wait_before_record: $('wait-rec').checked});
@@ -507,11 +397,11 @@ async function startSession() {
 }
 async function cmd(c) { await api('POST', '/session/' + c); }
 
-// feedback preview
+// policy image preview
 setInterval(() => {
   const img = new Image();
   img.onload = () => { $('fb').src = img.src; };
-  img.src = '/api/imitation/feedback.png?t=' + Date.now();
+  img.src = '/api/imitation/policy_image.png?t=' + Date.now();
 }, 250);
 
 // ------------------------------------------------------------------ datasets
@@ -528,7 +418,7 @@ async function loadEpisodes() {
   episodesCache = await api('GET', `/datasets/${name}/episodes`) || [];
   $('ep-rows').innerHTML = episodesCache.slice().reverse().map(e => `<tr data-i="${e.raw_index}">
     <td>${e.raw_index}</td><td>${(e.recorded_at || '').replace('T', ' ')}</td><td>${e.seconds ?? fmt(e.n_frames / e.fps, 1)}</td>
-    <td>${e.input_device || ''}</td><td>${e.stop_reason || ''}</td><td>${e.timing_ok ? 'ok' : '<span style="color:#f59e0b">check</span>'}</td><td>${e.feedback || ''}</td></tr>`).join('');
+    <td>${e.input_device || ''}</td><td>${e.stop_reason || ''}</td><td>${e.timing_ok ? 'ok' : '<span style="color:#f59e0b">check</span>'}</td><td>${e.teleop_input ? 'kb' : ''}</td></tr>`).join('');
   document.querySelectorAll('#ep-rows tr').forEach(tr => tr.onclick = () => openReview(+tr.dataset.i));
 }
 async function deleteLast() {
@@ -570,6 +460,7 @@ function plot(k) {
 async function loadCommands() {
   const j = await api('GET', '/commands?dataset=' + encodeURIComponent($('ds').value)); if (!j) return;
   const titles = {convert: 'a) Convert to LeRobot', train: 'b) Train (Diffusion example)', policy_runner: 'c) Policy runner'};
+  $('cmd-keyboard_teleop').innerHTML = `<button onclick="copyCmd('keyboard_teleop')">copy</button>` + j.keyboard_teleop.replace(/&/g, '&amp;').replace(/</g, '&lt;');
   $('cmds').innerHTML = Object.entries(titles).map(([k, t]) => `<div class="hint"><b>${t}</b></div><pre class="cmd" id="cmd-${k}"><button onclick="copyCmd('${k}')">copy</button>${j[k].replace(/&/g, '&amp;').replace(/</g, '&lt;')}</pre>`).join('')
     + j.notes.map(n => `<div class="hint">• ${n}</div>`).join('');
 }
@@ -579,7 +470,7 @@ function copyCmd(k) {
 }
 $('ds').addEventListener('change', loadCommands);
 
-openCamera(); openStatus(); openInput(); loadDatasets(); loadCommands();
+openCamera(); openStatus(); loadDatasets(); loadCommands();
 </script>
 </body>
 </html>
