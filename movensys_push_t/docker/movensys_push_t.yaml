@@ -16,6 +16,8 @@ x-common: &common
     - ../../../movensys_ws/src/movensys-manipulator:/app/movensys_ws/src/movensys-manipulator:ro
     - movensys_ws_build:/app/movensys_ws/build
     - movensys_ws_install:/app/movensys_ws/install
+    # Episodes and the camera calibration (imitation features); <repo>/movensys_push_t/datasets
+    - ../datasets:/app/datasets
   restart: unless-stopped
   network_mode: host
 
@@ -26,6 +28,9 @@ x-common-env: &common-env
   MANIPULATOR_MODEL: ${MANIPULATOR_MODEL:-dobot_cr3a_custom_tool}
   MOVENSYS_MANIPULATOR_PACKAGES: /app/movensys_ws/src/movensys-manipulator
   PUSH_T_PORT: ${PUSH_T_PORT:-7000}
+  PUSHT_MODE: ${PUSHT_MODE:-sim}                   # sim | real
+  PUSHT_USE_SIM_TIME: ${PUSHT_USE_SIM_TIME:-true}  # false on the real robot
+  PUSHT_DATA_DIR: /app/datasets
 
 services:
   movensys_push_t-nvidia:

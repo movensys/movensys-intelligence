@@ -22,26 +22,42 @@ from fastapi import HTTPException
 from movensys_manipulator_moveit_config.srv import GetEefPose, MoveJoints, MovePose
 from rcl_interfaces.msg import Parameter, ParameterType
 from rcl_interfaces.srv import GetParameters, SetParameters
-from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
+from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy, qos_profile_sensor_data
+
+import imitation_core as ic
 
 
-def _encode_rgb(msg: sensor_msgs.msg.Image) -> Optional[dict]:
-    """rgb8 / bgr8 image -> base64 JPEG."""
-    try:
-        img = np.frombuffer(bytes(msg.data), dtype=np.uint8).reshape(msg.height, msg.width, 3)
-        bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR) if msg.encoding == "rgb8" else img
-        _, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 85])
-        return {
-            "data": base64.b64encode(buf.tobytes()).decode("utf-8"),
-            "encoding": "jpeg",
-            "width": msg.width,
-            "height": msg.height,
-        }
-    except Exception:
+# Newest top-camera frames (RGB uint8), shared with imitation_node. The image callback only
+# decodes into this ring buffer; JPEG for the web UI is encoded on demand from the newest frame,
+# so a slow consumer skips frames instead of serving an old one.
+frames = ic.FrameBuffer(size=4)
+_jpeg_lock = threading.Lock()
+_jpeg_cache: dict = {"seq": -1, "value": None}
+
+
+def latest_rgb_jpeg() -> Optional[dict]:
+    """Newest frame as base64 JPEG (cached per frame)."""
+    f = frames.latest()
+    if f is None:
         return None
+    seq, t_rx, _, img = f
+    with _jpeg_lock:
+        if _jpeg_cache["seq"] != seq:
+            _, buf = cv2.imencode(".jpg", cv2.cvtColor(img, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 85])
+            _jpeg_cache["seq"] = seq
+            _jpeg_cache["value"] = {
+                "data": base64.b64encode(buf.tobytes()).decode("utf-8"),
+                "encoding": "jpeg",
+                "width": int(img.shape[1]),
+                "height": int(img.shape[0]),
+                "seq": seq,
+            }
+        value = dict(_jpeg_cache["value"])
+    value["age"] = round(time.monotonic() - t_rx, 3)
+    return value
 
 
 def _camera_info_to_dict(msg: sensor_msgs.msg.CameraInfo) -> dict:
@@ -70,7 +86,6 @@ class PushTNode(Node):
         self.latest_eef_rpy: Optional[dict] = None
         self.latest_joint_states: Optional[dict] = None
         self.latest_top_camera_info: Optional[dict] = None
-        self.latest_top_rgb_image: Optional[dict] = None
         self.latest_tf_static: Optional[dict] = None
 
         transient_local = QoSProfile(
@@ -91,7 +106,8 @@ class PushTNode(Node):
             lambda m: {"name": list(m.name), "position": list(m.position),
                        "velocity": list(m.velocity), "effort": list(m.effort)})
         sub(sensor_msgs.msg.CameraInfo, "/image_top/camera_info", "latest_top_camera_info", _camera_info_to_dict)
-        sub(sensor_msgs.msg.Image, "/image_top/rgb", "latest_top_rgb_image", _encode_rgb, 1)
+        self.create_subscription(sensor_msgs.msg.Image, "/image_top/rgb", self._cb_image,
+                                 qos_profile_sensor_data, callback_group=MutuallyExclusiveCallbackGroup())
         self.create_subscription(tf2_msgs.msg.TFMessage, "/tf_static", self._cb_tf_static,
                                  transient_local, callback_group=cb)
 
@@ -104,6 +120,17 @@ class PushTNode(Node):
         self.cli_joint_rel = self.create_client(MoveJoints, "/wmx/moveit2/relative_joint_movement", callback_group=cb)
         self.cli_set_params = self.create_client(SetParameters, "/trajectory_api/set_parameters", callback_group=cb)
         self.cli_get_params = self.create_client(GetParameters, "/trajectory_api/get_parameters", callback_group=cb)
+
+    @property
+    def latest_top_rgb_image(self) -> Optional[dict]:
+        return latest_rgb_jpeg()
+
+    def _cb_image(self, msg: sensor_msgs.msg.Image):
+        try:
+            img = ic.decode_image(msg.data, msg.width, msg.height, msg.step, msg.encoding)
+        except ValueError:
+            return
+        frames.put(img, time.monotonic(), msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9)
 
     @staticmethod
     def _pose_stamped(msg: geometry_msgs.msg.PoseStamped) -> dict:
@@ -128,6 +155,7 @@ class PushTNode(Node):
 
 
 ros_node: Optional[PushTNode] = None
+imitation_node = None  # imitation_node.ImitationNode
 
 
 def require_node() -> PushTNode:
@@ -179,14 +207,19 @@ def set_scales(vel_scale: float, acc_scale: float) -> dict:
 
 def start_ros_node():
     def _spin():
-        global ros_node
+        global ros_node, imitation_node
+        from imitation_node import ImitationNode
+
         rclpy.init()
         ros_node = PushTNode()
-        executor = MultiThreadedExecutor()
+        imitation_node = ImitationNode(frames, lambda: ros_node.latest_top_camera_info)
+        executor = MultiThreadedExecutor(num_threads=8)
         executor.add_node(ros_node)
+        executor.add_node(imitation_node)
         try:
             executor.spin()
         finally:
+            imitation_node.destroy_node()
             ros_node.destroy_node()
             if rclpy.ok():
                 rclpy.shutdown()

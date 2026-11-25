@@ -2,3 +2,4 @@ movensys_vlm/models
 movensys_vlm/vllm
 .venv/
 movensys_push_t/models
+movensys_push_t/datasets/

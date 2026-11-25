@@ -40,6 +40,7 @@ WORKDIR /app
 
 COPY *.py ./
 COPY static/ ./static/
+COPY config/ ./config/
 COPY docker/movensys_push_t-entrypoint.sh /movensys_push_t-entrypoint.sh
 RUN chmod +x /movensys_push_t-entrypoint.sh
 

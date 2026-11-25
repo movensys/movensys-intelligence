@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PushT Imitation</title>
+<style>
+  :root {
+    --bg: #0f172a; --panel: #1e293b; --panel2: #162032; --line: #334155;
+    --text: #e2e8f0; --muted: #94a3b8; --dim: #64748b; --accent: #2563eb;
+    --ok: #22c55e; --warn: #f59e0b; --err: #ef4444; --mono: #7dd3fc;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header h1 { font-size: 1.15rem; font-weight: 600; }
+  header a { color: var(--muted); font-size: 0.8rem; text-decoration: none; border: 1px solid var(--line); padding: 3px 10px; border-radius: 6px; }
+  header a:hover { color: var(--text); }
+  .pills { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+  .pill { font-size: 0.72rem; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #475569; }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.err { background: var(--err); }
+
+  .layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(360px, 1fr); gap: 16px; padding: 16px; }
+  @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
+  .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  .card-header { padding: 9px 14px; background: var(--panel2); border-bottom: 1px solid var(--line); font-size: 0.76rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); display: flex; align-items: center; justify-content: space-between; gap: 8px; border-radius: 8px 8px 0 0; }
+  .card-header .step { background: var(--accent); color: #fff; border-radius: 999px; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.7rem; margin-right: 8px; }
+  .card-body { padding: 12px 14px; font-size: 0.82rem; display: flex; flex-direction: column; gap: 10px; }
+  .hint { color: var(--dim); font-size: 0.76rem; line-height: 1.45; }
+  .hint b { color: var(--muted); }
+
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  label { color: var(--muted); font-size: 0.74rem; display: flex; flex-direction: column; gap: 3px; }
+  label.inline { flex-direction: row; align-items: center; gap: 6px; color: var(--text); font-size: 0.8rem; }
+  input[type=text], input[type=number], select { background: var(--bg); border: 1px solid var(--line); color: var(--text); border-radius: 5px; padding: 5px 7px; font-size: 0.82rem; width: 100%; }
+  input[type=range] { width: 100%; }
+  button { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line); background: #273449; color: var(--text); cursor: pointer; font-size: 0.8rem; white-space: nowrap; }
+  button:hover:not(:disabled) { background: #31415a; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.good { background: #15803d; border-color: #15803d; color: #fff; }
+  button.danger { background: #b91c1c; border-color: #b91c1c; color: #fff; }
+  button.on { outline: 2px solid var(--mono); }
+
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; }
+  .kv .k { color: var(--dim); }
+  .kv .v { font-family: 'Courier New', monospace; color: var(--mono); text-align: right; word-break: break-all; }
+
+  .cam-wrap { position: relative; width: 100%; background: #000; border-radius: 6px; overflow: hidden; }
+  #cam { width: 100%; display: block; cursor: crosshair; touch-action: none; }
+  .toolbar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .toolbar .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.72rem; color: var(--muted); }
+  .legend span::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; background: var(--c); }
+
+  .fb-wrap { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+  .fb-wrap img { width: 256px; height: 256px; image-rendering: pixelated; background: #000; border: 1px solid var(--line); border-radius: 4px; }
+
+  .state-big { font-family: 'Courier New', monospace; font-size: 1.05rem; color: var(--mono); }
+  .note { color: var(--warn); font-size: 0.78rem; min-height: 1em; }
+  .progress { height: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .progress > div { height: 100%; width: 0; background: var(--ok); transition: width 0.15s linear; }
+  .rec-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--err); margin-right: 6px; animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: 0.2; } }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
+  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #263246; }
+  th { color: var(--dim); font-weight: 600; }
+  tr.sel td { background: #1d3a5f; }
+  tbody tr { cursor: pointer; }
+  .table-wrap { max-height: 220px; overflow-y: auto; }
+  .review { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+  .review img { width: 192px; height: 192px; image-rendering: pixelated; background: #000; border: 1px solid var(--line); border-radius: 4px; }
+  #plot { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+  pre.cmd { background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 8px; font-size: 0.72rem; white-space: pre-wrap; word-break: break-all; color: #cbd5e1; position: relative; }
+  pre.cmd button { position: absolute; top: 4px; right: 4px; padding: 2px 8px; font-size: 0.7rem; }
+  #toast { position: fixed; bottom: 16px; right: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; font-size: 0.8rem; max-width: 420px; display: none; z-index: 9; }
+  #toast.err { border-color: var(--err); color: #fecaca; }
+  kbd { background: var(--bg); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-size: 0.72rem; color: var(--text); }
+</style>
+</head>
+<body>
+<header>
+  <h1>PushT Imitation</h1>
+  <a href="/">← Robot control</a>
+  <a href="/docs" target="_blank">API</a>
+  <div class="pills">
+    <span class="pill"><span class="dot" id="p-cam"></span><span id="p-cam-t">camera</span></span>
+    <span class="pill"><span class="dot" id="p-guard"></span><span id="p-guard-t">guard</span></span>
+    <span class="pill"><span class="dot" id="p-servo"></span><span id="p-servo-t">servo</span></span>
+    <span class="pill"><span class="dot" id="p-rec"></span><span id="p-rec-t">recorder</span></span>
+  </div>
+</header>
+
+<div class="layout">
+  <!-- ===================================================== left: camera -->
+  <div class="col">
+    <div class="card">
+      <div class="card-header"><span>Top camera — /image_top/rgb</span><span id="cam-info" style="text-transform:none;letter-spacing:0"></span></div>
+      <div class="card-body">
+        <div class="toolbar">
+          <span class="hint">Mouse on image:</span>
+          <button id="m-drive" class="on" onclick="setMouseMode('drive')" title="Hold the mouse button to drive the tip to the cursor">Drive tip</button>
+          <button id="m-roi" onclick="setMouseMode('roi')" title="Drag a rectangle to set the ROI">Draw ROI</button>
+          <button id="m-pick" onclick="setMouseMode('pick')" title="Click on the T to set its colour for the black-and-white image">Pick T colour</button>
+          <span class="sep"></span>
+          <label class="inline"><input type="checkbox" id="ov-show" checked /> overlays</label>
+        </div>
+        <div class="cam-wrap"><canvas id="cam" width="1280" height="720"></canvas></div>
+        <div class="legend">
+          <span style="--c:#f59e0b">push area</span>
+          <span style="--c:#a855f7">ROI (recorded)</span>
+          <span style="--c:#facc15">guarded target</span>
+          <span style="--c:#22d3ee">tip (measured)</span>
+          <span style="--c:#64748b">home</span>
+        </div>
+        <div class="hint">
+          <b>Drive:</b> hold <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or the arrow keys (screen directions; holding a key is the dead-man,
+          <kbd>Shift</kbd> = half speed), a gamepad's left stick, or hold the mouse on the image to pull the tip toward the cursor.
+          Releasing stops the arm. Input only works while the guard is enabled and you own the arm (teleop).
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><span>Policy input — the ROI image that is recorded</span><span id="fb-mode-t" style="text-transform:none;letter-spacing:0"></span></div>
+      <div class="card-body">
+        <div class="fb-wrap">
+          <img id="fb" alt="feedback image" />
+          <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:8px">
+            <label>Feedback image
+              <select id="fb-mode" onchange="setFeedback(this.value)">
+                <option value="bw">black &amp; white (T white on black)</option>
+                <option value="gray">grayscale</option>
+                <option value="rgb">colour</option>
+              </select>
+            </label>
+            <div class="hint">This 256 × 256 image is what the recorder stores as <code>observation.images.top</code> and what the
+              policy sees on <code>/pusht/feedback_image</code>. In black &amp; white, only the T should be white; if not,
+              use <b>Pick T colour</b> or the colour range in step 2.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================== right: workflow -->
+  <div class="col">
+    <!-- 1. arm -->
+    <div class="card">
+      <div class="card-header"><span><span class="step">1</span>Arm and planar guard</span></div>
+      <div class="card-body">
+        <div class="hint">The guard is the only writer to MoveIt Servo: it locks the tool vertical at push height
+          (<span id="push-z">–</span> m) and keeps the tip inside the push area. Do not run <code>keyboard_teleop</code> at the same time.
+          If the guard reports <b>eef_outside_area</b>, disable it and press <b>Park</b> first.</div>
+        <div class="row">
+          <button onclick="park()" id="b-park" title="MoveIt joint-space move above the first home point (guard must be off)">Park (MoveIt)</button>
+          <button class="primary" id="b-guard" onclick="toggleGuard()">Enable guard</button>
+          <button id="b-lift" onclick="toggleLift()">Lift</button>
+          <button onclick="api('POST','/guard/relatch')">Relatch</button>
+        </div>
+        <label><span>Teleop speed: <span id="spd-v">0.12</span> m/s</span>
+          <input type="range" id="spd" min="0.02" max="0.25" step="0.01" value="0.12" onchange="api('POST','/guard/speed',{max_speed:+this.value})" oninput="spdV.textContent=(+this.value).toFixed(2)" />
+        </label>
+        <div class="kv">
+          <span class="k">guard</span><span class="v" id="g-state">–</span>
+          <span class="k">source / owner</span><span class="v" id="g-src">–</span>
+          <span class="k">lift / latched z</span><span class="v" id="g-lift">–</span>
+          <span class="k">tip x, y (planning)</span><span class="v" id="g-eef">–</span>
+          <span class="k">target x, y</span><span class="v" id="g-tgt">–</span>
+          <span class="k">servo</span><span class="v" id="g-servo">–</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. camera -->
+    <div class="card">
+      <div class="card-header"><span><span class="step">2</span>Camera ROI and T colour</span></div>
+      <div class="card-body">
+        <div class="hint">The ROI is cut from the camera frame and resized to 256 × 256. <b>Auto</b> fits the push area from the camera
+          TF; or use <b>Draw ROI</b> on the image. Keep it fixed across a dataset: the policy learns this exact view.</div>
+        <div class="grid4">
+          <label>x0<input type="number" id="roi-x" /></label>
+          <label>y0<input type="number" id="roi-y" /></label>
+          <label>width<input type="number" id="roi-w" /></label>
+          <label>height<input type="number" id="roi-h" /></label>
+        </div>
+        <div class="row">
+          <button onclick="setRoi(null)">Auto ROI</button>
+          <button onclick="setRoi([+roiX.value,+roiY.value,+roiW.value,+roiH.value])">Apply ROI</button>
+          <label class="inline"><input type="checkbox" id="roi-square" checked /> square when drawing</label>
+        </div>
+        <div class="grid2">
+          <label>Hue low <span id="h-lo-v"></span><input type="range" id="h-lo" min="0" max="179" /></label>
+          <label>Hue high <span id="h-hi-v"></span><input type="range" id="h-hi" min="0" max="179" /></label>
+          <label>Saturation min <span id="s-lo-v"></span><input type="range" id="s-lo" min="0" max="255" /></label>
+          <label>Value low <span id="v-lo-v"></span><input type="range" id="v-lo" min="0" max="255" /></label>
+        </div>
+        <div class="row">
+          <button onclick="applyThreshold()">Apply colour range</button>
+          <span class="hint" id="cam-setup-t"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. episodes -->
+    <div class="card">
+      <div class="card-header"><span><span class="step">3</span>Record episodes</span><span id="ep-badge"></span></div>
+      <div class="card-body">
+        <div class="grid2">
+          <label>Dataset<input type="text" id="ds" value="pusht_cr3a_sim" /></label>
+          <label>Operator<input type="text" id="op" placeholder="name" /></label>
+          <label>Input
+            <select id="inp">
+              <option value="teleop">teleop (you drive)</option>
+              <option value="policy">policy (policy_runner, step 5)</option>
+            </select>
+          </label>
+          <label>Episodes<input type="number" id="n-ep" value="1" min="1" /></label>
+          <label>Episode length (s)<input type="number" id="dur" value="30" min="5" max="600" /></label>
+          <div style="display:flex;flex-direction:column;gap:4px;justify-content:flex-end">
+            <label class="inline"><input type="checkbox" id="from-home" checked /> start from home</label>
+            <label class="inline"><input type="checkbox" id="wait-rec" checked /> wait for Record</label>
+          </div>
+        </div>
+        <div class="hint">Teleop: recording runs until <b>Stop &amp; save</b> or the episode length. Policy: always the full
+          episode length (Stop is ignored; Discard or Abort end it). Move the T anywhere you like in Isaac Sim between episodes;
+          with <b>wait for Record</b> the arm holds (and you can drive it) until you press Record.</div>
+        <div class="row">
+          <button class="primary" id="b-start" onclick="startSession()">Start</button>
+          <button class="good" id="b-record" onclick="cmd('record')">● Record</button>
+          <button id="b-stop" onclick="cmd('stop')">■ Stop &amp; save</button>
+          <button id="b-discard" onclick="cmd('discard')">Discard</button>
+          <button class="danger" id="b-abort" onclick="cmd('abort')">Abort</button>
+        </div>
+        <div><span id="rec-ind"></span><span class="state-big" id="ep-state">idle</span></div>
+        <div class="note" id="ep-note"></div>
+        <div class="progress"><div id="ep-prog"></div></div>
+        <div class="kv">
+          <span class="k">recorded</span><span class="v" id="ep-frames">–</span>
+          <span class="k">session</span><span class="v" id="ep-sess">–</span>
+          <span class="k">last episode</span><span class="v" id="ep-last">–</span>
+          <span class="k">recorder</span><span class="v" id="ep-rec">–</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. datasets -->
+    <div class="card">
+      <div class="card-header"><span><span class="step">4</span>Review datasets</span><button onclick="loadDatasets()">Refresh</button></div>
+      <div class="card-body">
+        <div class="row">
+          <select id="ds-sel" onchange="loadEpisodes()" style="flex:1"></select>
+          <button class="danger" onclick="deleteLast()">Delete last episode</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>recorded</th><th>s</th><th>input</th><th>end</th><th>timing</th><th>image</th></tr></thead>
+            <tbody id="ep-rows"></tbody>
+          </table>
+        </div>
+        <div class="review" id="review" style="display:none">
+          <img id="rv-img" alt="recorded frame" />
+          <canvas id="plot" width="300" height="192"></canvas>
+          <label style="flex-basis:100%">Frame <span id="rv-k">0</span>
+            <input type="range" id="rv-slider" min="0" value="0" oninput="showFrame(+this.value)" />
+          </label>
+          <div class="hint" style="flex-basis:100%">Plot: tip (cyan) and action (yellow) in the sheet frame; the dot is the current frame.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. train / run -->
+    <div class="card">
+      <div class="card-header"><span><span class="step">5</span>Train and run a policy (host, movensys-imitation venv)</span></div>
+      <div class="card-body">
+        <div class="hint">a) convert the episodes to a LeRobot dataset, b) train, c) start the policy runner, then run step 3
+          with input <b>policy</b>. The runner reads <code>/pusht/feedback_image</code> (the image above), so the policy sees exactly
+          what was recorded.</div>
+        <div id="cmds"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const spdV = $('spd-v'), roiX = $('roi-x'), roiY = $('roi-y'), roiW = $('roi-w'), roiH = $('roi-h');
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+let S = null;                 // last status
+let mouseMode = 'drive';
+let frame = null;             // latest camera Image object
+let imgW = 1280, imgH = 720;
+
+function toast(msg, err) {
+  const t = $('toast'); t.textContent = msg; t.className = err ? 'err' : ''; t.style.display = 'block';
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.style.display = 'none', err ? 6000 : 2500);
+}
+async function api(method, path, body) {
+  try {
+    const r = await fetch('/api/imitation' + path, {method, headers: {'Content-Type': 'application/json'},
+      body: body === undefined ? undefined : JSON.stringify(body)});
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { toast(j.detail || r.statusText, true); return null; }
+    return j;
+  } catch (e) { toast(String(e), true); return null; }
+}
+const fmt = (v, d = 3) => (v === null || v === undefined || Number.isNaN(v)) ? '–' : (+v).toFixed(d);
+const xy = p => p ? `${fmt(p[0])}, ${fmt(p[1])}` : '–';
+function dot(id, cls, text) { $(id).className = 'dot ' + (cls || ''); if (text !== undefined) $(id + '-t').textContent = text; }
+
+// ------------------------------------------------------------------ camera stream
+function openCamera() {
+  const ws = new WebSocket(`${proto}//${location.host}/api/stream/image_top/rgb`);
+  ws.onmessage = ev => {
+    const m = JSON.parse(ev.data); if (!m.data) return;
+    const img = new Image();
+    img.onload = () => { frame = img; imgW = img.width; imgH = img.height; draw(); };
+    img.src = 'data:image/jpeg;base64,' + m.data.data;
+    $('cam-info').textContent = `${m.data.width}×${m.data.height}  frame ${m.data.seq}  age ${fmt(m.data.age, 2)} s`;
+  };
+  ws.onclose = () => setTimeout(openCamera, 1000);
+}
+
+const cv = $('cam'), ctx = cv.getContext('2d');
+let roiDrag = null, driveHeld = false, mouseUV = null;
+
+function draw() {
+  if (!frame) return;
+  if (cv.width !== imgW) { cv.width = imgW; cv.height = imgH; }
+  ctx.drawImage(frame, 0, 0);
+  if (!$('ov-show').checked || !S) return drawRoiDrag();
+  const uv = S.camera.uv, setup = S.camera.setup;
+  ctx.lineWidth = 2;
+  if (uv && uv.area && uv.area.every(p => p)) {
+    ctx.strokeStyle = '#f59e0b'; ctx.setLineDash([8, 6]); ctx.beginPath();
+    uv.area.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
+  }
+  if (setup) { const [x, y, w, h] = setup.roi; ctx.strokeStyle = '#a855f7'; ctx.lineWidth = 3; ctx.strokeRect(x, y, w, h); }
+  if (uv && uv.homes) uv.homes.forEach((p, i) => { if (!p) return; ctx.fillStyle = '#64748b'; ctx.beginPath(); ctx.arc(p[0], p[1], 6, 0, 7); ctx.fill();
+    ctx.fillStyle = '#cbd5e1'; ctx.font = '16px sans-serif'; ctx.fillText('H' + (i + 1), p[0] + 8, p[1] - 8); });
+  if (uv && uv.eef) { ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(uv.eef[0], uv.eef[1], 12, 0, 7); ctx.stroke(); }
+  if (uv && uv.target) { ctx.fillStyle = '#facc15'; ctx.beginPath(); ctx.arc(uv.target[0], uv.target[1], 6, 0, 7); ctx.fill(); }
+  if (driveHeld && mouseUV) { ctx.strokeStyle = '#facc15'; ctx.lineWidth = 1; ctx.beginPath();
+    ctx.moveTo(mouseUV[0] - 14, mouseUV[1]); ctx.lineTo(mouseUV[0] + 14, mouseUV[1]); ctx.moveTo(mouseUV[0], mouseUV[1] - 14); ctx.lineTo(mouseUV[0], mouseUV[1] + 14); ctx.stroke(); }
+  drawRoiDrag();
+}
+function drawRoiDrag() {
+  if (!roiDrag) return;
+  const r = roiRect(); ctx.strokeStyle = '#e879f9'; ctx.setLineDash([6, 4]); ctx.lineWidth = 2; ctx.strokeRect(r[0], r[1], r[2], r[3]); ctx.setLineDash([]);
+}
+function canvasUV(ev) {
+  const r = cv.getBoundingClientRect();
+  return [(ev.clientX - r.left) * cv.width / r.width, (ev.clientY - r.top) * cv.height / r.height];
+}
+function roiRect() {
+  let [u0, v0] = roiDrag.a, [u1, v1] = roiDrag.b;
+  let w = Math.abs(u1 - u0), h = Math.abs(v1 - v0);
+  if ($('roi-square').checked) { w = h = Math.max(w, h); }
+  return [Math.round(u1 >= u0 ? u0 : u0 - w), Math.round(v1 >= v0 ? v0 : v0 - h), Math.round(w), Math.round(h)];
+}
+function setMouseMode(m) {
+  mouseMode = m; ['drive', 'roi', 'pick'].forEach(k => $('m-' + k).classList.toggle('on', k === m));
+}
+cv.addEventListener('pointerdown', ev => {
+  const uv = canvasUV(ev); cv.setPointerCapture(ev.pointerId);
+  if (mouseMode === 'drive') { driveHeld = true; mouseUV = uv; sendDrag(); }
+  else if (mouseMode === 'roi') { roiDrag = {a: uv, b: uv}; }
+  else if (mouseMode === 'pick') { api('POST', '/camera/pick', {u: uv[0], v: uv[1]}).then(j => { if (j) { toast('T colour set from the clicked pixel'); applyCameraSetup(j); } }); }
+});
+cv.addEventListener('pointermove', ev => {
+  const uv = canvasUV(ev);
+  if (driveHeld) mouseUV = uv;
+  if (roiDrag) { roiDrag.b = uv; draw(); }
+});
+function endPointer() {
+  if (driveHeld) { driveHeld = false; mouseUV = null; }
+  if (roiDrag) { const r = roiRect(); roiDrag = null; if (r[2] > 32 && r[3] > 32) setRoi(r); else draw(); }
+}
+cv.addEventListener('pointerup', endPointer); cv.addEventListener('pointercancel', endPointer);
+
+// ------------------------------------------------------------------ teleop input
+let inWs = null;
+function openInput() {
+  inWs = new WebSocket(`${proto}//${location.host}/api/imitation/ws/input`);
+  inWs.onclose = () => setTimeout(openInput, 1000);
+}
+function send(o) { if (inWs && inWs.readyState === 1) inWs.send(JSON.stringify(o)); }
+function sendDrag() { if (driveHeld && mouseUV) send({u: mouseUV[0], v: mouseUV[1]}); }
+
+const keys = new Set();
+const typing = () => ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
+const KEYMAP = {ArrowUp: [0, 1], KeyW: [0, 1], ArrowDown: [0, -1], KeyS: [0, -1], ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0]};
+document.addEventListener('keydown', ev => { if (typing() || !KEYMAP[ev.code]) return; keys.add(ev.code); ev.preventDefault(); });
+document.addEventListener('keyup', ev => { keys.delete(ev.code); });
+window.addEventListener('blur', () => keys.clear());
+let stickWasActive = false;
+setInterval(() => {
+  let sx = 0, sy = 0;
+  keys.forEach(k => { sx += KEYMAP[k][0]; sy += KEYMAP[k][1]; });
+  let scale = (keys.size && (event_shift)) ? 0.5 : 1.0;
+  const n = Math.hypot(sx, sy); if (n > 0) { sx = sx / n * scale; sy = sy / n * scale; }
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  for (const gp of pads) {
+    if (!gp) continue;
+    const gx = gp.axes[0] || 0, gy = -(gp.axes[1] || 0);
+    if (Math.hypot(gx, gy) > 0.08) { sx = gx; sy = gy; }
+  }
+  const active = Math.hypot(sx, sy) > 0;
+  if (active) send({sx, sy, deadman: true});
+  else if (stickWasActive) send({sx: 0, sy: 0, deadman: false});
+  stickWasActive = active;
+  sendDrag();
+}, 40);
+let event_shift = false;
+document.addEventListener('keydown', e => { if (e.key === 'Shift') event_shift = true; });
+document.addEventListener('keyup', e => { if (e.key === 'Shift') event_shift = false; });
+
+// ------------------------------------------------------------------ status
+function openStatus() {
+  const ws = new WebSocket(`${proto}//${location.host}/api/imitation/ws/status`);
+  ws.onmessage = ev => { S = JSON.parse(ev.data); if (!S.error) render(); };
+  ws.onclose = () => { dot('p-guard', 'err', 'no status'); setTimeout(openStatus, 1000); };
+}
+let cameraSetupShown = null;
+function render() {
+  const g = S.guard, cam = S.camera, rec = S.recorder, ep = S.episodes;
+  // pills
+  dot('p-cam', cam.age === null ? 'err' : cam.age < 0.3 ? 'ok' : 'warn', cam.age === null ? 'camera: none' : `camera ${fmt(cam.age, 2)} s`);
+  const gs = g.state || '';
+  dot('p-guard', !g.enabled ? '' : gs.startsWith('fault') ? 'err' : gs.startsWith('moving') ? 'ok' : 'warn', g.enabled ? 'guard ' + gs : 'guard off');
+  dot('p-servo', g.servo_halted ? 'err' : g.enabled && !g.pose_mode_ok ? 'warn' : 'ok', g.servo_halted ? 'servo halted' : g.enabled ? (g.pose_mode_ok ? 'servo POSE' : 'servo: switching') : 'servo');
+  dot('p-rec', rec.state.startsWith('recording') ? 'err' : rec.saving ? 'warn' : '', rec.state.startsWith('recording') ? `REC ${rec.seconds} s` : rec.saving ? 'saving…' : 'recorder idle');
+  // step 1
+  $('push-z').textContent = fmt(g.push_z, 4);
+  $('b-guard').textContent = g.enabled ? 'Disable guard' : 'Enable guard';
+  $('b-guard').className = g.enabled ? 'danger' : 'primary';
+  $('b-park').disabled = g.enabled;
+  $('b-lift').textContent = g.lift === 'up' ? 'Lower' : 'Lift';
+  $('b-lift').disabled = !g.enabled;
+  $('g-state').textContent = g.enabled ? gs : 'disabled';
+  $('g-src').textContent = `${g.source} / ${g.owner}`;
+  $('g-lift').textContent = `${g.lift} / ${fmt(g.latched_z, 4)}`;
+  $('g-eef').textContent = g.eef ? `${xy(g.eef)}  (z ${fmt(g.eef[2])})` : '–';
+  $('g-tgt').textContent = xy(g.target);
+  $('g-servo').textContent = g.servo_halted ? 'HALTED ' + g.servo_msg : g.moveit_executing ? 'MoveIt executing (guard paused)' : g.pose_mode_ok ? 'POSE mode' : '–';
+  if (document.activeElement !== $('spd')) { $('spd').value = g.max_speed; spdV.textContent = fmt(g.max_speed, 2); }
+  // step 2
+  const setup = cam.setup;
+  const key = JSON.stringify(setup);
+  if (setup && key !== cameraSetupShown) { cameraSetupShown = key; applyCameraSetup(setup); }
+  $('fb-mode').value = S.feedback; $('fb-mode-t').textContent = S.feedback;
+  // step 3
+  const st = ep.state, sess = ep.session || {};
+  const running = !(st === 'idle' || st.startsWith('fault'));
+  const recording = st.startsWith('record:');
+  const policy = sess.input_device === 'policy';
+  $('ep-state').textContent = st; $('ep-note').textContent = ep.note || '';
+  $('rec-ind').innerHTML = recording ? '<span class="rec-dot"></span>' : '';
+  $('b-start').disabled = running;
+  $('b-record').disabled = st !== 'reset:ready';
+  $('b-stop').disabled = !recording || policy;
+  $('b-discard').disabled = !recording;
+  $('b-abort').disabled = !running;
+  const dur = sess.episode_seconds || +$('dur').value;
+  $('ep-prog').style.width = recording ? Math.min(100, 100 * rec.seconds / dur) + '%' : '0';
+  $('ep-frames').textContent = recording ? `${rec.frames} frames, ${rec.seconds} / ${dur} s` : '–';
+  $('ep-sess').textContent = sess.dataset ? `${sess.dataset}: ${sess.done || 0}/${sess.n_episodes} done, ${sess.saved || 0} saved (${sess.input_device})` : '–';
+  const last = ep.last;
+  $('ep-last').textContent = last ? `${last.kept ? 'saved #' + last.raw_index : 'discarded'}, ${last.frames} frames, ${last.stop_reason}${last.timing && !last.timing.timing_ok ? ', timing!' : ''}` : '–';
+  $('ep-rec').textContent = rec.error ? 'missing: ' + rec.error : rec.state;
+  $('ep-badge').innerHTML = recording ? '<span class="rec-dot"></span>REC' : '';
+  if (st === 'end:done' && lastDone !== (last && last.raw_index)) { lastDone = last && last.raw_index; loadDatasets(); }
+  draw();
+}
+let lastDone = null;
+
+function applyCameraSetup(setup) {
+  const [x, y, w, h] = setup.roi; roiX.value = x; roiY.value = y; roiW.value = w; roiH.value = h;
+  const t = setup.threshold;
+  $('h-lo').value = t.hue[0]; $('h-hi').value = t.hue[1]; $('s-lo').value = t.sat_min; $('v-lo').value = t.val[0];
+  ['h-lo', 'h-hi', 's-lo', 'v-lo'].forEach(id => $(id + '-v').textContent = $(id).value);
+  $('cam-setup-t').textContent = `ROI ${w}×${h} (${setup.meta.roi || ''}) → 256×256`;
+}
+['h-lo', 'h-hi', 's-lo', 'v-lo'].forEach(id => $(id).addEventListener('input', () => $(id + '-v').textContent = $(id).value));
+
+// ------------------------------------------------------------------ actions
+async function toggleGuard() { if (S) await api('POST', '/guard', {enabled: !S.guard.enabled}); }
+async function toggleLift() { if (S) await api('POST', '/guard/lift', {up: S.guard.lift !== 'up'}); }
+async function park() { toast('Parking with MoveIt…'); const j = await api('POST', '/park'); if (j) toast(j.success ? 'Parked' : 'Park failed: ' + j.message, !j.success); }
+async function setRoi(roi) { const j = await api('POST', '/camera/roi', {roi}); if (j) { toast('ROI set'); applyCameraSetup(j); } }
+async function applyThreshold() {
+  const j = await api('POST', '/camera/threshold', {hue: [+$('h-lo').value, +$('h-hi').value], sat_min: +$('s-lo').value, val: [+$('v-lo').value, 255]});
+  if (j) toast('Colour range set');
+}
+async function setFeedback(m) { await api('POST', '/feedback', {mode: m}); }
+async function startSession() {
+  const j = await api('POST', '/session/start', {dataset: $('ds').value, operator: $('op').value, n_episodes: +$('n-ep').value,
+    input_device: $('inp').value, episode_seconds: +$('dur').value, start_from_home: $('from-home').checked, wait_before_record: $('wait-rec').checked});
+  if (j) toast('Session started');
+}
+async function cmd(c) { await api('POST', '/session/' + c); }
+
+// feedback preview
+setInterval(() => {
+  const img = new Image();
+  img.onload = () => { $('fb').src = img.src; };
+  img.src = '/api/imitation/feedback.png?t=' + Date.now();
+}, 250);
+
+// ------------------------------------------------------------------ datasets
+async function loadDatasets() {
+  const list = await api('GET', '/datasets'); if (!list) return;
+  const sel = $('ds-sel'), cur = sel.value || $('ds').value;
+  sel.innerHTML = list.map(d => `<option value="${d.name}">${d.name} — ${d.episodes} episodes, ${d.seconds} s</option>`).join('') || '<option value="">no datasets yet</option>';
+  if (list.some(d => d.name === cur)) sel.value = cur;
+  loadEpisodes();
+}
+let episodesCache = [], review = null;
+async function loadEpisodes() {
+  const name = $('ds-sel').value; if (!name) { $('ep-rows').innerHTML = ''; return; }
+  episodesCache = await api('GET', `/datasets/${name}/episodes`) || [];
+  $('ep-rows').innerHTML = episodesCache.slice().reverse().map(e => `<tr data-i="${e.raw_index}">
+    <td>${e.raw_index}</td><td>${(e.recorded_at || '').replace('T', ' ')}</td><td>${e.seconds ?? fmt(e.n_frames / e.fps, 1)}</td>
+    <td>${e.input_device || ''}</td><td>${e.stop_reason || ''}</td><td>${e.timing_ok ? 'ok' : '<span style="color:#f59e0b">check</span>'}</td><td>${e.feedback || ''}</td></tr>`).join('');
+  document.querySelectorAll('#ep-rows tr').forEach(tr => tr.onclick = () => openReview(+tr.dataset.i));
+}
+async function deleteLast() {
+  const name = $('ds-sel').value; if (!name) return;
+  if (!confirm(`Delete the last episode of ${name}? This removes its file.`)) return;
+  const j = await api('DELETE', `/datasets/${name}/episodes/last`); if (j) { toast(`Deleted episode ${j.raw_index}`); loadDatasets(); }
+}
+async function openReview(i) {
+  const name = $('ds-sel').value;
+  const s = await api('GET', `/datasets/${name}/episodes/${i}/series`); if (!s) return;
+  review = {name, i, s};
+  document.querySelectorAll('#ep-rows tr').forEach(tr => tr.classList.toggle('sel', +tr.dataset.i === i));
+  $('review').style.display = 'flex'; $('rv-slider').max = s.n - 1; $('rv-slider').value = 0; showFrame(0);
+}
+function showFrame(k) {
+  if (!review) return;
+  $('rv-k').textContent = `${k} / ${review.s.n - 1}  (${(k / 10).toFixed(1)} s)`;
+  $('rv-img').src = `/api/imitation/datasets/${review.name}/episodes/${review.i}/frame/${k}.png`;
+  plot(k);
+}
+function plot(k) {
+  const c = $('plot'), p = c.getContext('2d'), s = review.s;
+  p.clearRect(0, 0, c.width, c.height);
+  const all = s.state.concat(s.action);
+  const xs = all.map(a => a[0]), ys = all.map(a => a[1]);
+  let x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const pad = 0.01, span = Math.max(x1 - x0, y1 - y0, 0.02) + 2 * pad;
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, sc = (Math.min(c.width, c.height) - 16) / span;
+  const P = a => [c.width / 2 + (a[0] - cx) * sc, c.height / 2 - (a[1] - cy) * sc];
+  [[s.state, '#22d3ee'], [s.action, '#facc15']].forEach(([arr, col]) => {
+    p.strokeStyle = col; p.lineWidth = 1.5; p.beginPath();
+    arr.forEach((a, i) => { const q = P(a); i ? p.lineTo(q[0], q[1]) : p.moveTo(q[0], q[1]); }); p.stroke();
+  });
+  const q = P(s.state[k]); p.fillStyle = '#fff'; p.beginPath(); p.arc(q[0], q[1], 4, 0, 7); p.fill();
+  p.fillStyle = '#64748b'; p.font = '11px sans-serif'; p.fillText(`${(span * 100).toFixed(0)} cm`, 6, c.height - 6);
+}
+
+// ------------------------------------------------------------------ commands
+async function loadCommands() {
+  const j = await api('GET', '/commands?dataset=' + encodeURIComponent($('ds').value)); if (!j) return;
+  const titles = {convert: 'a) Convert to LeRobot', train: 'b) Train (Diffusion example)', policy_runner: 'c) Policy runner'};
+  $('cmds').innerHTML = Object.entries(titles).map(([k, t]) => `<div class="hint"><b>${t}</b></div><pre class="cmd" id="cmd-${k}"><button onclick="copyCmd('${k}')">copy</button>${j[k].replace(/&/g, '&amp;').replace(/</g, '&lt;')}</pre>`).join('')
+    + j.notes.map(n => `<div class="hint">• ${n}</div>`).join('');
+}
+function copyCmd(k) {
+  const text = $('cmd-' + k).innerText.replace(/^copy/, '');
+  navigator.clipboard.writeText(text).then(() => toast('Copied'), () => toast('Copy failed', true));
+}
+$('ds').addEventListener('change', loadCommands);
+
+openCamera(); openStatus(); openInput(); loadDatasets(); loadCommands();
+</script>
+</body>
+</html>
